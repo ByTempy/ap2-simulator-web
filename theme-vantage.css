@@ -1,0 +1,64 @@
+/* Hallmark · Vantage-Oberflächen (App-Scope): Geologica, Pillen, Eckmarken-Rahmen, Messleiste · accent: IHK-Blau statt Lime (Nutzerwunsch) */
+@import url("fonts/geologica.css");
+
+/* Typografie: Geologica, Köpfe leicht und scharfkantig, Zahlen tabellarisch statt Mono */
+body { font-size: 1.0625rem; line-height: 1.6; font-variation-settings: "SHRP" 0; }
+h1, h2 { font-variation-settings: "SHRP" 100; line-height: 1.05; }
+h1 { font-size: 2.25rem; }
+h3, h4, .row-title, table.t .row-title, legend, .task-title, .navigator .task-title, details.disc > summary { font-weight: 400; letter-spacing: -0.01em; }
+.num, table.t td.num, .dl dd, .timer, .grade, .score, .itembtn, .key, .formula, .pager .pos, .tabs .count { font-family: var(--font-body); font-weight: 400; font-variant-numeric: tabular-nums; }
+.dl dd { font-weight: 300; letter-spacing: -0.02em; }
+.brand-mark { font-family: var(--font-body); font-weight: 500; border-radius: var(--radius-pill); padding-inline: var(--space-sm); }
+.brand-name { font-weight: 400; }
+.item-text { font-size: 1.125rem; }
+.item-label { font-weight: 500; }
+.exam-sheet .rand .pts { font-weight: 300; font-size: var(--text-2xl); }
+
+/* Kopfleiste: Navigation in der Mitte, Werkzeuge rechts */
+@media (min-width: 60.01rem) {
+  .nav { margin-inline: auto; }
+  .nav a { font-weight: 400; border-bottom: 0; border-radius: var(--radius-pill); padding: var(--space-xs) var(--space-sm); }
+  .nav a[aria-current="page"] { background: var(--color-paper-3); }
+}
+.topbar { border-bottom-color: var(--color-rule); }
+.timer { border-radius: var(--radius-pill); }
+
+/* Oberflächen: flach, Rahmen nur an den Ecken, keine schweren Linien */
+.page-head { border-bottom: var(--rule-hair) solid var(--color-rule); }
+.section > h2 { border-bottom-color: var(--color-rule); }
+.sheet, .exam-sheet { border-top: 0; border-radius: var(--radius-card); position: relative; }
+.navigator, .note, .panel, .situation { border-top: 0; border-radius: var(--radius-card); }
+.panel { box-shadow: inset 2px 0 0 var(--color-rule-2); }
+.panel.hint { box-shadow: inset 2px 0 0 var(--color-warn); }
+.panel.ok, .panel.solution { box-shadow: inset 2px 0 0 var(--color-success); }
+.panel.bad { box-shadow: inset 2px 0 0 var(--color-error); }
+.note.warn { box-shadow: inset 2px 0 0 var(--color-warn); }
+.sheet::after, .exam-sheet::after, .ticks::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-card);
+  -webkit-mask: conic-gradient(at var(--tick) var(--tick), transparent 75%, var(--color-ink) 0) 0 0 / calc(100% - var(--tick)) calc(100% - var(--tick));
+  mask: conic-gradient(at var(--tick) var(--tick), transparent 75%, var(--color-ink) 0) 0 0 / calc(100% - var(--tick)) calc(100% - var(--tick));
+}
+.exam-sheet .rand { border-left-color: var(--color-rule); }
+.task-head { border-bottom: var(--rule-hair) solid var(--color-rule); }
+
+/* Kennzahlen als Messleiste mit senkrechten Trennern */
+.dl { position: relative; gap: 0; padding: var(--space-sm) var(--space-md); }
+.dl::after { content: ""; position: absolute; inset: 0; pointer-events: none; border: var(--rule-hair) solid var(--color-rule-2);
+  -webkit-mask: conic-gradient(at var(--tick) var(--tick), transparent 75%, var(--color-ink) 0) 0 0 / calc(100% - var(--tick)) calc(100% - var(--tick));
+  mask: conic-gradient(at var(--tick) var(--tick), transparent 75%, var(--color-ink) 0) 0 0 / calc(100% - var(--tick)) calc(100% - var(--tick)); }
+.dl div { border-top: 0; padding: var(--space-xs) var(--space-md); border-left: var(--rule-hair) solid var(--color-rule); }
+@media (max-width: 40rem) { .dl div { border-left: 0; border-top: var(--rule-hair) solid var(--color-rule); } .dl div:first-child { border-top: 0; } }
+
+/* Bedienelemente: Pillen, Primär in IHK-Blau, Sekundär als Haarlinie */
+.btn { border-color: var(--color-rule-2); font-family: var(--font-body); font-weight: 400; }
+.btn.primary { border-color: var(--color-accent); }
+.btn.quiet { border-color: transparent; }
+.btn.danger { border-color: var(--color-error); }
+.tabs a, .tabs button { font-family: var(--font-body); font-weight: 400; }
+.input, .field input[type=text], .field select, textarea.input { border-radius: var(--radius-card); border-color: var(--color-muted); background: var(--color-well); }
+.options label { border-radius: var(--radius-card); }
+.itembtn { border-radius: var(--radius-pill); border-color: var(--color-rule-2); }
+.meter { border-radius: var(--radius-pill); overflow: hidden; }
+.modal-card { border-top: 0; border-radius: var(--radius-card); }
+table.t th { border-bottom: var(--rule-hair) solid var(--color-rule-2); font-weight: 400; }
+table.t td { border-top-color: var(--color-rule); }

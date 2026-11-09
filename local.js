@@ -1,0 +1,486 @@
+/* AP2-Simulator – Browser-Backend.
+ * Bedient dieselben /api/-Pfade wie früher der Server, aber komplett im Browser:
+ * Prüfungsdaten aus data/bundle (optional verschlüsselt), Sitzungen, Statistik und
+ * generierte Prüfungen im localStorage des jeweiligen Browsers (also pro Person). */
+(() => {
+  'use strict';
+  const LS = { sessions: 'ap2.sessions', generated: 'ap2.generated', key: 'ap2.key', originals: 'ap2.originals' };
+  const B = { data: null, encrypted: false, key: null, keyInfo: null, pageCache: new Map() };
+
+  // ---------- Speicher ----------
+  const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } };
+  const save = (k, v) => {
+    try { localStorage.setItem(k, JSON.stringify(v)); }
+    catch (e) { throw new Error('Der Browser-Speicher ist voll. Lösche alte Sitzungen in der Statistik'); }
+  };
+  const sessionsAll = () => load(LS.sessions, {});
+  const sessionPut = (s) => { const all = sessionsAll(); all[s.id] = s; save(LS.sessions, all); };
+  const nowIso = () => new Date().toISOString();
+  const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
+  const fail = (msg) => { throw new Error(msg); };
+
+  // ---------- Krypto (AES-GCM, Schlüssel per PBKDF2 aus dem Passwort) ----------
+  const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+  const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  async function deriveKey(password, info) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64(info.salt), iterations: info.iterations, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+  }
+  async function decrypt(buf, key) {
+    const u = new Uint8Array(buf);
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, key, u.slice(12));
+  }
+  async function gunzip(buf) {
+    const s = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(s).arrayBuffer();
+  }
+  async function sha16(text) {
+    const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return [...new Uint8Array(h)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // ---------- Daten laden ----------
+  async function init() {
+    const info = await fetch('data/key.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (!info) {
+      const r = await fetch('data/bundle.json', { cache: 'no-store' });
+      if (!r.ok) throw new Error('Prüfungsdaten nicht gefunden (data/bundle.json)');
+      B.data = await r.json();
+      return { needsPassword: false };
+    }
+    B.encrypted = true; B.keyInfo = info;
+    const stored = localStorage.getItem(LS.key);
+    if (stored) {
+      try { await unlockWithRaw(b64(stored)); return { needsPassword: false }; } catch (e) { localStorage.removeItem(LS.key); }
+    }
+    return { needsPassword: true };
+  }
+  async function unlockWithRaw(raw) {
+    const key = await crypto.subtle.importKey('raw', raw, 'AES-GCM', true, ['decrypt']);
+    await openBundle(key);
+  }
+  async function openBundle(key) {
+    const enc = await fetch(`data/bundle.bin?v=${B.keyInfo.version || ''}`).then((r) => { if (!r.ok) throw new Error('Datenpaket fehlt'); return r.arrayBuffer(); });
+    const plain = await gunzip(await decrypt(enc, key));
+    B.data = JSON.parse(new TextDecoder().decode(plain));
+    B.key = key;
+  }
+  async function unlock(password) {
+    const key = await deriveKey(password, B.keyInfo);
+    try { await openBundle(key); } catch (e) { throw new Error('Das Passwort stimmt nicht'); }
+    localStorage.setItem(LS.key, toB64(await crypto.subtle.exportKey('raw', key)));
+  }
+  function lock() { localStorage.removeItem(LS.key); location.reload(); }
+
+  async function pageSrc(path) {
+    if (!B.encrypted) return '/files/' + path.split('/').map(encodeURIComponent).join('/');
+    if (B.pageCache.has(path)) return B.pageCache.get(path);
+    const name = await sha16(path);
+    const r = await fetch(`p/${name.slice(0, 2)}/${name}.bin`);
+    if (!r.ok) throw new Error('Seite nicht gefunden');
+    const blob = new Blob([await decrypt(await r.arrayBuffer(), B.key)], { type: path.endsWith('.png') ? 'image/png' : 'image/webp' });
+    const url = URL.createObjectURL(blob);
+    B.pageCache.set(path, url);
+    if (B.pageCache.size > 80) { const [k, v] = B.pageCache.entries().next().value; URL.revokeObjectURL(v); B.pageCache.delete(k); }
+    return url;
+  }
+
+  // ---------- Modellhilfen ----------
+  const AUTO = new Set(['number', 'choice', 'multi_choice', 'assignment', 'order']);
+  const KIND = { Teil1: { id: 'teil1', title: 'Installation von und Service an IT-Geräten, IT-Systemen und IT-Infrastrukturen', dur: 90 }, Teil2: { id: 'teil2', title: 'Anbindung von Geräten, Systemen und Betriebsmitteln an die Stromversorgung', dur: 90 }, WiSo: { id: 'wiso', title: 'Wirtschafts- und Sozialkunde', dur: 60 } };
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const gradeFor = (p) => p >= 92 ? 1 : p >= 81 ? 2 : p >= 67 ? 3 : p >= 50 ? 4 : p >= 30 ? 5 : 6;
+  const GRADE = ['', 'sehr gut', 'gut', 'befriedigend', 'ausreichend', 'mangelhaft', 'ungenügend'];
+  const de = (x) => String(+(+x).toFixed(2)).replace('.', ',');
+
+  function generatedAll() { return load(LS.generated, {}); }
+  function allExams() {
+    const gen = Object.values(generatedAll()).map(buildFromRecipe).filter(Boolean);
+    return [...B.data.exams, ...gen];
+  }
+  function examById(id) {
+    const real = B.data.exams.find((e) => e.id === id);
+    if (real) return real;
+    const r = generatedAll()[id];
+    return r ? buildFromRecipe(r) : null;
+  }
+  function stripped(e) {
+    const c = clone(e);
+    c.parts.forEach((p) => { p.solution_pages = []; p.tasks.forEach((t) => t.items.forEach((i) => { i.solution = ''; i.grading = ''; i.keywords = []; i.hints = []; i.expected = ''; })); });
+    return c;
+  }
+  function summarize(e) {
+    return {
+      id: e.id, title: e.title, profession: e.profession, season: e.season, year: e.year, regulation: e.regulation, origin: e.origin,
+      official_solutions: e.official_solutions, notes: e.notes,
+      parts: e.parts.map((p) => ({ id: p.id, kind: p.kind, title: p.title, duration_min: p.duration_min, max_points: p.max_points, tasks: p.tasks.length, items: p.tasks.reduce((a, t) => a + t.items.length, 0), has_pages: !!(p.page_images && p.page_images.length), auto_items: p.tasks.reduce((a, t) => a + t.items.filter((i) => AUTO.has(i.answer_type)).length, 0) })),
+    };
+  }
+
+  // ---------- Bewertung (Port von src/grading.rs) ----------
+  const normalize = (s) => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss').replace(/[^\p{L}\p{N}]/gu, ' ');
+  function parseNumber(s) {
+    let t = String(s || '').trim().replace(/[^0-9.,+-]/g, '');
+    if (!t) return null;
+    const hasC = t.includes(','), hasD = t.includes('.');
+    let c;
+    if (hasC && hasD) c = t.replace(/\./g, '').replace(',', '.');
+    else if (hasC) c = t.replace(',', '.');
+    else if (hasD) { const p = t.split('.'); c = (p.length > 2 || (p.length === 2 && p[1].length === 3 && p[0].length <= 3 && p[0].length > 0)) ? t.replace(/\./g, '') : t; }
+    else c = t;
+    const n = Number(c);
+    return Number.isFinite(n) ? n : null;
+  }
+  const digits = (s) => String(s || '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const isEmpty = (a) => !a || (!(a.text || '').trim() && !(a.value || '').trim() && !(a.selected || []).length && !(a.cells || []).some((r) => r.some((c) => (c || '').trim())));
+  function check(item, a) {
+    a = a || {};
+    const res = { auto_points: null, correct: null, keywords: [], keyword_ratio: 0, suggested_points: 0, message: '' };
+    const t = item.answer_type;
+    const exp = String(item.expected || '').trim();
+    if (t === 'number' && (exp.match(/\./g) || []).length >= 2 && !exp.includes(',') && exp.length >= 8) {
+      const n = (s) => String(s || '').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+      const got = (a.value || '').trim() ? a.value : a.text;
+      const ok = !!String(got || '').trim() && n(got) === n(exp);
+      Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? 'Richtig.' : `Erwartet: ${exp}` });
+    } else if (t === 'number') {
+      const e = parseNumber(exp), g = parseNumber((a.value || '').trim() ? a.value : a.text);
+      if (e !== null && g !== null) {
+        const tol = item.tolerance > 0 ? item.tolerance : 0.01;
+        const ok = e === 0 ? Math.abs(g) < 1e-9 : (Math.abs((g - e) / e) <= tol || Math.abs(g - e) <= 0.005);
+        Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? `Richtig: ${exp} ${item.unit || ''}` : `Erwartet: ${exp} ${item.unit || ''}, deine Eingabe: ${de(g)}` });
+      } else if (e !== null) Object.assign(res, { correct: false, auto_points: 0, message: 'Keine Zahl erkannt.' });
+      else res.message = 'Keine automatische Prüfung möglich.';
+    } else if (t === 'choice') {
+      const got = (a.selected || [])[0] || (a.value || '').trim();
+      const ok = !!got && got === exp;
+      Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? 'Richtig.' : `Richtige Lösung: ${exp}` });
+    } else if (t === 'multi_choice') {
+      const got = [...new Set((a.selected || []).length ? a.selected : digits(a.value))].sort();
+      const e = digits(exp).sort();
+      const ok = got.join(',') === e.join(',');
+      Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? 'Richtig.' : `Richtige Lösung: ${e.join(', ')}` });
+    } else if (t === 'assignment' || t === 'order') {
+      const got = (a.selected || []).length ? a.selected : digits(a.value);
+      const e = digits(exp);
+      const ok = got.join(',') === e.join(',');
+      const partial = got.length === e.length && e.length ? got.filter((x, i) => x === e[i]).length / e.length : 0;
+      Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? 'Richtig.' : `Richtige Reihenfolge: ${e.join(' ')} (${Math.round(partial * 100)} % der Positionen korrekt)` });
+    } else {
+      let text = a.text || '';
+      (a.cells || []).forEach((r) => r.forEach((c) => { text += ' ' + (c || ''); }));
+      const words = normalize(text).split(/\s+/).filter(Boolean);
+      const stem = (kp) => [...kp].slice(0, Math.min(Math.max([...kp].length, 4), 6)).join('');
+      const hitStem = (s) => words.some((w) => w.startsWith(s) || (w.length >= 4 && s.startsWith(w)));
+      let hits = 0;
+      (item.keywords || []).forEach((kw) => {
+        const parts = normalize(kw).split(/\s+/).filter(Boolean);
+        const hit = parts.length > 0 && (parts.every((p) => hitStem(stem(p))) || (parts.length > 1 && hitStem(stem(parts.join('')))));
+        if (hit) hits++;
+        res.keywords.push({ keyword: kw, hit });
+      });
+      if ((item.keywords || []).length) {
+        res.keyword_ratio = hits / item.keywords.length;
+        res.suggested_points = Math.round(res.keyword_ratio * item.points * 2) / 2;
+        res.message = `${hits} von ${item.keywords.length} Stichworten gefunden, Vorschlag: ${de(res.suggested_points)} von ${de(item.points)} Punkten (bitte selbst prüfen)`;
+      } else res.message = 'Bitte mit der Musterlösung vergleichen und selbst bewerten.';
+    }
+    return res;
+  }
+
+  // ---------- Sitzungen (Port von src/session.rs) ----------
+  const findItem = (exam, partId, itemId) => {
+    const part = exam.parts.find((p) => p.id === partId);
+    if (!part) return null;
+    for (const t of part.tasks) { const i = t.items.find((x) => x.id === itemId); if (i) return { part, task: t, item: i }; }
+    return null;
+  };
+  const ans = (s, p, i) => s.answers[`${p}/${i}`] || {};
+  const partState = (s, pid) => s.parts.find((p) => p.part_id === pid);
+  function remaining(s, pid) {
+    const st = partState(s, pid);
+    if (!st || !st.deadline) return null;
+    if (st.finished_at) return 0;
+    return Math.max(0, Math.floor((Date.parse(st.deadline) - Date.now()) / 1000));
+  }
+  function locked(s, pid) {
+    const st = partState(s, pid);
+    if (!st) return true;
+    if (st.finished_at) return true;
+    return st.deadline ? Date.now() > Date.parse(st.deadline) + 15000 : false;
+  }
+  function evaluate(s, exam) {
+    const parts = []; const topicMap = {};
+    for (const pid of s.part_order) {
+      const part = exam.parts.find((p) => p.id === pid);
+      if (!part) continue;
+      const items = []; let sum = 0, open = 0, unrated = 0;
+      for (const t of part.tasks) for (const it of t.items) {
+        const a = ans(s, pid, it.id); const answered = !isEmpty(a);
+        const ir = { part_id: pid, task_number: t.number, item_id: it.id, label: it.label, max_points: it.points, points: null, auto: AUTO.has(it.answer_type), answered, topics: it.topics || [], check: null };
+        if (ir.auto) { const c = check(it, a); ir.points = c.auto_points ?? 0; ir.check = c; }
+        else if (a.self_points !== null && a.self_points !== undefined) ir.points = Math.max(0, Math.min(it.points, a.self_points));
+        else if (!answered) ir.points = 0;
+        else { unrated++; open += it.points; ir.check = check(it, a); }
+        if (ir.points !== null) { sum += ir.points; (it.topics || []).forEach((tp) => { const e = topicMap[tp] || (topicMap[tp] = [0, 0]); e[0] += ir.points; e[1] += it.points; }); }
+        items.push(ir);
+      }
+      const st = partState(s, pid);
+      const used = st && st.started_at ? Math.max(0, ((st.finished_at ? Date.parse(st.finished_at) : Date.now()) - Date.parse(st.started_at)) / 60000) : 0;
+      const grade = gradeFor(sum / part.max_points * 100);
+      parts.push({ part_id: pid, title: part.title, kind: part.kind, max_points: part.max_points, points: sum, open_points: open, unrated_items: unrated, grade, grade_label: GRADE[grade], used_minutes: used, items });
+    }
+    const total_points = parts.reduce((a, p) => a + p.points, 0);
+    const total_max = parts.reduce((a, p) => a + p.max_points, 0);
+    const average_grade = parts.length ? parts.reduce((a, p) => a + p.grade, 0) / parts.length : 0;
+    const passed = parts.length > 0 && total_max > 0 && total_points / total_max >= 0.5 && parts.filter((p) => p.grade >= 5).length <= 1 && !parts.some((p) => p.grade === 6);
+    const topic_stats = Object.entries(topicMap).map(([topic, [p, m]]) => ({ topic, points: p, max_points: m, ratio: m > 0 ? p / m : 0 })).sort((a, b) => a.ratio - b.ratio);
+    return { parts, total_points, total_max, average_grade, passed, topic_stats };
+  }
+  function viewOf(s) {
+    const exam = examById(s.exam_id);
+    if (!exam) fail('Die Prüfung zu dieser Sitzung gibt es nicht mehr');
+    const r = {}; s.part_order.forEach((p) => { r[p] = remaining(s, p); });
+    return { session: s, exam: s.mode === 'exam' && !s.finished ? stripped(exam) : exam, remaining: r, server_time: nowIso() };
+  }
+  function finalize(s) {
+    const exam = examById(s.exam_id);
+    s.part_order.forEach((p) => { const st = partState(s, p); if (!st.started_at) st.started_at = nowIso(); if (!st.finished_at) st.finished_at = nowIso(); });
+    s.finished = true; s.finished_at = nowIso();
+    if (exam) s.result = evaluate(s, exam);
+  }
+  function getSession(id) { const s = sessionsAll()[id]; if (!s) fail('Sitzung nicht gefunden'); return s; }
+
+  function genericHint(item, level) {
+    const op = normalize(item.text);
+    const operator = op.includes('berechn') ? 'Rechenaufgabe: Notiere zuerst alle gegebenen Größen mit Einheiten, wähle die passende Formel aus dem Belegsatz und rechne Schritt für Schritt (Rechenweg aufschreiben!).'
+      : (op.includes('erlautern') || op.includes('erklaren')) ? 'Erläutern heißt: Begriff nennen UND begründen bzw. den Zusammenhang erklären, zwei Sätze mit „weil“ oder „dadurch“.'
+      : op.includes('beschreib') ? 'Beschreiben heißt: in zusammenhängenden Stichworten den Ablauf oder die Funktion darstellen.'
+      : op.includes('nennen') ? 'Nennen heißt: nur Stichworte, genau so viele, wie gefordert werden.'
+      : 'Lies die Aufgabe nochmals genau: Welcher Operator wird verwendet und wie viele Angaben werden gefordert?';
+    if (level === 1) return `Ansatz: Thema ${(item.topics || []).join(', ')}. ${operator}`;
+    if (level === 2) return `Konkreter: Überlege, welche Schlüsselbegriffe erwartet werden (${de(item.points)} Punkte, etwa ${Math.ceil(item.points)} Aspekte).`;
+    return `Lösungsrichtung: ${item.solution || 'Vergleiche deine Antwort anschließend mit den Lösungshinweisen.'}`;
+  }
+
+  // ---------- Generator (Port von src/generator.rs, eigener Zufallsgenerator) ----------
+  function rngFrom(seed) { let a = (seed >>> 0) || 1; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const shuffle = (arr, rnd) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+  const blockPts = (b) => b.points || Math.round(b.items.reduce((a, i) => a + i.points, 0));
+  const bank = (kind) => B.data.banks.find((b) => b.kind === kind);
+  function pickBlocks(rnd, bk, exclude) {
+    let cand = bk.blocks.filter((b) => b.items.length && !exclude.includes(b.id));
+    if (cand.length < 4) cand = bk.blocks.filter((b) => b.items.length);
+    if (cand.length < 4) fail(`Fragenpool ${bk.kind} enthält zu wenige Blöcke`);
+    let best = null;
+    for (let n = 0; n < 400; n++) {
+      const pool = shuffle([...cand], rnd); let chosen = []; const clusters = [];
+      for (const b of pool) { if (chosen.length === 4) break; if (clusters.includes(b.cluster)) continue; chosen.push(b); clusters.push(b.cluster); }
+      if (chosen.length < 4) chosen = pool.slice(0, 4);
+      const score = Math.abs(chosen.reduce((a, b) => a + blockPts(b), 0) - 100);
+      if (!best || score < best.score) best = { score, blocks: chosen };
+      if (score === 0) break;
+    }
+    return shuffle(best.blocks, rnd).map((b) => b.id);
+  }
+  function generate(req) {
+    const seed = req.seed ?? Math.floor(Math.random() * 2 ** 31);
+    const rnd = rngFrom(seed);
+    const kinds = (req.parts && req.parts.length ? req.parts : ['teil1', 'teil2', 'wiso']).map((p) => ({ teil1: 'Teil1', teil2: 'Teil2', wiso: 'WiSo' }[p])).filter(Boolean);
+    const scen = B.data.scenarios.length ? B.data.scenarios[Math.floor(rnd() * B.data.scenarios.length)] : null;
+    const exclude = [];
+    if (req.avoid_recent) Object.values(generatedAll()).filter((g) => g.kind === 'gen').sort((a, b) => b.id.localeCompare(a.id)).slice(0, 2).forEach((g) => g.parts.forEach((p) => (p.blocks || []).forEach((id) => exclude.push(id))));
+    const parts = kinds.map((kind) => {
+      if (kind !== 'WiSo') return { kind, blocks: pickBlocks(rnd, bank(kind), exclude) };
+      const bk = bank('WiSo');
+      const four = shuffle(bk.items.filter((i) => i.points === 4), rnd), three = shuffle(bk.items.filter((i) => i.points === 3), rnd);
+      if (four.length + three.length < 30) fail('WiSo-Pool enthält zu wenige Aufgaben');
+      const per = {}; const chosen = [];
+      const take = (pool, n) => { let k = 0; const rest = []; for (const it of pool) { if (k >= n) { rest.push(it); continue; } const tp = (it.topics || [])[0] || ''; if ((per[tp] || 0) >= 4) { rest.push(it); continue; } per[tp] = (per[tp] || 0) + 1; chosen.push({ id: it.id, points: it.points }); k++; } for (const it of rest) { if (k >= n) break; chosen.push({ id: it.id, points: it.points }); k++; } return k; };
+      const n4 = take(four, 10); take(three, 30 - n4);
+      shuffle(chosen, rnd);
+      let sum = chosen.reduce((a, c) => a + c.points, 0);
+      for (const c of chosen) { if (sum >= 100) break; if (c.points === 3) { c.points = 4; sum++; } }
+      return { kind, wiso: chosen };
+    });
+    const d = new Date(); const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    const recipe = { kind: 'gen', id: `gen-${stamp}-${(seed >>> 0).toString(16).padStart(8, '0')}`, title: req.title || `Generierte Prüfung ${d.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}${scen ? ` (${scen.company})` : ''}`, seed, scenario: scen ? scen.id : null, created: nowIso(), parts };
+    const all = generatedAll(); all[recipe.id] = recipe; save(LS.generated, all);
+    return buildFromRecipe(recipe);
+  }
+  function situationText(scen, kind, tasks) {
+    if (!scen) return 'Die Aufgaben 1 bis 4 beziehen sich auf die folgende Ausgangssituation:\n\nSie sind Auszubildende/r in einem IT-Systemhaus und mit der Umsetzung der folgenden Aufträge beauftragt.';
+    const bullets = kind === 'Teil1' ? scen.teil1_bullets : scen.teil2_bullets;
+    let txt = `Die Aufgaben 1 bis 4 beziehen sich auf die folgende Ausgangssituation:\n\n${scen.description}\n\nSie sind in der Ausbildung bei der ${scen.company} und mit der Umsetzung beauftragt.\n\nDies beinhaltet unter anderem:\n`;
+    tasks.forEach((t) => { txt += `– ${t.title}\n`; });
+    if (bullets && bullets.length) { txt += '\nRahmenbedingungen:\n'; bullets.forEach((b) => { txt += `– ${b}\n`; }); }
+    return txt;
+  }
+  function buildFromRecipe(r) {
+    try {
+      if (r.kind === 'topic') return buildTopic(r);
+      const scen = B.data.scenarios.find((s) => s.id === r.scenario) || null;
+      const parts = r.parts.map((p) => {
+        if (p.kind === 'WiSo') {
+          const bk = bank('WiSo');
+          const tasks = p.wiso.map((c, n) => { const src = bk.items.find((i) => i.id === c.id); const it = clone(src); it.id = `w${String(n + 1).padStart(2, '0')}`; it.label = ''; it.points = c.points; return { number: n + 1, title: (it.topics || [])[0] || '', points: c.points, intro: '', items: [it] }; });
+          return { id: 'wiso', kind: 'WiSo', title: KIND.WiSo.title, duration_min: 60, max_points: tasks.reduce((a, t) => a + t.points, 0), situation: '', page_images: [], solution_pages: [], attachments: [], tasks };
+        }
+        const bk = bank(p.kind);
+        const tasks = p.blocks.map((id, n) => { const b = bk.blocks.find((x) => x.id === id); const items = clone(b.items); items.forEach((it) => { const core = (it.label || '').replace(/\)$/, ''); it.id = `${n + 1}${core || it.id}`; it.difficulty = it.difficulty || 2; it.tolerance = it.tolerance || 0.01; }); return { number: n + 1, title: b.title, points: blockPts(b), intro: b.intro || '', items }; });
+        const sum = tasks.reduce((a, t) => a + t.items.reduce((x, i) => x + i.points, 0), 0); const diff = 100 - sum;
+        if (Math.abs(diff) > 0.01 && Math.abs(diff) <= 4) {
+          const tot = (t) => t.items.reduce((x, i) => x + i.points, 0);
+          const idx = tasks.reduce((bi, t, i) => (diff > 0 ? tot(t) < tot(tasks[bi]) : tot(t) > tot(tasks[bi])) ? i : bi, 0);
+          const last = [...tasks[idx].items].reverse().find((i) => i.points + diff >= 1); if (last) last.points += diff;
+        }
+        tasks.forEach((t) => { t.points = Math.round(t.items.reduce((x, i) => x + i.points, 0)); });
+        return { id: KIND[p.kind].id, kind: p.kind, title: KIND[p.kind].title, duration_min: KIND[p.kind].dur, max_points: tasks.reduce((a, t) => a + t.points, 0), situation: situationText(scen, p.kind, tasks), page_images: [], solution_pages: [], attachments: [], tasks };
+      });
+      const d = new Date(r.created);
+      return { id: r.id, title: r.title, profession: 'ITSE', season: d.getMonth() < 6 ? 'Sommer' : 'Winter', year: d.getFullYear(), regulation: 'AO2020', origin: 'generated', official_solutions: false, sources: [], notes: 'Diese Prüfung wurde nach dem Schema der IHK-Abschlussprüfung Teil 2 aus dem Fragenpool zusammengestellt.', parts };
+    } catch (e) { return null; }
+  }
+  function buildTopic(r) {
+    const parts = [];
+    let n = 0;
+    for (const ref of r.items) {
+      const e = B.data.exams.find((x) => x.id === ref.exam); if (!e) continue;
+      const f = findItem(e, ref.part, ref.item); if (!f) continue;
+      let part = parts.find((p) => p.kind === f.part.kind);
+      if (!part) { part = { id: KIND[f.part.kind].id, kind: f.part.kind, title: `${KIND[f.part.kind].title} – Thema ${r.topic}`, duration_min: KIND[f.part.kind].dur, max_points: 0, situation: '', page_images: [], solution_pages: [], attachments: [], tasks: [] }; parts.push(part); }
+      n++;
+      const it = clone(f.item); it.id = `t${String(n).padStart(3, '0')}`; it.figure_pages = [];
+      const title = f.part.kind === 'WiSo' ? `WiSo ${e.season} ${e.year}, Aufgabe ${f.task.number}` : `${e.season} ${e.year}, ${f.task.number}. Aufgabe ${f.task.title}`;
+      part.tasks.push({ number: part.tasks.length + 1, title, points: Math.round(f.item.points), intro: f.part.kind === 'WiSo' ? '' : f.task.intro, items: [it] });
+      part.max_points += Math.round(f.item.points);
+    }
+    return { id: r.id, title: r.title, profession: 'ITSE', season: '', year: new Date(r.created).getFullYear(), regulation: 'AO2020', origin: 'generated', official_solutions: true, sources: [], notes: 'Zusammenstellung von Teilaufgaben zu einem Thema aus den Originalprüfungen (für den Lernmodus).', parts };
+  }
+  function topicExam(req) {
+    const topic = String(req.topic || '').trim(); if (!topic) fail('Thema fehlt');
+    const limit = req.limit || 40; const items = [];
+    const list = B.data.exams.filter((e) => e.origin === 'real').sort((a, b) => b.year - a.year || b.season.localeCompare(a.season));
+    outer: for (const e of list) for (const p of e.parts) for (const t of p.tasks) for (const i of t.items) {
+      if (items.length >= limit) break outer;
+      if (i.needs_figure || !(i.topics || []).some((x) => x.toLowerCase() === topic.toLowerCase())) continue;
+      items.push({ exam: e.id, part: p.id, item: i.id });
+    }
+    if (!items.length) fail(`Keine Teilaufgaben zum Thema „${topic}“ gefunden`);
+    const slug = topic.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '');
+    const r = { kind: 'topic', id: `thema-${slug}-${Date.now().toString(36)}`, topic, title: `Themen-Training: ${topic} (${items.length} Teilaufgaben aus echten Prüfungen)`, created: nowIso(), items };
+    const all = generatedAll(); all[r.id] = r; save(LS.generated, all);
+    return buildTopic(r);
+  }
+
+  // ---------- API ----------
+  async function handle(method, path, body) {
+    if (!B.data) fail('Daten noch nicht geladen');
+    const url = new URL(path, location.href); const p = url.pathname.replace(/^.*?\/api\//, '/api/'); const q = url.searchParams;
+    let m;
+    if (p === '/api/status') {
+      const banks = B.data.banks;
+      return { exams: allExams().length, real_exams: B.data.exams.length, generated_exams: Object.keys(generatedAll()).length, bank_blocks: banks.reduce((a, b) => a + b.blocks.length, 0), bank_wiso_items: (bank('WiSo') || { items: [] }).items.length, topics: B.data.topics.length, sessions: Object.keys(sessionsAll()).length, warnings: B.data.warnings || [] };
+    }
+    if (p === '/api/exams') return allExams().map(summarize);
+    if ((m = p.match(/^\/api\/exams\/([^/]+)$/))) {
+      const id = decodeURIComponent(m[1]);
+      if (method === 'DELETE') { const all = generatedAll(); if (!all[id]) fail('Nur generierte Prüfungen können gelöscht werden'); delete all[id]; save(LS.generated, all); return { ok: true }; }
+      const e = examById(id); if (!e) fail('Prüfung nicht gefunden');
+      return q.get('solutions') === '0' ? stripped(e) : e;
+    }
+    if (p === '/api/generate') return summarize(generate(body || {}));
+    if (p === '/api/bank/summary') return B.data.banks.map((b) => { const c = {}; b.blocks.forEach((x) => { c[x.cluster] = (c[x.cluster] || 0) + 1; }); b.items.forEach((x) => { const k = (x.topics || [])[0] || ''; c[k] = (c[k] || 0) + 1; }); return { kind: b.kind, blocks: b.blocks.length, items: b.items.length, clusters: Object.entries(c).sort() }; });
+    if (p === '/api/topics') return B.data.topics;
+    if (p === '/api/topic-counts') { const c = {}; B.data.exams.forEach((e) => e.parts.forEach((pp) => pp.tasks.forEach((t) => t.items.forEach((i) => (i.topics || []).forEach((tp) => { c[tp] = (c[tp] || 0) + 1; }))))); return Object.entries(c).map(([topic, items]) => ({ topic, items })).sort((a, b) => a.topic.localeCompare(b.topic)); }
+    if (p === '/api/topic-exam') return summarize(topicExam(body || {}));
+    if (p === '/api/archive') return B.data.archive || { docs: [] };
+    if (p === '/api/sessions' && method === 'GET') return Object.values(sessionsAll()).map((s) => ({ id: s.id, exam_id: s.exam_id, exam_title: s.exam_title, mode: s.mode, created_at: s.created_at, finished: s.finished, part_order: s.part_order, answered: Object.values(s.answers).filter((a) => !isEmpty(a)).length, total_points: s.result ? s.result.total_points : null, total_max: s.result ? s.result.total_max : null, passed: s.result ? s.result.passed : null })).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    if (p === '/api/sessions' && method === 'POST') {
+      const e = examById(body.exam_id); if (!e) fail('Prüfung nicht gefunden');
+      const parts = (body.parts || []).filter((x) => e.parts.some((pp) => pp.id === x));
+      const order = parts.length ? parts : e.parts.map((pp) => pp.id);
+      const s = { id: uuid(), exam_id: e.id, exam_title: e.title, mode: body.mode || 'learn', created_at: nowIso(), part_order: order, parts: order.map((x) => ({ part_id: x, started_at: null, deadline: null, finished_at: null })), answers: {}, finished: false, finished_at: null, result: null };
+      sessionPut(s); return viewOf(s);
+    }
+    if ((m = p.match(/^\/api\/sessions\/([^/]+)(?:\/([a-z-]+))?$/))) {
+      const id = m[1], action = m[2] || '';
+      if (!action && method === 'DELETE') { const all = sessionsAll(); delete all[id]; save(LS.sessions, all); return { ok: true }; }
+      const s = getSession(id);
+      const exam = () => examById(s.exam_id) || fail('Prüfung nicht gefunden');
+      if (!action) return viewOf(s);
+      if (action === 'start') { const st = partState(s, body.part) || fail('Teil nicht in dieser Sitzung'); if (!st.started_at) { st.started_at = nowIso(); if (s.mode === 'exam') { const dur = exam().parts.find((x) => x.id === body.part).duration_min; st.deadline = new Date(Date.now() + dur * 60000).toISOString(); } } sessionPut(s); return viewOf(s); }
+      if (action === 'finish-part') { const st = partState(s, body.part) || fail('Teil nicht in dieser Sitzung'); if (!st.started_at) st.started_at = nowIso(); if (!st.finished_at) st.finished_at = nowIso(); if (s.parts.every((x) => x.finished_at)) finalize(s); sessionPut(s); return viewOf(s); }
+      if (action === 'finish') { finalize(s); sessionPut(s); return viewOf(s); }
+      if (action === 'answer') {
+        if (s.mode === 'exam' && locked(s, body.part)) fail('Die Bearbeitungszeit für diesen Teil ist abgelaufen.');
+        if (s.mode === 'exam' && !(partState(s, body.part) || {}).started_at) fail('Dieser Teil wurde noch nicht gestartet.');
+        const key = `${body.part}/${body.item}`; const prev = s.answers[key] || {}; const a = Object.assign({}, body.answer);
+        a.hints_used = Math.max(a.hints_used || 0, prev.hints_used || 0);
+        if (a.self_points === undefined || a.self_points === null) a.self_points = prev.self_points ?? null;
+        a.updated_at = nowIso(); s.answers[key] = a; sessionPut(s);
+        return { ok: true, remaining: remaining(s, body.part) };
+      }
+      if (action === 'hint') {
+        if (s.mode === 'exam' && !s.finished) fail('Im Prüfungsmodus gibt es keine Hinweise.');
+        const f = findItem(exam(), body.part, body.item) || fail('Teilaufgabe nicht gefunden');
+        const level = Math.min(3, Math.max(1, body.level));
+        const hints = f.item.hints || [];
+        const hint = hints.length ? hints[Math.min(level - 1, hints.length - 1)] : genericHint(f.item, level);
+        const key = `${body.part}/${body.item}`; const a = s.answers[key] || (s.answers[key] = {}); a.hints_used = Math.max(a.hints_used || 0, level); sessionPut(s);
+        const topics = B.data.topics.filter((t) => (f.item.topics || []).some((x) => x.toLowerCase() === t.name.toLowerCase()));
+        return { level, max_level: Math.max(hints.length, 3), hint, topics };
+      }
+      if (action === 'check') {
+        if (s.mode === 'exam' && !s.finished) fail('Im Prüfungsmodus erst nach Abgabe.');
+        const f = findItem(exam(), body.part, body.item) || fail('Teilaufgabe nicht gefunden');
+        return { check: check(f.item, ans(s, body.part, body.item)), solution: f.item.solution, grading: f.item.grading, expected: f.item.expected, unit: f.item.unit };
+      }
+      if (action === 'self-grade') {
+        const key = `${body.part}/${body.item}`; const a = s.answers[key] || (s.answers[key] = {}); a.self_points = body.points; a.updated_at = nowIso();
+        if (s.finished) s.result = evaluate(s, exam());
+        sessionPut(s); return { ok: true, result: s.result };
+      }
+      if (action === 'result') return evaluate(s, exam());
+    }
+    if (p === '/api/progress') {
+      const all = Object.values(sessionsAll());
+      const out = { sessions_total: all.length, exams_finished: 0, learn_sessions: 0, average_points: 0, best_points: 0, passed: 0, topic_stats: [], recent: [], per_part: [] };
+      const topic = {}; const per = {};
+      for (const s of all) {
+        if (s.mode === 'learn') out.learn_sessions++;
+        const e = examById(s.exam_id); const r = s.result || (e ? evaluate(s, e) : null); if (!r) continue;
+        if (s.finished && s.mode === 'exam') {
+          out.exams_finished++; if (r.passed) out.passed++;
+          out.best_points = Math.max(out.best_points, r.total_points); out.average_points += r.total_points;
+          r.parts.forEach((pp) => { (per[pp.kind] || (per[pp.kind] = [])).push(pp.points / Math.max(1, pp.max_points) * 100); });
+        }
+        r.topic_stats.forEach((t) => { const x = topic[t.topic] || (topic[t.topic] = [0, 0]); x[0] += t.points; x[1] += t.max_points; });
+      }
+      if (out.exams_finished) out.average_points /= out.exams_finished;
+      out.topic_stats = Object.entries(topic).filter(([, [, mm]]) => mm > 0).map(([t, [pp, mm]]) => ({ topic: t, points: pp, max_points: mm, ratio: pp / mm })).sort((a, b) => a.ratio - b.ratio);
+      out.per_part = Object.entries(per).map(([kind, v]) => ({ kind, attempts: v.length, average_percent: v.reduce((a, x) => a + x, 0) / v.length, best_percent: Math.max(...v) })).sort((a, b) => a.kind.localeCompare(b.kind));
+      out.recent = (await handle('GET', '/api/sessions')).slice(0, 15);
+      return out;
+    }
+    fail('Unbekannte Anfrage: ' + p);
+  }
+
+  // Übungen mit Original-Seiten aus dem Archiv
+  const originals = {
+    all: () => load(LS.originals, {}),
+    get: (id) => load(LS.originals, {})[id] || null,
+    put: (o) => { const all = load(LS.originals, {}); all[o.id] = o; save(LS.originals, all); },
+    del: (id) => { const all = load(LS.originals, {}); delete all[id]; save(LS.originals, all); },
+  };
+
+  // Selbsttest der Bewertungslogik (läuft einmal beim Start, Fehler landen in der Konsole)
+  const assert = (c, m) => { if (!c) console.error('Selbsttest fehlgeschlagen:', m); };
+  assert(parseNumber('1.500,5') === 1500.5 && parseNumber('1,5') === 1.5 && parseNumber('90 min') === 90 && parseNumber('2.400') === 2400 && parseNumber('12.5') === 12.5, 'parseNumber');
+  assert(check({ points: 4, answer_type: 'text', keywords: ['Hot-Spare', 'Ruhezustand', 'Ausfall', 'Rekonstruktion'] }, { text: 'Die Hotspare Platte ist im Ruhezustand und springt beim Ausfall ein' }).keywords.filter((k) => k.hit).length === 3, 'Stichworte');
+  assert(check({ points: 3, answer_type: 'multi_choice', expected: '2,4' }, { selected: ['4', '2'] }).correct === true, 'Mehrfachauswahl');
+  assert(check({ points: 2, answer_type: 'number', expected: '15.06.2023' }, { value: '15.06.2023' }).correct === true, 'Datum');
+
+  window.AP2Local = { init, unlock, lock, handle, pageSrc, originals, get encrypted() { return B.encrypted; }, get builtAt() { return B.data && B.data.built; } };
+})();

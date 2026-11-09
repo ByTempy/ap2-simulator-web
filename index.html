@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AP2-Simulator, IT-System-Elektroniker/-in</title>
+<meta name="description" content="Lern- und Prüfungssimulator für die IHK-Abschlussprüfung Teil 2 der IT-System-Elektroniker mit echten Prüfungen, Hilfestufen und Zeitlimit.">
+<script>try { var m = localStorage.getItem('ap2-mode'); if (m === 'light' || m === 'dark') document.documentElement.dataset.mode = m; } catch (e) {}</script>
+<link rel="preload" href="fonts/Geologica-var-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme-vantage.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23003366'/%3E%3Ctext x='16' y='21' font-size='12' font-family='sans-serif' fill='%23f5f7fa' text-anchor='middle'%3EAP2%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<a class="skip" href="#app">Zum Inhalt springen</a>
+<header class="topbar" id="topbar">
+  <div class="container topbar-inner">
+    <a class="brand" href="#/" aria-label="AP2-Simulator, zur Startseite">
+      <span class="brand-mark">AP2</span>
+      <span class="brand-name">Simulator</span>
+      <span class="brand-sub">IT-System-Elektroniker/-in</span>
+    </a>
+    <nav class="nav" id="mainnav" aria-label="Hauptnavigation">
+      <a href="#/" data-nav="home">Start</a>
+      <a href="#/exams" data-nav="exams">Prüfungen</a>
+      <a href="#/generate" data-nav="generate">Generator</a>
+      <a href="#/topics" data-nav="topics">Wissen</a>
+      <a href="#/archive" data-nav="archive">Archiv</a>
+      <a href="#/stats" data-nav="stats">Statistik</a>
+    </nav>
+    <div class="bar-tools">
+      <div id="timerbox" class="timer" role="timer" aria-live="off" hidden></div>
+      <button type="button" class="btn sm mode-btn" id="mode-btn" aria-label="Darstellung umschalten"><span class="label">Darstellung:</span> <span id="mode-name">Auto</span></button>
+      <button type="button" class="btn sm menu-btn" id="menu-btn" aria-expanded="false" aria-controls="mainnav">Menü</button>
+    </div>
+  </div>
+</header>
+<main id="app" class="app container" tabindex="-1"></main>
+<div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-card" id="modal-card">
+    <button type="button" class="btn sm quiet modal-close" data-close aria-label="Dialog schließen">Schließen</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script src="local.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

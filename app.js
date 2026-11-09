@@ -1,0 +1,1082 @@
+/* AP2-Simulator – Weboberfläche (ohne Build-Schritt). Gestaltung: Hallmark, Theme Vantage, Akzent IHK-Blau. */
+(() => {
+  'use strict';
+  const $ = (sel, el = document) => el.querySelector(sel);
+  const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+  const app = $('#app');
+  const setSave = (t) => { const el = $('#save-state'); if (el) el.textContent = t; };
+  const state = { exams: null, topics: null, timer: null, view: null };
+
+  // ---------- Hilfsfunktionen ----------
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const nl = (s) => esc(s).replace(/\n/g, '<br>');
+  const fmtPts = (p) => (p === undefined || p === null) ? '–' : (Number.isInteger(+p) ? String(p) : String(+p).replace('.', ','));
+  const ptsLabel = (p) => `${fmtPts(p)} ${+p === 1 ? 'Punkt' : 'Punkte'}`;
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const kindLabel = (k) => ({ Teil1: 'Teil 1: Installation und Service', Teil2: 'Teil 2: Stromversorgung', WiSo: 'Teil 3: Wirtschafts- und Sozialkunde' }[k] || k);
+  const kindShort = (k) => ({ Teil1: 'Teil 1', Teil2: 'Teil 2', WiSo: 'WiSo' }[k] || k);
+  const seasonLabel = (e) => e.season === 'Winter' ? `Winter ${e.year}/${String(e.year + 1).slice(2)}` : `${e.season} ${e.year}`;
+  const gradeFor = (pct) => pct >= 92 ? 1 : pct >= 81 ? 2 : pct >= 67 ? 3 : pct >= 50 ? 4 : pct >= 30 ? 5 : 6;
+  const examKind = (e) => e.id.startsWith('thema-') ? 'topic' : e.origin === 'generated' ? 'gen' : e.parts.length === 1 && e.parts[0].kind === 'WiSo' ? 'wiso' : 'real';
+  const examName = (e) => examKind(e) === 'real' ? `Abschlussprüfung ${seasonLabel(e)}` : examKind(e) === 'wiso' ? `WiSo ${seasonLabel(e)}` : e.title;
+  const sessionHref = (s) => `#/${s.finished ? 'result' : (s.mode === 'exam' ? 'exam' : 'learn')}/${s.id}`;
+  // Früher Server-PDF, jetzt Druckansicht im Browser („Drucken“ → „Als PDF speichern“)
+  const pdfLink = (href, label) => {
+    let m = href.match(/^\/api\/exams\/([^/]+)\/pdf\?(.*)$/);
+    if (m) return `<a class="btn sm quiet" href="#/print/${m[1]}?${m[2]}">${label}</a>`;
+    m = href.match(/^\/api\/sessions\/([^/]+)\/pdf\?(.*)$/);
+    if (m) return `<a class="btn sm quiet" href="#/print-session/${m[1]}?${m[2]}">${label}</a>`;
+    return `<a class="btn sm quiet" target="_blank" rel="noopener" href="${href}">${label}</a>`;
+  };
+
+  // Alle Daten laufen über das Browser-Backend (local.js): pro Person im eigenen Browser gespeichert.
+  async function api(path, opts = {}) {
+    return window.AP2Local.handle(opts.method || 'GET', path, opts.body ? JSON.parse(opts.body) : null);
+  }
+  const post = (path, body) => api(path, { method: 'POST', body: JSON.stringify(body || {}) });
+
+  let toastTimer = null;
+  function toast(msg, isError) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.className = 'toast' + (isError ? ' error' : '');
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, isError ? 5000 : 2500);
+  }
+
+  // ---------- Dialog ----------
+  let lastFocus = null;
+  function openModal(html, wide) {
+    if ($('#modal').hidden) lastFocus = document.activeElement;
+    $('#modal-body').innerHTML = html;
+    $('#modal-card').classList.toggle('wide', !!wide);
+    $('#modal').hidden = false;
+    const f = $('#modal-body [autofocus]') || $('#modal-body button, #modal-body a, #modal-body input') || $('.modal-close');
+    if (f) f.focus({ preventScroll: true });
+  }
+  function closeModal() {
+    $('#modal').hidden = true;
+    $('#modal-body').innerHTML = '';
+    if (lastFocus && lastFocus.isConnected) lastFocus.focus({ preventScroll: true });
+  }
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
+
+  function pageViewer(pages, start = 0, title = 'Originalseiten') {
+    if (!pages || !pages.length) { toast('Keine Seitenbilder vorhanden', true); return; }
+    let i = Math.min(Math.max(start, 0), pages.length - 1);
+    const render = () => {
+      openModal(`<div class="pageviewer">
+        <div class="pv-nav"><h2 id="modal-title" class="visually-hidden">${esc(title)}</h2><strong>${esc(title)}</strong>
+          <button type="button" class="btn sm" id="pv-prev" ${i === 0 ? 'disabled' : ''}>Vorherige Seite</button>
+          <span class="num">${i + 1} / ${pages.length}</span>
+          <button type="button" class="btn sm" id="pv-next" ${i === pages.length - 1 ? 'disabled' : ''}>Nächste Seite</button>
+          <span class="muted small">Klick auf das Bild vergrößert, Pfeiltasten blättern</span></div>
+        <div class="scroller"><img alt="${esc(title)}, Seite ${i + 1}" width="827" height="1169"></div>
+      </div>`, true);
+      const img = $('.pageviewer img');
+      window.AP2Local.pageSrc(pages[i]).then((u) => { if (img.isConnected) img.src = u; }).catch((e) => toast(e.message, true));
+      $('#pv-prev').onclick = () => { i--; render(); };
+      $('#pv-next').onclick = () => { i++; render(); };
+      $('.pageviewer img').onclick = (ev) => ev.target.classList.toggle('zoomed');
+    };
+    render();
+    const key = (e) => {
+      if ($('#modal').hidden) { document.removeEventListener('keydown', key); return; }
+      if (e.key === 'ArrowRight' && i < pages.length - 1) { i++; render(); }
+      if (e.key === 'ArrowLeft' && i > 0) { i--; render(); }
+    };
+    document.addEventListener('keydown', key);
+  }
+
+  async function loadExams(force) {
+    if (!state.exams || force) state.exams = await api('/api/exams');
+    return state.exams;
+  }
+  async function loadTopics() {
+    if (!state.topics) state.topics = await api('/api/topics');
+    return state.topics;
+  }
+
+  // ---------- Hülle: Navigation, Menü, Darstellung ----------
+  function setNav(name) {
+    $$('.nav a').forEach((a) => { if (a.dataset.nav === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+    closeMenu();
+  }
+  function closeMenu() { $('#topbar').removeAttribute('data-open'); $('#menu-btn').setAttribute('aria-expanded', 'false'); }
+  $('#menu-btn').onclick = () => {
+    const open = !$('#topbar').hasAttribute('data-open');
+    $('#topbar').toggleAttribute('data-open', open);
+    $('#menu-btn').setAttribute('aria-expanded', String(open));
+  };
+  const MODES = ['auto', 'light', 'dark'];
+  const MODE_NAMES = { auto: 'Auto', light: 'Hell', dark: 'Dunkel' };
+  function applyMode(m) {
+    if (m === 'auto') delete document.documentElement.dataset.mode; else document.documentElement.dataset.mode = m;
+    try { if (m === 'auto') localStorage.removeItem('ap2-mode'); else localStorage.setItem('ap2-mode', m); } catch (e) { /* privater Modus */ }
+    $('#mode-name').textContent = MODE_NAMES[m];
+    $('#mode-btn').setAttribute('aria-label', `Darstellung: ${MODE_NAMES[m]}. Klicken zum Wechseln`);
+  }
+  applyMode(document.documentElement.dataset.mode || 'auto');
+  $('#mode-btn').onclick = () => applyMode(MODES[(MODES.indexOf(document.documentElement.dataset.mode || 'auto') + 1) % 3]);
+
+  function stopTimer() {
+    if (state.timer) { clearInterval(state.timer); state.timer = null; }
+    $('#timerbox').hidden = true;
+  }
+
+  // ---------- Router ----------
+  const routes = [
+    [/^#?\/?$/, home],
+    [/^#\/exams(?:\/(real|wiso|gen|topic))?$/, examsView],
+    [/^#\/exam-detail\/([^/]+)$/, examDetail],
+    [/^#\/generate$/, generateView],
+    [/^#\/topics$/, topicsView],
+    [/^#\/stats$/, statsView],
+    [/^#\/archive(?:\/([a-z0-9-]+))?$/, archiveView],
+    [/^#\/learn\/([^/]+)$/, learnView],
+    [/^#\/exam\/([^/]+)$/, examView],
+    [/^#\/result\/([^/]+)$/, resultView],
+    [/^#\/original\/([^/?]+)$/, originalView],
+    [/^#\/print\/([^/?]+)(?:\?(.*))?$/, (id, q) => printView(id, null, q)],
+    [/^#\/print-session\/([^/?]+)(?:\?(.*))?$/, (sid, q) => printView(null, sid, q)],
+  ];
+  const errorState = (title, msg) => `<div class="state"><h2>${esc(title)}</h2><p>${esc(msg)}</p><p class="actions" style="margin-top:var(--space-md)"><a class="btn" href="#/">Zur Startseite</a></p></div>`;
+  async function route() {
+    const hash = location.hash || '#/';
+    stopTimer();
+    closeMenu();
+    for (const [re, fn] of routes) {
+      const m = hash.match(re);
+      if (m) {
+        app.innerHTML = '<div class="state" aria-busy="true"><div class="skeleton" style="width:40%"></div><div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:55%"></div></div>';
+        try { await fn(...m.slice(1)); } catch (e) { app.innerHTML = errorState('Das hat nicht geklappt', e.message + '. Läuft der Simulator noch? Seite neu laden oder zur Startseite wechseln.'); }
+        window.scrollTo(0, 0);
+        return;
+      }
+    }
+    app.innerHTML = errorState('Seite nicht gefunden', 'Diese Adresse gibt es im Simulator nicht.');
+  }
+  window.addEventListener('hashchange', route);
+
+  // ---------- Startseite ----------
+  async function home() {
+    setNav('home');
+    const [status, exams, sessions] = await Promise.all([api('/api/status'), loadExams(true), api('/api/sessions')]);
+    const open = sessions.filter((s) => !s.finished).slice(0, 6);
+    const itse = exams.filter((e) => examKind(e) === 'real');
+    const wiso = exams.filter((e) => examKind(e) === 'wiso');
+    const gen = exams.filter((e) => examKind(e) === 'gen');
+    app.innerHTML = `
+      <div class="page-head"><div>
+        <h1>AP2-Simulator für IT-System-Elektroniker/-in</h1>
+        <p class="lede">Echte IHK-Prüfungen im Lernmodus mit Hilfestufen üben oder mit Zeitlimit als Prüfung schreiben.</p>
+      </div></div>
+      <div class="split">
+        <section class="sheet" aria-labelledby="start-h">
+          <h2 id="start-h">Prüfung wählen</h2>
+          <div class="field" style="margin-top:var(--space-md)"><span>Prüfungstermin</span>
+            <select class="input" id="h-exam">${itse.map((e) => `<option value="${e.id}">${esc(examName(e))}</option>`).join('')}${gen.length ? `<optgroup label="Generierte Prüfungen">${gen.map((e) => `<option value="${e.id}">${esc(e.title)}</option>`).join('')}</optgroup>` : ''}</select>
+          </div>
+          <div class="actions" style="margin-top:var(--space-md)">
+            <button type="button" class="btn primary" id="h-learn">Lernmodus starten</button>
+            <button type="button" class="btn" id="h-exam-start">Prüfung simulieren</button>
+            <a class="btn quiet" id="h-detail" href="#/exam-detail/${itse[0] ? itse[0].id : ''}">Details und PDF</a>
+          </div>
+          <p class="small muted" style="margin-top:var(--space-md)">Lernmodus: ohne Zeitlimit, mit drei Tipps je Teilaufgabe und Musterlösung. Prüfung: Teil 1 und 2 je 90 Minuten, WiSo 60 Minuten, ohne Hilfen.</p>
+        </section>
+        <section aria-labelledby="bestand-h">
+          <h2 id="bestand-h" class="visually-hidden">Bestand</h2>
+          <dl class="dl two">
+            <div><dt>Prüfungstermine mit allen drei Teilen</dt><dd>${itse.length}</dd></div>
+            <div><dt>WiSo-Sätze</dt><dd>${wiso.length}</dd></div>
+            <div><dt>Aufgabenblöcke im Generator</dt><dd>${status.bank_blocks}<small>und ${status.bank_wiso_items} WiSo-Fragen</small></dd></div>
+            <div><dt>Themen in der Wissensbasis</dt><dd>${status.topics}</dd></div>
+          </dl>
+          <p class="actions" style="margin-top:var(--space-md)"><a class="btn sm quiet" href="#/generate">Neue Prüfung generieren</a><a class="btn sm quiet" href="#/topics">Wissen nachschlagen</a></p>
+        </section>
+      </div>
+      <section class="section" aria-labelledby="open-h">
+        <h2 id="open-h">Weitermachen</h2>
+        ${open.length ? `<table class="t stack"><thead><tr><th>Prüfung</th><th>Modus</th><th>Begonnen</th><th class="num">Antworten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>
+          ${open.map((s) => `<tr><td data-label="Prüfung"><a class="row-title" href="${sessionHref(s)}">${esc(s.exam_title)}</a></td><td data-label="Modus">${s.mode === 'exam' ? 'Prüfung' : 'Lernen'}</td><td data-label="Begonnen">${fmtDate(s.created_at)}</td><td class="num" data-label="Antworten">${s.answered}</td>
+            <td class="acts"><div class="actions"><a class="btn sm" href="${sessionHref(s)}">Fortsetzen</a><button type="button" class="btn sm quiet" data-del-session="${s.id}">Löschen</button></div></td></tr>`).join('')}
+        </tbody></table>` : '<p class="empty">Keine offene Sitzung. Wähle oben eine Prüfung und starte den Lernmodus.</p>'}
+      </section>
+      ${status.warnings.length ? `<section class="section"><details class="disc"><summary>${status.warnings.length} Datenhinweise</summary><div class="disc-body"><ul class="small">${status.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div></details></section>` : ''}`;
+    const sel = $('#h-exam');
+    const syncDetail = () => { $('#h-detail').href = `#/exam-detail/${sel.value}`; };
+    sel.onchange = syncDetail;
+    $('#h-learn').onclick = () => startDialog(sel.value, 'learn');
+    $('#h-exam-start').onclick = () => startDialog(sel.value, 'exam');
+    $$('[data-del-session]', app).forEach((b) => b.onclick = async () => {
+      if (!confirm('Sitzung wirklich löschen? Die Antworten gehen verloren.')) return;
+      await api(`/api/sessions/${b.dataset.delSession}`, { method: 'DELETE' });
+      home();
+    });
+  }
+
+  // ---------- Prüfungsliste ----------
+  async function examsView(filter) {
+    setNav('exams');
+    const exams = await loadExams(true);
+    const f = filter || 'real';
+    const groups = { real: 'Originalprüfungen', wiso: 'Nur WiSo', gen: 'Generiert', topic: 'Themen-Training' };
+    const count = (k) => exams.filter((e) => examKind(e) === k).length;
+    const rows = exams.filter((e) => examKind(e) === f);
+    app.innerHTML = `<div class="page-head"><div><h1>Prüfungen</h1><p class="lede">Jede Prüfung lässt sich lernen, als Prüfung simulieren oder als Bogen mit Korrekturrand drucken.</p></div>
+        <a class="btn" href="#/generate">Neue Prüfung generieren</a></div>
+      <nav class="tabs" aria-label="Prüfungsarten">${Object.entries(groups).map(([k, label]) => `<a href="#/exams/${k}" ${k === f ? 'aria-current="page"' : ''}>${label}<span class="count">${count(k)}</span></a>`).join('')}</nav>
+      ${rows.length ? `<table class="t stack"><thead><tr><th>Prüfung</th><th>Teile</th><th>Lösungen</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>
+      ${rows.map((e) => `<tr>
+        <td data-label="Prüfung"><a class="row-title" href="#/exam-detail/${e.id}">${esc(examName(e))}</a>${examKind(e) === 'real' || examKind(e) === 'wiso' ? '' : `<span class="sub">${esc(e.id)}</span>`}</td>
+        <td data-label="Teile">${e.parts.map((p) => `${kindShort(p.kind)} <span class="muted">(${p.items})</span>`).join(', ')}</td>
+        <td data-label="Lösungen">${e.official_solutions ? 'IHK-Lösungshinweise' : '<span class="tag warn">eigene Musterlösung</span>'}</td>
+        <td class="acts"><div class="actions"><button type="button" class="btn sm" data-start="${e.id}" data-mode="learn">Lernen</button><button type="button" class="btn sm" data-start="${e.id}" data-mode="exam">Prüfung</button><a class="btn sm quiet" href="#/exam-detail/${e.id}">Details</a></div></td>
+      </tr>`).join('')}
+      </tbody></table>` : `<p class="empty">${f === 'gen' ? 'Noch keine generierte Prüfung. Der Generator erstellt eine nach IHK-Schema.' : f === 'topic' ? 'Noch kein Themen-Training. Starte eines in der Wissensbasis über „Zu diesem Thema üben“.' : 'Keine Prüfungen in dieser Ansicht.'}</p>`}`;
+    $$('[data-start]', app).forEach((b) => b.onclick = () => startDialog(b.dataset.start, b.dataset.mode));
+  }
+
+  async function startDialog(examId, mode) {
+    const exams = await loadExams();
+    const e = exams.find((x) => x.id === examId);
+    if (!e) return;
+    openModal(`<h2 id="modal-title">${mode === 'exam' ? 'Prüfung simulieren' : 'Lernmodus starten'}</h2>
+      <p><strong>${esc(examName(e))}</strong></p>
+      <p class="small muted" style="margin-top:var(--space-xs)">${mode === 'exam'
+        ? 'Die gewählten Teile laufen nacheinander mit Zeitlimit. Es gibt keine Tipps und keine Lösungen. Ausgewertet wird nach der Abgabe des letzten Teils.'
+        : 'Ohne Zeitlimit. Zu jeder Teilaufgabe gibt es drei Tipps, den Stichwort-Check und die Musterlösung.'}</p>
+      <fieldset style="margin-top:var(--space-md)"><legend>Teile</legend>${e.parts.map((p) => `<label class="check"><input type="checkbox" name="part" value="${p.id}" checked><span>${esc(kindLabel(p.kind))}<br><span class="small muted">${p.duration_min} Minuten, ${p.max_points} Punkte, ${p.tasks} Aufgaben</span></span></label>`).join('')}</fieldset>
+      <div class="actions"><button type="button" class="btn primary" id="start-go" autofocus>Starten</button><button type="button" class="btn quiet" data-close>Abbrechen</button></div>`);
+    $('#start-go').onclick = async () => {
+      const parts = $$('#modal input[name=part]:checked').map((i) => i.value);
+      if (!parts.length) { toast('Bitte mindestens einen Teil wählen', true); return; }
+      $('#start-go').disabled = true;
+      try {
+        const v = await post('/api/sessions', { exam_id: examId, mode, parts });
+        closeModal();
+        location.hash = `#/${mode === 'exam' ? 'exam' : 'learn'}/${v.session.id}`;
+      } catch (err) { $('#start-go').disabled = false; toast(err.message, true); }
+    };
+  }
+
+  async function examDetail(id) {
+    setNav('exams');
+    const e = await api(`/api/exams/${id}`);
+    const sessions = (await api('/api/sessions')).filter((s) => s.exam_id === id);
+    const pdf = (parts, sol) => `/api/exams/${id}/pdf?parts=${parts}&solutions=${sol ? 1 : 0}`;
+    const kind = examKind(e);
+    app.innerHTML = `<div class="page-head"><div>
+        <h1>${esc(examName(e))}</h1>
+        <p class="meta"><span>${kind === 'real' || kind === 'wiso' ? 'IHK-Originalprüfung' : kind === 'topic' ? 'Themen-Training' : 'Generierte Prüfung'}</span><span>${e.official_solutions ? 'mit IHK-Lösungshinweisen' : 'mit eigenen Musterlösungen'}</span></p>
+      </div>
+      <div class="actions"><button type="button" class="btn primary" id="d-learn">Lernmodus</button><button type="button" class="btn" id="d-exam">Prüfung simulieren</button></div></div>
+      ${e.notes ? `<p class="small muted prose">${esc(e.notes)}</p>` : ''}
+      <section class="section" aria-labelledby="teile-h">
+        <h2 id="teile-h">Teile</h2>
+        <table class="t stack"><thead><tr><th>Teil</th><th class="num">Zeit</th><th class="num">Punkte</th><th class="num">Teilaufgaben</th><th>Material</th></tr></thead><tbody>
+        ${e.parts.map((p) => `<tr>
+          <td data-label="Teil"><span class="row-title">${esc(kindLabel(p.kind))}</span><span class="sub">${esc(p.title)}</span></td>
+          <td class="num" data-label="Zeit">${p.duration_min} min</td>
+          <td class="num" data-label="Punkte">${p.max_points}</td>
+          <td class="num" data-label="Teilaufgaben">${p.tasks.reduce((a, t) => a + t.items.length, 0)}</td>
+          <td data-label="Material"><div class="actions">
+            ${pdfLink(pdf(p.id, false), 'PDF Aufgaben')}${pdfLink(pdf(p.id, true), 'PDF Lösungen')}
+            ${p.page_images && p.page_images.length ? `<button type="button" class="btn sm quiet" data-pages="${p.id}">Originalseiten</button>` : ''}
+            ${p.solution_pages && p.solution_pages.length ? `<button type="button" class="btn sm quiet" data-solpages="${p.id}">Lösungs-Original</button>` : ''}
+            ${(p.attachments || []).map((a, i) => a.pages && a.pages.length ? `<button type="button" class="btn sm quiet" data-att="${p.id}:${i}">${esc(a.title || 'Belegsatz')}</button>` : '').join('')}</div></td>
+        </tr>`).join('')}
+        </tbody></table>
+        <p class="actions" style="margin-top:var(--space-md)">${pdfLink(pdf('', false), 'Kompletter Prüfungsbogen als PDF')}${pdfLink(pdf('', true), 'Alle Lösungshinweise als PDF')}</p>
+      </section>
+      <section class="section" aria-labelledby="aufg-h">
+        <h2 id="aufg-h">Aufgaben</h2>
+        ${e.parts.map((p) => `<details class="disc"><summary>${esc(kindLabel(p.kind))}<span class="tag">${p.tasks.length} Aufgaben</span></summary><div class="disc-body"><ol>${p.tasks.map((t) => `<li>${esc(t.title || 'Aufgabe ' + t.number)} <span class="muted num small">${t.points} P.</span></li>`).join('')}</ol></div></details>`).join('')}
+      </section>
+      ${sessions.length ? `<section class="section" aria-labelledby="sess-h"><h2 id="sess-h">Bisherige Sitzungen</h2><table class="t stack"><thead><tr><th>Datum</th><th>Modus</th><th>Stand</th><th><span class="visually-hidden">Aktion</span></th></tr></thead><tbody>${sessions.map((s) => `<tr><td data-label="Datum">${fmtDate(s.created_at)}</td><td data-label="Modus">${s.mode === 'exam' ? 'Prüfung' : 'Lernen'}</td><td data-label="Stand">${s.finished ? `<span class="num">${fmtPts(s.total_points)} / ${s.total_max}</span> ${s.passed ? '<span class="tag ok">bestanden</span>' : '<span class="tag bad">nicht bestanden</span>'}` : `${s.answered} Antworten`}</td><td class="acts"><a class="btn sm" href="${sessionHref(s)}">${s.finished ? 'Auswertung' : 'Fortsetzen'}</a></td></tr>`).join('')}</tbody></table></section>` : ''}
+      ${e.sources && e.sources.some((s) => s.endsWith('.pdf')) ? `<section class="section"><details class="disc"><summary>Quellen (Original-PDFs)</summary><div class="disc-body"><ul class="small">${e.sources.filter((s) => s.endsWith('.pdf')).map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div></details></section>` : ''}
+      ${e.origin === 'generated' ? `<section class="section"><button type="button" class="btn danger sm" id="d-del">Diese Prüfung löschen</button></section>` : ''}`;
+    $('#d-learn').onclick = () => startDialog(id, 'learn');
+    $('#d-exam').onclick = () => startDialog(id, 'exam');
+    const del = $('#d-del');
+    if (del) del.onclick = async () => { if (confirm('Diese Prüfung löschen? Das lässt sich nicht rückgängig machen.')) { await api(`/api/exams/${id}`, { method: 'DELETE' }); location.hash = '#/exams/gen'; } };
+    $$('[data-pages]', app).forEach((b) => b.onclick = () => pageViewer(e.parts.find((p) => p.id === b.dataset.pages).page_images, 0, 'Originalprüfung'));
+    $$('[data-solpages]', app).forEach((b) => b.onclick = () => pageViewer(e.parts.find((p) => p.id === b.dataset.solpages).solution_pages, 0, 'Lösungshinweise (Original)'));
+    $$('[data-att]', app).forEach((b) => { const [pid, i] = b.dataset.att.split(':'); const a = e.parts.find((p) => p.id === pid).attachments[+i]; b.onclick = () => pageViewer(a.pages, 0, a.title || 'Belegsatz'); });
+  }
+
+  // ---------- Generator ----------
+  async function generateView() {
+    setNav('generate');
+    const bank = await api('/api/bank/summary');
+    app.innerHTML = `<div class="page-head"><div><h1>Prüfung generieren</h1><p class="lede">Eine neue Prüfung nach IHK-Schema aus dem Fragenpool zusammenstellen.</p></div></div>
+      <div class="split">
+        <form class="sheet" id="g-form" novalidate>
+          <fieldset><legend>Teile</legend>
+            <label class="check"><input type="checkbox" name="gp" value="teil1" checked><span>Teil 1: Installation und Service<br><span class="small muted">4 Aufgaben zu je 25 Punkten, 90 Minuten</span></span></label>
+            <label class="check"><input type="checkbox" name="gp" value="teil2" checked><span>Teil 2: Stromversorgung<br><span class="small muted">4 Aufgaben zu je 25 Punkten, 90 Minuten</span></span></label>
+            <label class="check"><input type="checkbox" name="gp" value="wiso" checked><span>Teil 3: Wirtschafts- und Sozialkunde<br><span class="small muted">30 gebundene Aufgaben, 60 Minuten</span></span></label>
+          </fieldset>
+          <div style="display:grid;gap:var(--space-md);margin-top:var(--space-lg);grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr))">
+            <label class="field"><span>Titel (optional)</span><input class="input" type="text" id="g-title" name="title" autocomplete="off" placeholder="Übungsprüfung 1"></label>
+            <label class="field"><span>Seed (optional, für Wiederholbarkeit)</span><input class="input num" type="text" id="g-seed" name="seed" inputmode="numeric" autocomplete="off" placeholder="12345"></label>
+          </div>
+          <label class="check" style="margin-top:var(--space-sm)"><input type="checkbox" id="g-avoid" checked><span>Aufgabenblöcke der letzten zwei Generierungen meiden</span></label>
+          <div class="actions" style="margin-top:var(--space-lg)"><button type="submit" class="btn primary" id="g-go">Prüfung generieren</button><span id="g-status" class="small muted" role="status"></span></div>
+        </form>
+        <section aria-labelledby="pool-h">
+          <h2 id="pool-h">Fragenpool</h2>
+          ${bank.length ? `<table class="t" style="margin-top:var(--space-sm)"><thead><tr><th>Teil</th><th class="num">Umfang</th></tr></thead><tbody>${bank.map((b) => `<tr><td>${esc(kindLabel(b.kind))}<span class="sub">${b.clusters.map(([c, n]) => `${esc(c || 'ohne Thema')} (${n})`).join(', ')}</span></td><td class="num">${b.kind === 'WiSo' ? `${b.items} Fragen` : `${b.blocks} Blöcke`}</td></tr>`).join('')}</tbody></table>` : '<p class="empty">Noch kein Fragenpool geladen. Lege Dateien unter data/bank an.</p>'}
+        </section>
+      </div>`;
+    $('#g-form').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const parts = $$('input[name=gp]:checked', app).map((i) => i.value);
+      if (!parts.length) { toast('Bitte mindestens einen Teil wählen', true); return; }
+      const seedRaw = $('#g-seed').value.trim();
+      if (seedRaw && !/^\d+$/.test(seedRaw)) { $('#g-seed').setAttribute('aria-invalid', 'true'); toast('Der Seed muss eine ganze Zahl sein', true); $('#g-seed').focus(); return; }
+      $('#g-seed').removeAttribute('aria-invalid');
+      const body = { parts, title: $('#g-title').value.trim() || null, avoid_recent: $('#g-avoid').checked };
+      if (seedRaw) body.seed = Number(seedRaw);
+      $('#g-status').textContent = 'Wird zusammengestellt …';
+      $('#g-go').disabled = true;
+      try {
+        const e = await post('/api/generate', body);
+        state.exams = null;
+        location.hash = `#/exam-detail/${e.id}`;
+      } catch (err) { $('#g-status').textContent = ''; $('#g-go').disabled = false; toast(err.message, true); }
+    };
+  }
+
+  // ---------- Wissen ----------
+  async function topicsView() {
+    setNav('topics');
+    const topics = await loadTopics();
+    const counts = await api('/api/topic-counts');
+    const countOf = (n) => (counts.find((c) => c.topic.toLowerCase() === n.toLowerCase()) || {}).items || 0;
+    const parts = ['Teil1', 'Teil2', 'WiSo'];
+    app.innerHTML = `<div class="page-head"><div><h1>Wissen</h1><p class="lede">Prüfungswissen zu jedem Thema. Im Lernmodus erscheinen die passenden Einträge nach einem Tipp.</p></div>
+        <label class="field" style="width:min(100%,22rem)"><span>Thema suchen</span><input class="input" type="search" id="t-search" autocomplete="off" placeholder="RAID, Spannungsfall, Kündigung"></label></div>
+      <div id="t-list">${parts.map((p) => `<section class="section" data-group><h2>${esc(kindLabel(p))}</h2>${topics.filter((t) => t.part === p).map((t) => topicRow(t, countOf(t.name))).join('') || '<p class="empty">Keine Einträge.</p>'}</section>`).join('')}
+      <p class="empty" id="t-none" hidden>Kein Thema passt zur Suche.</p></div>`;
+    $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
+    $('#t-search').oninput = (ev) => {
+      const q = ev.target.value.toLowerCase().trim();
+      $$('[data-topic]', app).forEach((c) => { c.hidden = !!q && !c.dataset.topic.includes(q); });
+      $$('[data-group]', app).forEach((g) => { g.hidden = !$$('[data-topic]', g).some((c) => !c.hidden); });
+      $('#t-none').hidden = $$('[data-topic]', app).some((c) => !c.hidden);
+    };
+  }
+  async function trainTopic(topic) {
+    try {
+      const e = await post('/api/topic-exam', { topic, limit: 40 });
+      state.exams = null;
+      const v = await post('/api/sessions', { exam_id: e.id, mode: 'learn', parts: [] });
+      location.hash = `#/learn/${v.session.id}`;
+    } catch (err) { toast(err.message, true); }
+  }
+  function topicRow(t, n) {
+    return `<details class="disc" data-topic="${esc((t.name + ' ' + t.summary + ' ' + (t.key_points || []).join(' ')).toLowerCase())}"><summary>${esc(t.name)}${n ? `<span class="tag">${n} Teilaufgaben in echten Prüfungen</span>` : ''}</summary>
+      <div class="disc-body topic-body prose">
+      <p>${esc(t.summary)}</p>
+      ${t.key_points && t.key_points.length ? `<h4>Das bringt Punkte</h4><ul>${t.key_points.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
+      ${t.formulas && t.formulas.length ? `<h4>Formeln</h4><div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}
+      ${t.pitfalls && t.pitfalls.length ? `<h4>Typische Fehler</h4><ul>${t.pitfalls.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
+      ${t.example_question ? `<p class="small muted" style="margin-top:var(--space-sm)">Typische Aufgabe: ${esc(t.example_question)}</p>` : ''}
+      ${n ? `<p style="margin-top:var(--space-md)"><button type="button" class="btn sm" data-train="${esc(t.name)}">Zu diesem Thema üben</button></p>` : ''}
+      </div></details>`;
+  }
+
+  // ---------- Statistik ----------
+  const meterRow = (label, ratio, right, extra) => `<div class="meter-row"><span>${label}</span><div class="meter ${ratio >= 0.67 ? 'good' : ratio < 0.5 ? 'bad' : ''}" role="img" aria-label="${Math.round(ratio * 100)} Prozent"><span style="width:${Math.round(ratio * 100)}%"></span></div><span class="num small">${right}</span>${extra || '<span></span>'}</div>`;
+  async function statsView() {
+    setNav('stats');
+    const p = await api('/api/progress');
+    app.innerHTML = `<div class="page-head"><div><h1>Statistik</h1><p class="lede">Was du schon kannst und wo noch Punkte fehlen.</p></div></div>
+      <dl class="dl">
+        <div><dt>Abgeschlossene Prüfungssimulationen</dt><dd>${p.exams_finished}<small>${p.passed} bestanden</small></dd></div>
+        <div><dt>Durchschnitt je Simulation</dt><dd>${fmtPts(Math.round(p.average_points))}<small>Punkte, beste ${fmtPts(Math.round(p.best_points))}</small></dd></div>
+        <div><dt>Lernsitzungen</dt><dd>${p.learn_sessions}</dd></div>
+      </dl>
+      ${p.per_part.length ? `<section class="section"><h2>Ergebnisse je Prüfungsbereich</h2><table class="t stack"><thead><tr><th>Bereich</th><th class="num">Versuche</th><th class="num">Durchschnitt</th><th class="num">Bestes</th></tr></thead><tbody>${p.per_part.map((x) => `<tr><td data-label="Bereich">${esc(kindLabel(x.kind))}</td><td class="num" data-label="Versuche">${x.attempts}</td><td class="num" data-label="Durchschnitt">${x.average_percent.toFixed(0)} % (Note ${gradeFor(x.average_percent)})</td><td class="num" data-label="Bestes">${x.best_percent.toFixed(0)} %</td></tr>`).join('')}</tbody></table></section>` : ''}
+      <section class="section"><h2>Themen, in denen Punkte fehlen</h2>
+      ${p.topic_stats.length ? p.topic_stats.slice(0, 25).map((t) => meterRow(esc(t.topic), t.ratio, `${fmtPts(Math.round(t.points * 10) / 10)} / ${fmtPts(t.max_points)}`, `<button type="button" class="btn sm" data-train="${esc(t.topic)}">Üben</button>`)).join('') : '<p class="empty">Noch keine bewerteten Antworten. Nutze im Lernmodus den Stichwort-Check und die Selbstbewertung oder schließe eine Prüfungssimulation ab.</p>'}
+      </section>
+      <section class="section"><h2>Letzte Sitzungen</h2>
+      ${p.recent.length ? `<table class="t stack"><thead><tr><th>Datum</th><th>Prüfung</th><th>Modus</th><th class="num">Stand</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${p.recent.map((s) => `<tr><td data-label="Datum">${fmtDate(s.created_at)}</td><td data-label="Prüfung">${esc(s.exam_title)}</td><td data-label="Modus">${s.mode === 'exam' ? 'Prüfung' : 'Lernen'}</td><td class="num" data-label="Stand">${s.finished ? `${fmtPts(s.total_points)} / ${s.total_max}` : `${s.answered} Antw.`}</td><td class="acts"><div class="actions"><a class="btn sm" href="${sessionHref(s)}">${s.finished ? 'Auswertung' : 'Öffnen'}</a><button type="button" class="btn sm quiet" data-del="${s.id}">Löschen</button></div></td></tr>`).join('')}</tbody></table>` : '<p class="empty">Noch keine Sitzungen.</p>'}
+      </section>`;
+    const orig = Object.values(window.AP2Local.originals.all()).sort((a, b) => (b.finished || b.created).localeCompare(a.finished || a.created));
+    app.insertAdjacentHTML('beforeend', `<section class="section"><h2>Archiv-Übungen</h2>
+      ${orig.length ? `<table class="t stack"><thead><tr><th>Dokument</th><th>Beruf</th><th class="num">Ergebnis</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${orig.map((o) => `<tr><td data-label="Dokument">${esc(o.title)}</td><td data-label="Beruf">${esc(o.beruf || '')}</td><td class="num" data-label="Ergebnis">${o.points != null ? `${fmtPts(o.points)} / ${fmtPts(o.max)}` : 'offen'}</td><td class="acts"><div class="actions"><a class="btn sm" href="#/original/${o.id}">Öffnen</a><button type="button" class="btn sm quiet" data-odel="${o.id}">Löschen</button></div></td></tr>`).join('')}</tbody></table>` : '<p class="empty">Noch keine Originalprüfung aus dem Archiv bearbeitet.</p>'}
+      </section>
+      <section class="section"><h2>Deine Daten</h2>
+        <p class="prose small muted">Fortschritt, Antworten und Statistik liegen nur in diesem Browser auf diesem Gerät. Mit einer Sicherung nimmst du sie auf ein anderes Gerät mit.</p>
+        <div class="actions" style="margin-top:var(--space-md)"><button type="button" class="btn" id="d-export">Sicherung herunterladen</button><label class="btn" for="d-import">Sicherung einspielen</label><input type="file" id="d-import" accept="application/json" class="visually-hidden">
+        ${window.AP2Local.encrypted ? '<button type="button" class="btn quiet" id="d-lock">Passwort auf diesem Gerät vergessen</button>' : ''}</div>
+        ${window.AP2Local.builtAt ? `<p class="small muted" style="margin-top:var(--space-sm)">Datenstand: ${esc(window.AP2Local.builtAt)}</p>` : ''}
+      </section>`);
+    $$('[data-del]', app).forEach((b) => b.onclick = async () => { if (confirm('Sitzung löschen? Die Antworten gehen verloren.')) { await api(`/api/sessions/${b.dataset.del}`, { method: 'DELETE' }); statsView(); } });
+    $$('[data-odel]', app).forEach((b) => b.onclick = () => { if (confirm('Diese Archiv-Übung löschen?')) { window.AP2Local.originals.del(b.dataset.odel); statsView(); } });
+    $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
+    $('#d-export').onclick = () => {
+      const data = {}; ['ap2.sessions', 'ap2.generated', 'ap2.originals'].forEach((k) => { data[k] = JSON.parse(localStorage.getItem(k) || '{}'); });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'ap2-simulator', version: 1, saved: new Date().toISOString(), data })], { type: 'application/json' }));
+      a.download = `ap2-fortschritt-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    };
+    $('#d-import').onchange = async (ev) => {
+      const f = ev.target.files[0]; if (!f) return;
+      try {
+        const j = JSON.parse(await f.text());
+        if (j.app !== 'ap2-simulator' || !j.data) throw new Error('Das ist keine Sicherung des AP2-Simulators');
+        if (!confirm('Sicherung einspielen? Einträge mit gleicher Kennung werden überschrieben, alle anderen bleiben.')) return;
+        Object.entries(j.data).forEach(([k, v]) => { if (!/^ap2[.](sessions|generated|originals)$/.test(k)) return; const cur = JSON.parse(localStorage.getItem(k) || '{}'); localStorage.setItem(k, JSON.stringify(Object.assign(cur, v))); });
+        toast('Sicherung eingespielt'); statsView();
+      } catch (e) { toast(e.message, true); }
+    };
+    const lockBtn = $('#d-lock'); if (lockBtn) lockBtn.onclick = () => { if (confirm('Passwort auf diesem Gerät vergessen? Dein Fortschritt bleibt erhalten.')) window.AP2Local.lock(); };
+  }
+
+  // ---------- Gemeinsames: Antwortfelder ----------
+  function answerKey(part, item) { return `${part}/${item}`; }
+  function getAnswer(view, partId, itemId) {
+    return view.session.answers[answerKey(partId, itemId)] || { text: '', value: '', selected: [], cells: [], self_points: null, hints_used: 0, flagged: false };
+  }
+  function answerIsEmpty(a) {
+    return !a || (!(a.text || '').trim() && !(a.value || '').trim() && !(a.selected || []).length && !(a.cells || []).some((r) => r.some((c) => (c || '').trim())));
+  }
+
+  function renderAnswerInput(item, a, readonly) {
+    const ro = readonly ? 'disabled' : '';
+    const t = item.answer_type;
+    let html = '';
+    if (t === 'choice' || t === 'multi_choice') {
+      html += `<fieldset class="options"><legend class="visually-hidden">Antwortvorgaben</legend>${item.options.map((o) => `<label><input type="${t === 'choice' ? 'radio' : 'checkbox'}" name="opt" value="${esc(o.key)}" ${a.selected.includes(o.key) ? 'checked' : ''} ${ro}><span class="key">${esc(o.key)}</span><span>${nl(o.text)}</span></label>`).join('')}</fieldset>`;
+      if (t === 'multi_choice') html += '<p class="small muted">Mehrere Antworten möglich. Die Aufgabe nennt die Anzahl.</p>';
+    } else if (t === 'assignment' || t === 'order') {
+      html += `<div class="options">${item.options.map((o) => `<div class="opt"><span class="key">${esc(o.key)}</span><span>${nl(o.text)}</span></div>`).join('')}</div>
+        <label class="field" style="width:min(100%,22rem)"><span>Lösungsziffern in der richtigen Reihenfolge</span><input type="text" class="input num ans-value" inputmode="numeric" autocomplete="off" value="${esc(a.value)}" placeholder="3, 1, 4, 2" ${ro}></label>`;
+    } else if (t === 'number') {
+      html += `<div class="row-fields"><label class="field"><span>Ergebnis${item.unit ? ` in ${esc(item.unit)}` : ''}</span><input type="text" class="input num ans-value" inputmode="decimal" autocomplete="off" value="${esc(a.value)}" placeholder="0,00" ${ro}></label></div>
+        <label class="field"><span>Rechenweg (wird in der Prüfung bewertet)</span><textarea class="input ans-text" ${ro}>${esc(a.text)}</textarea></label>`;
+    } else if (t === 'table' && item.table) {
+      const tab = item.table;
+      const cells = a.cells || [];
+      html += `<div class="answer-table-wrap"><table class="answer-table"><thead><tr>${tab.columns.map((c) => `<th scope="col">${nl(c)}</th>`).join('')}</tr></thead><tbody>
+        ${tab.rows.map((r, ri) => `<tr>${r.map((c, ci) => (c || '').trim() ? `<td>${nl(c)}</td>` : `<td><input type="text" class="input ans-cell" aria-label="${esc(tab.columns[ci] || 'Zelle')}, Zeile ${ri + 1}" data-r="${ri}" data-c="${ci}" value="${esc((cells[ri] || [])[ci] || '')}" ${ro}></td>`).join('')}</tr>`).join('')}</tbody></table></div>
+        <label class="field"><span>Ergänzungen oder Begründung (optional)</span><textarea class="input ans-text" style="min-height:4.5rem" ${ro}>${esc(a.text)}</textarea></label>`;
+    } else if (t === 'sketch') {
+      html += `<label class="field"><span>Skizze in Worten beschreiben</span><textarea class="input ans-text" ${ro}>${esc(a.text)}</textarea></label><p class="small muted">Zeichnen geht am besten auf dem ausgedruckten Bogen. Beschreibe die Skizze hier, damit du sie bewerten kannst.</p>`;
+    } else {
+      html += `<label class="field"><span>Deine Antwort</span><textarea class="input ans-text" placeholder="Stichworte genügen, wenn keine ganzen Sätze gefordert sind" ${ro}>${esc(a.text)}</textarea></label>`;
+    }
+    return html;
+  }
+
+  function collectAnswer(container, item, prev) {
+    const a = Object.assign({}, prev, { selected: [], cells: [] });
+    const t = item.answer_type;
+    if (t === 'choice' || t === 'multi_choice') a.selected = $$('input[name=opt]:checked', container).map((i) => i.value);
+    const v = container.querySelector('.ans-value');
+    if (v) a.value = v.value;
+    const tx = container.querySelector('.ans-text');
+    if (tx) a.text = tx.value;
+    if (t === 'table' && item.table) {
+      a.cells = item.table.rows.map((r, ri) => r.map((c, ci) => {
+        const inp = container.querySelector(`.ans-cell[data-r="${ri}"][data-c="${ci}"]`);
+        return inp ? inp.value : (c || '');
+      }));
+    }
+    return a;
+  }
+
+  function flatItems(part) {
+    const out = [];
+    part.tasks.forEach((t) => t.items.forEach((i) => out.push({ task: t, item: i })));
+    return out;
+  }
+
+  const wide = () => matchMedia('(min-width: 60.01rem)').matches;
+  function navigatorHtml(view, partId, current, summary) {
+    const exam = view.exam;
+    const part = exam.parts.find((p) => p.id === partId);
+    const order = view.session.part_order;
+    return `<details class="navigator" id="navigator" ${wide() ? 'open' : ''}>
+      <summary><span>Aufgaben</span><span class="pos-text">${summary}</span></summary>
+      <div class="nav-body">
+      <div class="tabs" role="tablist" aria-label="Prüfungsteile">${order.map((pid) => { const p = exam.parts.find((x) => x.id === pid); const st = view.session.parts.find((s) => s.part_id === pid); return `<button type="button" role="tab" data-part="${pid}" aria-selected="${pid === partId}" title="${esc(p.title)}">${kindShort(p.kind)}${st && st.finished_at ? ' (abgegeben)' : ''}</button>`; }).join('')}</div>
+      ${part.kind === 'WiSo'
+        ? `<div class="task"><div class="task-title">30 Aufgaben <span class="num">${part.max_points} P.</span></div><div class="items">${part.tasks.map((t) => t.items.map((i) => itemBtn(view, partId, t, i, current, true)).join('')).join('')}</div></div>`
+        : part.tasks.map((t) => `<div class="task"><div class="task-title">${t.number}. ${esc(t.title || 'Aufgabe')} <span class="num">${t.points} P.</span></div><div class="items">${t.items.map((i) => itemBtn(view, partId, t, i, current, false)).join('')}</div></div>`).join('')}
+      <div class="legend" aria-hidden="true"><span>beantwortet</span><span style="--sw:var(--color-success)">volle Punkte</span><span style="--sw:var(--color-warn)">teilweise</span><span style="--sw:var(--color-error)">0 Punkte</span></div>
+      <div class="material">
+        ${part.situation ? '<button type="button" class="btn sm quiet" id="sb-situation">Ausgangssituation</button>' : ''}
+        ${(part.attachments || []).map((att, i) => `<button type="button" class="btn sm quiet" data-sb-att="${i}">${esc(att.title || 'Belegsatz')}</button>`).join('')}
+        ${part.page_images && part.page_images.length ? '<button type="button" class="btn sm quiet" id="sb-pages">Originalseiten</button>' : ''}
+      </div></div></details>`;
+  }
+
+  function itemBtn(view, partId, t, i, current, isWiso) {
+    const a = view.session.answers[answerKey(partId, i.id)];
+    let cls = '';
+    let stateText = 'offen';
+    if (a && a.self_points !== null && a.self_points !== undefined) { cls = a.self_points >= i.points ? 'graded-ok' : a.self_points > 0 ? 'graded-part' : 'graded-bad'; stateText = `${fmtPts(a.self_points)} von ${fmtPts(i.points)} Punkten`; }
+    else if (!answerIsEmpty(a)) { cls = 'answered'; stateText = 'beantwortet'; }
+    const label = isWiso ? t.number : (i.label || i.id);
+    return `<button type="button" class="itembtn ${cls} ${a && a.flagged ? 'flagged' : ''}" data-item="${i.id}" ${i.id === current ? 'aria-current="step"' : ''} aria-label="${isWiso ? 'Aufgabe ' + t.number : 'Aufgabe ' + t.number + ' ' + esc(i.label)}, ${stateText}${a && a.flagged ? ', markiert' : ''}">${esc(label)}</button>`;
+  }
+
+  function bindNavigator(view, partId, onPart, onItem) {
+    const part = view.exam.parts.find((p) => p.id === partId);
+    $$('[data-part]', app).forEach((b) => b.onclick = () => onPart(b.dataset.part));
+    $$('[data-item]', app).forEach((b) => b.onclick = () => onItem(b.dataset.item));
+    const sit = $('#sb-situation');
+    if (sit) sit.onclick = () => openModal(`<h2 id="modal-title">Ausgangssituation</h2><div class="situation">${nl(part.situation)}</div>`, true);
+    $$('[data-sb-att]', app).forEach((b) => b.onclick = () => {
+      const att = part.attachments[+b.dataset.sbAtt];
+      openModal(`<h2 id="modal-title">${esc(att.title || 'Belegsatz')}</h2>${att.pages && att.pages.length ? `<button type="button" class="btn sm" id="att-pages">Seiten als Bild ansehen (${att.pages.length})</button>` : ''}${att.text ? `<pre class="attachment">${esc(att.text)}</pre>` : '<p class="empty">Kein Textauszug vorhanden.</p>'}`, true);
+      const ap = $('#att-pages');
+      if (ap) ap.onclick = () => pageViewer(att.pages, 0, att.title || 'Belegsatz');
+    });
+    const pg = $('#sb-pages');
+    if (pg) pg.onclick = () => pageViewer(part.page_images, 0, 'Originalprüfung');
+  }
+
+  function sheetHtml(part, task, item, idx, total, inner) {
+    const figure = item.needs_figure && item.figure_pages && item.figure_pages.length && part.page_images && part.page_images.length
+      ? `<p style="margin-top:var(--space-sm)"><button type="button" class="btn sm" data-fig="${item.figure_pages[0] - 1}">Abbildung ansehen (Originalseite ${item.figure_pages.join(', ')})</button></p>` : '';
+    return `<article class="exam-sheet" aria-labelledby="task-h">
+      <div class="body">
+        <div class="task-head"><h2 id="task-h">${part.kind === 'WiSo' ? `Aufgabe ${task.number}` : `${task.number}. Aufgabe${task.title ? `: ${esc(task.title)}` : ''}`}</h2><span class="num">${task.points} Punkte</span></div>
+        ${task.intro && part.kind !== 'WiSo' ? `<div class="task-intro">${nl(task.intro)}</div>` : ''}
+        <div class="item-head"><p class="item-text">${item.label ? `<span class="item-label">${esc(item.label)}</span>` : ''}${nl(item.text)}</p><span class="item-points-inline">${ptsLabel(item.points)}</span></div>
+        ${figure}
+        ${inner}
+      </div>
+      <aside class="rand" aria-label="Korrekturrand"><span>Korrekturrand</span><span class="pts">${fmtPts(item.points)}<small>${+item.points === 1 ? 'Punkt' : 'Punkte'}</small></span><span class="num">${idx + 1} / ${total}</span></aside>
+    </article>`;
+  }
+
+  // ---------- Lernmodus ----------
+  async function learnView(sid) {
+    setNav('exams');
+    const view = await api(`/api/sessions/${sid}`);
+    if (view.session.mode === 'exam') { location.hash = `#/exam/${sid}`; return; }
+    state.view = view;
+    const stKey = `learn-pos-${sid}`;
+    let pos = JSON.parse(sessionStorage.getItem(stKey) || 'null') || { part: view.session.part_order[0], item: null };
+    if (!view.exam.parts.find((p) => p.id === pos.part)) pos.part = view.session.part_order[0];
+
+    const renderLearn = (focusSheet) => {
+      const part = view.exam.parts.find((p) => p.id === pos.part);
+      const items = flatItems(part);
+      let idx = items.findIndex((x) => x.item.id === pos.item);
+      if (idx < 0) idx = 0;
+      pos.item = items[idx].item.id;
+      sessionStorage.setItem(stKey, JSON.stringify(pos));
+      const { task, item } = items[idx];
+      const a = getAnswer(view, part.id, item.id);
+      const hintsUsed = a.hints_used || 0;
+      const isText = item.answer_type === 'text' || item.answer_type === 'table' || item.answer_type === 'sketch';
+      const where = `${kindShort(part.kind)}, ${part.kind === 'WiSo' ? 'Aufgabe ' + task.number : task.number + ' ' + (item.label || '')}`;
+      app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Lernmodus</span><h1>${esc(view.exam.title)}</h1></div>
+          <div class="actions">${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a></div></div>
+        <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
+        <div>
+          ${sheetHtml(part, task, item, idx, items.length, `
+            <div class="answer" id="answer-area">${renderAnswerInput(item, a, false)}</div>
+            <div class="tool-row">
+              <button type="button" id="b-check" class="btn primary">${isText ? 'Stichwort-Check' : 'Antwort prüfen'}</button>
+              <button type="button" id="b-hint1" class="btn" ${hintsUsed >= 1 ? 'hidden' : ''}>Tipp 1: Ansatz</button>
+              <button type="button" id="b-hint2" class="btn" ${hintsUsed >= 2 || hintsUsed < 1 ? 'hidden' : ''}>Tipp 2: konkreter</button>
+              <button type="button" id="b-hint3" class="btn" ${hintsUsed >= 3 || hintsUsed < 2 ? 'hidden' : ''}>Tipp 3: fast die Lösung</button>
+              <button type="button" id="b-solution" class="btn quiet">Musterlösung</button>
+              <button type="button" id="b-flag" class="btn sm" aria-pressed="${!!a.flagged}">${a.flagged ? 'Markiert' : 'Markieren'}</button>
+              <span class="save-state" id="save-state" role="status"></span>
+            </div>
+            <div id="hints"></div>
+            <div id="feedback" aria-live="polite"></div>
+            <div class="selfgrade" id="selfgrade">
+              <label class="field"><span>Selbstbewertung</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" id="sg-points" value="${a.self_points ?? ''}" placeholder="0 bis ${fmtPts(item.points)}"></label>
+              <span class="small muted" style="padding-bottom:var(--space-xs)">von ${ptsLabel(item.points)}</span>
+              <button type="button" class="btn sm" id="sg-full">Volle Punkte</button><button type="button" class="btn sm" id="sg-zero">0 Punkte</button><button type="button" class="btn sm" id="sg-save">Übernehmen</button>
+            </div>
+            <div id="topicbox"></div>`)}
+          <div class="pager"><button type="button" class="btn" id="b-prev" ${idx === 0 ? 'disabled' : ''}>Vorherige</button><span class="pos">${idx + 1} / ${items.length}</span><button type="button" class="btn" id="b-next">${idx === items.length - 1 ? 'Nächster Teil' : 'Nächste'}</button></div>
+        </div></div>`;
+      if (focusSheet) { $('#task-h').setAttribute('tabindex', '-1'); $('#task-h').focus(); }
+      const go = { part: (pid) => { pos = { part: pid, item: null }; renderLearn(true); }, item: (iid) => { pos.item = iid; renderLearn(true); } };
+      bindNavigator(view, part.id, go.part, go.item);
+
+      // Antworten speichern (verzögert)
+      let saveTimer = null;
+      const area = $('#answer-area');
+      const save = async () => {
+        const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id));
+        view.session.answers[answerKey(part.id, item.id)] = ans;
+        setSave('speichert …');
+        try { await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans }); setSave('gespeichert'); }
+        catch (e) { setSave('Nicht gespeichert: ' + e.message); }
+      };
+      area.addEventListener('input', () => { clearTimeout(saveTimer); setSave('…'); saveTimer = setTimeout(save, 600); });
+      area.addEventListener('change', () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 100); });
+
+      const renderTopics = (topics) => {
+        $('#topicbox').innerHTML = topics.map((t) => `<div class="panel"><h4>Nachschlagen: ${esc(t.name)}</h4><p>${esc(t.summary)}</p>${t.key_points && t.key_points.length ? `<ul>${t.key_points.slice(0, 6).map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}${t.formulas && t.formulas.length ? `<div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}</div>`).join('');
+      };
+      const showHints = (upTo) => {
+        // Hinweise kommen vom Server (zeichnet die Nutzung auf)
+        $('#hints').innerHTML = '';
+        const load = async (lvl) => {
+          const h = await post(`/api/sessions/${sid}/hint`, { part: part.id, item: item.id, level: lvl });
+          const div = document.createElement('div');
+          div.className = 'panel hint';
+          div.innerHTML = `<h4>Tipp ${lvl}</h4><p>${nl(h.hint)}</p>`;
+          $('#hints').appendChild(div);
+          if (lvl === upTo && h.topics && h.topics.length) renderTopics(h.topics);
+        };
+        return (async () => { for (let l = 1; l <= upTo; l++) await load(l); })();
+      };
+      if (hintsUsed > 0) showHints(hintsUsed);
+      const hintClick = (lvl) => async () => {
+        await save();
+        const ans = getAnswer(view, part.id, item.id);
+        ans.hints_used = Math.max(ans.hints_used || 0, lvl);
+        view.session.answers[answerKey(part.id, item.id)] = ans;
+        await showHints(lvl);
+        $('#b-hint1').hidden = lvl >= 1;
+        $('#b-hint2').hidden = lvl >= 2 || lvl < 1;
+        $('#b-hint3').hidden = lvl >= 3 || lvl < 2;
+        const next = $(`#b-hint${lvl + 1}`);
+        if (next) next.focus({ preventScroll: true });
+      };
+      $('#b-hint1').onclick = hintClick(1);
+      $('#b-hint2').onclick = hintClick(2);
+      $('#b-hint3').onclick = hintClick(3);
+
+      const showSolution = (r) => {
+        const sol = r.solution || item.solution || '';
+        const exp = r.expected || item.expected || '';
+        $('#feedback').insertAdjacentHTML('beforeend', `<div class="panel solution"><h4>Musterlösung${exp ? `: ${esc(exp)} ${esc(r.unit || item.unit || '')}` : ''}</h4>${nl(sol || 'Keine Lösungshinweise hinterlegt.')}${(r.grading || item.grading) ? `<p class="grading">Bewertung: ${esc(r.grading || item.grading)}</p>` : ''}</div>`);
+      };
+      $('#b-check').onclick = async () => {
+        await save();
+        $('#b-check').disabled = true;
+        try {
+          const r = await post(`/api/sessions/${sid}/check`, { part: part.id, item: item.id });
+          const c = r.check;
+          const cls = c.correct === true ? 'ok' : c.correct === false ? 'bad' : '';
+          $('#feedback').innerHTML = `<div class="panel ${cls}"><h4>${esc(c.message)}</h4>
+            ${c.keywords && c.keywords.length ? `<div class="kws">${c.keywords.map((k) => `<span class="kw ${k.hit ? 'hit' : 'miss'}">${esc(k.keyword)}</span>`).join('')}</div><p class="grading">Durchgestrichen heißt: in deiner Antwort nicht gefunden. Vergleiche mit der Musterlösung und trage deine Punkte ein.</p>` : ''}</div>`;
+          if (c.auto_points !== null && c.auto_points !== undefined) {
+            $('#sg-points').value = c.auto_points;
+            await post(`/api/sessions/${sid}/self-grade`, { part: part.id, item: item.id, points: c.auto_points });
+            const ans = getAnswer(view, part.id, item.id); ans.self_points = c.auto_points; view.session.answers[answerKey(part.id, item.id)] = ans;
+          } else if (c.suggested_points !== undefined && c.keywords && c.keywords.length) {
+            $('#sg-points').value = c.suggested_points;
+          }
+          showSolution(r);
+          refreshNavigator();
+        } catch (e) { toast(e.message, true); }
+        $('#b-check').disabled = false;
+      };
+      $('#b-solution').onclick = async () => {
+        await save();
+        const r = await post(`/api/sessions/${sid}/check`, { part: part.id, item: item.id });
+        $('#feedback').innerHTML = '';
+        showSolution(r);
+      };
+      $('#b-flag').onclick = async () => {
+        const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id));
+        ans.flagged = !ans.flagged;
+        view.session.answers[answerKey(part.id, item.id)] = ans;
+        await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans });
+        $('#b-flag').setAttribute('aria-pressed', String(ans.flagged));
+        $('#b-flag').textContent = ans.flagged ? 'Markiert' : 'Markieren';
+        refreshNavigator();
+      };
+      const saveGrade = async (pts) => {
+        try {
+          await post(`/api/sessions/${sid}/self-grade`, { part: part.id, item: item.id, points: pts });
+          const ans = getAnswer(view, part.id, item.id); ans.self_points = pts; view.session.answers[answerKey(part.id, item.id)] = ans;
+          toast(pts === null ? 'Bewertung entfernt' : `${fmtPts(pts)} Punkte übernommen`);
+          refreshNavigator();
+        } catch (e) { toast(e.message, true); }
+      };
+      $('#sg-save').onclick = () => { const v = $('#sg-points').value; saveGrade(v === '' ? null : Math.min(item.points, Math.max(0, +v.replace(',', '.')))); };
+      $('#sg-full').onclick = () => { $('#sg-points').value = item.points; saveGrade(item.points); };
+      $('#sg-zero').onclick = () => { $('#sg-points').value = 0; saveGrade(0); };
+      const refreshNavigator = () => {
+        const nav = $('#navigator');
+        if (!nav) return;
+        const wasOpen = nav.open;
+        nav.outerHTML = navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`);
+        $('#navigator').open = wasOpen;
+        bindNavigator(view, part.id, go.part, go.item);
+      };
+      $('#b-prev').onclick = async () => { await save(); pos.item = items[idx - 1].item.id; renderLearn(true); };
+      $('#b-next').onclick = async () => {
+        await save();
+        if (idx < items.length - 1) { pos.item = items[idx + 1].item.id; renderLearn(true); }
+        else {
+          const order = view.session.part_order; const pi = order.indexOf(part.id);
+          if (pi < order.length - 1) { pos = { part: order[pi + 1], item: null }; renderLearn(true); }
+          else location.hash = `#/result/${sid}`;
+        }
+      };
+      $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
+      if (!item.needs_figure && item.figure_pages && item.figure_pages.length && part.page_images && part.page_images.length) {
+        const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn sm quiet'; btn.textContent = `Originalseite ${item.figure_pages[0]}`;
+        btn.onclick = () => pageViewer(part.page_images, item.figure_pages[0] - 1, 'Originalseite');
+        $('.tool-row').insertBefore(btn, $('#save-state'));
+      }
+    };
+    renderLearn(false);
+  }
+
+  // ---------- Prüfungsmodus ----------
+  async function examView(sid) {
+    setNav('exams');
+    let view = await api(`/api/sessions/${sid}`);
+    if (view.session.finished) { location.hash = `#/result/${sid}`; return; }
+    state.view = view;
+    const order = view.session.part_order;
+    const stKey = `exam-pos-${sid}`;
+    let pos = JSON.parse(sessionStorage.getItem(stKey) || 'null') || { item: null };
+
+    const currentPartId = () => order.find((pid) => !(view.session.parts.find((s) => s.part_id === pid) || {}).finished_at) || null;
+
+    const startTimer = (partId) => {
+      stopTimer();
+      const remaining = view.remaining[partId];
+      if (remaining === null || remaining === undefined) return;
+      const loadedAt = Date.now();
+      const box = $('#timerbox');
+      box.hidden = false;
+      let announced = false;
+      const tick = async () => {
+        const left = Math.max(0, remaining - Math.floor((Date.now() - loadedAt) / 1000));
+        const m = Math.floor(left / 60), s = left % 60;
+        box.innerHTML = `<small>Restzeit</small>${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        box.className = 'timer' + (left <= 300 ? ' danger' : left <= 900 ? ' warn' : '');
+        if (left <= 300 && !announced) { announced = true; toast('Noch 5 Minuten'); }
+        if (left <= 0) { stopTimer(); await finishPart(partId, true); }
+      };
+      tick();
+      state.timer = setInterval(tick, 1000);
+    };
+
+    const finishPart = async (partId, auto) => {
+      if (!auto && !confirm('Diesen Prüfungsteil abgeben? Danach lassen sich die Antworten nicht mehr ändern.')) return;
+      try {
+        stopTimer();
+        view = await post(`/api/sessions/${sid}/finish-part`, { part: partId });
+        state.view = view;
+        pos = { item: null };
+        if (auto) toast('Die Zeit ist abgelaufen. Der Teil wurde abgegeben.');
+        if (view.session.finished) location.hash = `#/result/${sid}`; else render();
+      } catch (e) { toast(e.message, true); }
+    };
+
+    const render = (focusSheet) => {
+      const partId = currentPartId();
+      if (!partId) { location.hash = `#/result/${sid}`; return; }
+      const part = view.exam.parts.find((p) => p.id === partId);
+      const st = view.session.parts.find((s) => s.part_id === partId);
+      const pi = order.indexOf(partId);
+      if (!st.started_at) {
+        stopTimer();
+        app.innerHTML = `<div class="part-start">
+          <p class="work-head"><span class="mode" style="font:500 var(--text-sm)/1 var(--font-display);color:var(--color-accent)">Prüfung, Teil ${pi + 1} von ${order.length}</span></p>
+          <h1>${esc(part.title)}</h1>
+          <dl class="dl">
+            <div><dt>Prüfungszeit</dt><dd>${part.duration_min}<small>Minuten</small></dd></div>
+            <div><dt>Punkte</dt><dd>${part.max_points}</dd></div>
+            <div><dt>${part.kind === 'WiSo' ? 'Aufgaben' : 'Teilaufgaben'}</dt><dd>${part.kind === 'WiSo' ? part.tasks.length : part.tasks.reduce((a, t) => a + t.items.length, 0)}</dd></div>
+          </dl>
+          <p class="prose">Mit dem Start läuft die Zeit. Antworten werden automatisch gespeichert, und nach Ablauf der Zeit wird der Teil abgegeben. Ein Taschenrechner ist erlaubt.${part.attachments && part.attachments.length ? ' Der Belegsatz steht während der Bearbeitung bereit.' : ''}${pi > 0 ? ' Zwischen den Teilen gibt es in der echten Prüfung eine kurze Pause, nimm sie dir.' : ''}</p>
+          <div class="actions" style="margin-top:var(--space-lg)"><button type="button" class="btn primary" id="start-part">Teil ${pi + 1} starten</button>
+            ${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'Bogen als PDF zum Ausdrucken')}
+            ${(part.attachments || []).map((att, i) => att.pages && att.pages.length ? `<button type="button" class="btn quiet" data-startatt="${i}">${esc(att.title || 'Belegsatz')} ansehen</button>` : '').join('')}</div>
+        </div>`;
+        $('#start-part').onclick = async () => { $('#start-part').disabled = true; view = await post(`/api/sessions/${sid}/start`, { part: partId }); state.view = view; render(true); };
+        $$('[data-startatt]', app).forEach((b) => b.onclick = () => { const att = part.attachments[+b.dataset.startatt]; pageViewer(att.pages, 0, att.title || 'Belegsatz'); });
+        return;
+      }
+      const items = flatItems(part);
+      let idx = items.findIndex((x) => x.item.id === pos.item);
+      if (idx < 0) idx = 0;
+      pos.item = items[idx].item.id;
+      sessionStorage.setItem(stKey, JSON.stringify(pos));
+      const { task, item } = items[idx];
+      const a = getAnswer(view, part.id, item.id);
+      const answered = items.filter((x) => !answerIsEmpty(view.session.answers[answerKey(part.id, x.item.id)])).length;
+      const where = `${part.kind === 'WiSo' ? 'Aufgabe ' + task.number : task.number + ' ' + (item.label || '')}`;
+      app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Prüfung, Teil ${pi + 1} von ${order.length}</span><h1>${esc(part.title)}</h1></div>
+          <div class="actions"><span class="small muted"><span class="num">${answered} / ${items.length}</span> beantwortet</span><button type="button" class="btn danger" id="b-finish">Teil abgeben</button></div></div>
+        <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
+        <div>${sheetHtml(part, task, item, idx, items.length, `
+          <div class="answer" id="answer-area">${renderAnswerInput(item, a, false)}</div>
+          <div class="tool-row"><button type="button" id="b-flag" class="btn sm" aria-pressed="${!!a.flagged}">${a.flagged ? 'Zur Kontrolle markiert' : 'Zur Kontrolle markieren'}</button><span class="save-state" id="save-state" role="status"></span></div>`)}
+        <div class="pager"><button type="button" class="btn" id="b-prev" ${idx === 0 ? 'disabled' : ''}>Vorherige</button><span class="pos">${idx + 1} / ${items.length}</span><button type="button" class="btn" id="b-next" ${idx === items.length - 1 ? 'disabled' : ''}>Nächste</button></div>
+        </div></div>`;
+      if (focusSheet) { $('#task-h').setAttribute('tabindex', '-1'); $('#task-h').focus(); }
+      bindNavigator(view, part.id, () => {}, (iid) => { saveNow().then(() => { pos.item = iid; render(true); }); });
+      $$('[data-part]', app).forEach((b) => { if (b.dataset.part !== partId) b.disabled = true; });
+      startTimer(partId);
+      const area = $('#answer-area');
+      let saveTimer = null;
+      const saveNow = async () => {
+        const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id));
+        if (JSON.stringify(ans) === JSON.stringify(view.session.answers[answerKey(part.id, item.id)] || null) && answerIsEmpty(ans)) return;
+        view.session.answers[answerKey(part.id, item.id)] = ans;
+        setSave('speichert …');
+        try {
+          const r = await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans });
+          setSave('gespeichert');
+          if (r.remaining !== null && r.remaining !== undefined) { view.remaining[part.id] = r.remaining; startTimer(partId); }
+        } catch (e) { setSave('Nicht gespeichert: ' + e.message); if (/abgelaufen/.test(e.message)) finishPart(partId, true); }
+      };
+      area.addEventListener('input', () => { clearTimeout(saveTimer); setSave('…'); saveTimer = setTimeout(saveNow, 700); });
+      area.addEventListener('change', () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 100); });
+      $('#b-flag').onclick = async () => { const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id)); ans.flagged = !ans.flagged; view.session.answers[answerKey(part.id, item.id)] = ans; await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans }); render(); };
+      $('#b-prev').onclick = async () => { await saveNow(); pos.item = items[idx - 1].item.id; render(true); };
+      $('#b-next').onclick = async () => { await saveNow(); pos.item = items[idx + 1].item.id; render(true); };
+      $('#b-finish').onclick = async () => { await saveNow(); finishPart(partId, false); };
+      $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
+    };
+    render(false);
+  }
+
+  // ---------- Auswertung ----------
+  async function resultView(sid) {
+    setNav('exams');
+    const view = await api(`/api/sessions/${sid}`);
+    const s = view.session;
+    if (s.mode === 'exam' && !s.finished) {
+      if (!confirm('Die Prüfung ist noch nicht abgeschlossen. Jetzt alle Teile abgeben und auswerten?')) { location.hash = `#/exam/${sid}`; return; }
+      await post(`/api/sessions/${sid}/finish`, {});
+      return resultView(sid);
+    }
+    const exam = s.mode === 'exam' ? (await api(`/api/sessions/${sid}`)).exam : view.exam;
+    let filter = 'all';
+    const render = async () => {
+      const r = await api(`/api/sessions/${sid}/result`);
+      const totalPct = r.total_max ? r.total_points / r.total_max * 100 : 0;
+      const unrated = r.parts.reduce((a, p) => a + p.unrated_items, 0);
+      const bucket = (ir, item) => !ir.answered ? 'empty' : ir.points === null || ir.points === undefined ? 'open' : ir.points >= item.points ? 'full' : 'lost';
+      const counts = { all: 0, lost: 0, open: 0, empty: 0 };
+      r.parts.forEach((p) => { const part = exam.parts.find((x) => x.id === p.part_id); p.items.forEach((ir) => { const it = part.tasks.find((x) => x.number === ir.task_number).items.find((x) => x.id === ir.item_id); counts.all++; const b = bucket(ir, it); if (b in counts) counts[b]++; }); });
+      app.innerHTML = `<div class="page-head"><div>
+          <p class="work-head" style="margin:0 0 var(--space-xs)"><span class="mode" style="font:500 var(--text-sm)/1 var(--font-display);color:var(--color-accent)">${s.mode === 'exam' ? 'Auswertung der Prüfungssimulation' : 'Zwischenstand im Lernmodus'}</span></p>
+          <h1>${esc(s.exam_title)}</h1></div>
+          <div class="actions">${pdfLink(`/api/sessions/${sid}/pdf?solutions=1`, 'PDF mit Antworten und Lösungen')}<a class="btn sm" href="#/exam-detail/${s.exam_id}">Zur Prüfung</a></div></div>
+        <div class="split">
+          <div class="sheet">
+            <table class="t"><thead><tr><th>Bereich</th><th class="num">Punkte</th><th class="num">Note</th><th class="num">Zeit</th></tr></thead><tbody>
+            ${r.parts.map((p) => `<tr><td>${esc(kindLabel(p.kind))}${p.unrated_items ? `<span class="sub tag accent">${p.unrated_items} Antworten noch selbst bewerten</span>` : ''}</td><td class="num">${fmtPts(Math.round(p.points * 2) / 2)} / ${p.max_points}</td><td class="num">${p.grade}</td><td class="num">${p.used_minutes ? Math.round(p.used_minutes) + ' min' : '–'}</td></tr>`).join('')}
+            </tbody></table>
+            <p style="margin-top:var(--space-md)"><span class="grade">${fmtPts(Math.round(r.total_points * 2) / 2)}</span> <span class="muted">von ${r.total_max} Punkten, ${totalPct.toFixed(0)} %, Notenschnitt ${r.average_grade.toFixed(1).replace('.', ',')}</span></p>
+            ${s.mode === 'exam' ? `<p class="verdict ${r.passed ? 'ok' : 'bad'}" style="margin-top:var(--space-xs)">${r.passed ? 'Bestanden' : 'Nach den Bestehensregeln nicht bestanden'}</p>` : ''}
+          </div>
+          <div class="small muted prose">
+            <p>Notenschlüssel je Bereich: 1 ab 92, 2 ab 81, 3 ab 67, 4 ab 50, 5 ab 30 Punkten, darunter 6.</p>
+            <p>Bestanden heißt hier: insgesamt mindestens 50 %, höchstens ein Bereich mangelhaft und keiner ungenügend.</p>
+            <p>Freitext bewertest du selbst mit den Lösungshinweisen. Der Stichwort-Check schlägt Punkte vor.${unrated ? ` Noch offen: ${unrated} Antworten.` : ''}</p>
+          </div>
+        </div>
+        ${r.topic_stats.length ? `<section class="section"><details class="disc"><summary>Auswertung nach Themen<span class="tag">${r.topic_stats.length} Themen</span></summary><div class="disc-body">${r.topic_stats.map((t) => meterRow(esc(t.topic), t.ratio, `${fmtPts(t.points)} / ${fmtPts(t.max_points)}`)).join('')}</div></details></section>` : ''}
+        <section class="section" aria-labelledby="ti-h">
+          <h2 id="ti-h">Teilaufgaben</h2>
+          <div class="tabs" role="tablist" aria-label="Teilaufgaben filtern">
+            <button type="button" role="tab" data-filter="all" aria-selected="${filter === 'all'}">Alle<span class="count">${counts.all}</span></button>
+            <button type="button" role="tab" data-filter="lost" aria-selected="${filter === 'lost'}">Punkte verloren<span class="count">${counts.lost}</span></button>
+            <button type="button" role="tab" data-filter="open" aria-selected="${filter === 'open'}">Noch bewerten<span class="count">${counts.open}</span></button>
+            <button type="button" role="tab" data-filter="empty" aria-selected="${filter === 'empty'}">Nicht beantwortet<span class="count">${counts.empty}</span></button>
+          </div>
+          ${r.parts.map((p) => { const part = exam.parts.find((x) => x.id === p.part_id); return `<h3 style="margin-top:var(--space-lg)" data-parthead>${esc(kindLabel(p.kind))}</h3>
+            ${p.items.map((ir) => { const t = part.tasks.find((x) => x.number === ir.task_number); const item = t.items.find((x) => x.id === ir.item_id); const a = s.answers[answerKey(p.part_id, item.id)] || {}; const c = ir.check; const b = bucket(ir, item);
+              return `<div class="result-item" id="ri-${p.part_id}-${item.id}" data-bucket="${b}" ${filter !== 'all' && filter !== b ? 'hidden' : ''}>
+                <div class="ri-head"><div><strong>${part.kind === 'WiSo' ? `Aufgabe ${t.number}` : `${t.number}${esc(item.label ? ' ' + item.label : '')}`}</strong> <span class="muted small">${esc(t.title || '')}</span></div>
+                  ${b === 'open' ? '<span class="score open">noch bewerten</span>' : `<span class="score ${ir.points >= item.points ? 'ok' : ir.points > 0 ? 'part' : 'bad'}">${fmtPts(ir.points)} / ${fmtPts(item.points)}${ir.auto ? ' automatisch' : ''}</span>`}</div>
+                <p class="q">${nl(item.text)}</p>
+                ${item.options && item.options.length ? `<div class="small muted">${item.options.map((o) => `<div><span class="key">${esc(o.key)}</span> ${esc(o.text)}</div>`).join('')}</div>` : ''}
+                <div class="ans">${answerIsEmpty(a) ? '<em class="muted">Keine Antwort</em>' : esc([a.value, (a.selected || []).join(', '), a.text, ...(a.cells || []).map((row) => row.filter((cell) => cell && cell.trim()).join(' | '))].filter(Boolean).join('\n'))}</div>
+                ${c && c.keywords && c.keywords.length ? `<div class="kws">${c.keywords.map((k) => `<span class="kw ${k.hit ? 'hit' : 'miss'}">${esc(k.keyword)}</span>`).join('')}</div>` : ''}
+                ${c && c.message && ir.auto ? `<p class="small">${esc(c.message)}</p>` : ''}
+                <details ${ir.auto ? '' : 'open'}><summary>Lösungshinweise${item.expected ? `: ${esc(item.expected)} ${esc(item.unit || '')}` : ''}</summary><div class="panel solution">${nl(item.solution || '–')}${item.grading ? `<p class="grading">Bewertung: ${esc(item.grading)}</p>` : ''}</div></details>
+                ${ir.auto ? '' : `<div class="selfgrade"><label class="field"><span>Punkte</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" value="${a.self_points ?? (c && c.suggested_points !== undefined && !answerIsEmpty(a) ? c.suggested_points : '')}" data-sg="${p.part_id}|${item.id}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${fmtPts(item.points)}</span><button type="button" class="btn sm" data-sgfull="${p.part_id}|${item.id}">Volle Punkte</button><button type="button" class="btn sm" data-sgzero="${p.part_id}|${item.id}">0 Punkte</button></div>`}
+              </div>`; }).join('')}`; }).join('')}
+          <p class="empty" id="ri-none" hidden>Keine Teilaufgabe in dieser Ansicht.</p>
+        </section>`;
+      const applyFilter = () => {
+        $$('[data-filter]', app).forEach((b) => b.setAttribute('aria-selected', String(b.dataset.filter === filter)));
+        $$('.result-item', app).forEach((el) => { el.hidden = filter !== 'all' && el.dataset.bucket !== filter; });
+        $('#ri-none').hidden = $$('.result-item', app).some((el) => !el.hidden);
+      };
+      $$('[data-filter]', app).forEach((b) => b.onclick = () => { filter = b.dataset.filter; applyFilter(); });
+      applyFilter();
+      const sg = async (part, itemId, pts) => { await post(`/api/sessions/${sid}/self-grade`, { part, item: itemId, points: pts }); const y = window.scrollY; await render(); window.scrollTo(0, y); };
+      $$('input[data-sg]', app).forEach((i) => i.onchange = () => { const [part, itemId] = i.dataset.sg.split('|'); const max = +i.max; sg(part, itemId, i.value === '' ? null : Math.min(max, Math.max(0, +String(i.value).replace(',', '.')))); });
+      $$('[data-sgfull]', app).forEach((b) => b.onclick = () => { const [part, itemId] = b.dataset.sgfull.split('|'); const inp = app.querySelector(`input[data-sg="${part}|${itemId}"]`); sg(part, itemId, +inp.max); });
+      $$('[data-sgzero]', app).forEach((b) => b.onclick = () => { const [part, itemId] = b.dataset.sgzero.split('|'); sg(part, itemId, 0); });
+    };
+    await render();
+  }
+
+  // ---------- Archiv: alle Originalprüfungen, nach Beruf ----------
+  const BERUF_SLUG = (b) => b.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const docPages = (d) => Array.from({ length: d.pages }, (_, i) => `pages_web/${d.id}/${String(i + 1).padStart(d.pages > 99 ? 3 : 2, '0')}.webp`);
+  const bookNote = (d) => {
+    if (d.ordnung !== 'AO1997' || !/^GA/.test(d.teil || '')) return '';
+    if (d.sort >= '2013') return '';
+    return d.sort.startsWith('2003') || d.sort.startsWith('2000') ? 'Fachbuch vermutlich erlaubt' : 'damals mit Fachbuch, ohne Belegsatz';
+  };
+  async function archiveCatalog() {
+    const cat = await api('/api/archive');
+    const docs = (cat.docs || []).filter((d) => !d.duplicate_of && d.pages > 0);
+    const sols = {}; docs.filter((d) => d.rolle === 'loesung' && d.solution_of).forEach((d) => { (sols[d.solution_of] || (sols[d.solution_of] = [])).push(d); });
+    return { docs, sols };
+  }
+  async function archiveView(slug) {
+    setNav('archive');
+    const { docs, sols } = await archiveCatalog();
+    const counts = {}; docs.forEach((d) => { if (d.rolle !== 'loesung') counts[d.beruf] = (counts[d.beruf] || 0) + 1; });
+    const main = ['IT-System-Elektroniker', 'Alle IT-Berufe'];
+    const others = Object.keys(counts).filter((b) => !main.includes(b)).sort();
+    const beruf = [...main, ...others].find((b) => BERUF_SLUG(b) === slug) || 'IT-System-Elektroniker';
+    const list = docs.filter((d) => d.beruf === beruf && (d.rolle !== 'loesung' || !d.solution_of));
+    const terms = {}; list.forEach((d) => { (terms[d.sort + '|' + d.termin + '|' + d.ordnung] || (terms[d.sort + '|' + d.termin + '|' + d.ordnung] = [])).push(d); });
+    const keys = Object.keys(terms).sort().reverse();
+    const docRow = (d) => { const so = sols[d.id] || []; return `<tr><td data-label="Teil">${esc(d.teil || '')}</td><td data-label="Dokument">${esc(d.title)}${d.rolle === 'loesung' ? ' <span class="tag">Lösung</span>' : ''}${d.note ? `<span class="sub tag warn">${esc(d.note)}</span>` : ''}${bookNote(d) ? `<span class="sub tag warn">${bookNote(d)}</span>` : ''}</td><td class="num" data-label="Seiten">${d.pages}</td><td class="acts"><div class="actions">
+        ${d.rolle === 'aufgaben' ? `<a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>` : ''}
+        <button type="button" class="btn sm quiet" data-view="${d.id}">Ansehen</button>
+        ${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">Lösung</button>`).join('')}</div></td></tr>`; };
+    app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Alle Originalprüfungen als Seiten zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
+        <div class="actions" style="align-items:end">
+          <label class="field" style="width:min(100%,20rem)"><span>Beruf</span><select class="input" id="a-beruf">${[...main, ...others].filter((b) => counts[b]).map((b) => `<option value="${BERUF_SLUG(b)}" ${b === beruf ? 'selected' : ''}>${esc(b)} (${counts[b]})</option>`).join('')}</select></label>
+          <label class="field" style="width:min(100%,12rem)"><span>Termin filtern</span><input class="input" type="search" id="a-search" autocomplete="off" placeholder="2019"></label>
+        </div></div>
+      ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
+      ${list.some((d) => bookNote(d)) ? '<div class="note warn"><h3>Bis Winter 2012/13 war ein Fachbuch erlaubt</h3><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></div>' : ''}
+      <section class="section" id="a-list">${keys.map((k) => { const [, termin, ordnung] = k.split('|'); return `<details class="disc" data-term="${esc(termin.toLowerCase())}"><summary>${esc(termin)}<span class="tag">${ordnung === 'AO1997' ? 'alte Ordnung' : 'Ordnung 2020'}, ${terms[k].length} Dokumente</span></summary><div class="disc-body"><table class="t stack"><thead><tr><th>Teil</th><th>Dokument</th><th class="num">Seiten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${terms[k].map(docRow).join('')}</tbody></table></div></details>`; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</section>
+      <p class="empty" id="a-none" hidden>Kein Termin passt zum Filter.</p>`;
+    $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
+    const byId = Object.fromEntries(docs.map((d) => [d.id, d]));
+    $$('[data-view]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.view]; pageViewer(docPages(d), 0, `${d.termin}: ${d.title}`); });
+    $('#a-search').oninput = (ev) => {
+      const q = ev.target.value.toLowerCase().trim();
+      $$('[data-term]', app).forEach((c) => { c.hidden = !!q && !c.dataset.term.includes(q); });
+      $('#a-none').hidden = $$('[data-term]', app).some((c) => !c.hidden);
+    };
+  }
+
+  // ---------- Originalprüfung bearbeiten (Seiten, Notizen, Timer, Selbstbewertung) ----------
+  async function originalView(id) {
+    setNav('archive');
+    const { docs, sols } = await archiveCatalog();
+    const d = docs.find((x) => x.id === id);
+    if (!d) { app.innerHTML = errorState('Dokument nicht gefunden', 'Dieses Dokument ist nicht im Archiv.'); return; }
+    const store = window.AP2Local.originals;
+    const o = store.get(id) || { id, title: `${d.termin}: ${d.title}`, beruf: d.beruf, created: new Date().toISOString(), notes: '', started: null, minutes: /wiso/i.test(d.teil || '') ? 60 : 90, finished: null, points: null, max: 100 };
+    const so = sols[id] || [];
+    const pages = docPages(d);
+    app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Original bearbeiten</span><h1>${esc(d.termin)}: ${esc(d.title)}</h1></div>
+        <div class="actions"><a class="btn sm quiet" href="#/archive/${BERUF_SLUG(d.beruf)}">Zurück zum Archiv</a></div></div>
+      ${bookNote(d) ? `<p class="note warn" style="margin-bottom:var(--space-md)">${bookNote(d)}: Nimm zum Üben ein Tabellenbuch oder eine Formelsammlung dazu.</p>` : ''}
+      <div class="work">
+        <aside class="navigator" style="display:grid;gap:var(--space-md);align-content:start">
+          <div><h2 style="font-size:var(--text-lg)">Zeit</h2>
+            <div class="actions" style="margin-top:var(--space-xs)"><label class="field" style="width:6.5rem"><span>Minuten</span><input class="input num" type="number" min="1" max="300" id="o-min" value="${o.minutes}"></label>
+            <button type="button" class="btn" id="o-start" style="align-self:end">${o.started ? 'Neu starten' : 'Zeit starten'}</button></div>
+            <p class="small muted" id="o-time" style="margin-top:var(--space-xs)" role="timer">${o.started ? '' : 'Ohne Zeitlimit üben oder die Zeit starten.'}</p></div>
+          <label class="field"><span>Notizen und Antworten</span><textarea class="input" id="o-notes" style="min-height:14rem" placeholder="Zum Beispiel: 1a) …">${esc(o.notes)}</textarea><span class="small muted" id="o-save" role="status"></span></label>
+          <div><h2 style="font-size:var(--text-lg)">Auswertung</h2>
+            <div class="actions" style="margin-top:var(--space-xs)">${so.length ? so.map((x, i) => `<button type="button" class="btn sm" data-sol="${x.id}">Lösung${so.length > 1 ? ' ' + (i + 1) : ''} ansehen</button>`).join('') : '<span class="small muted">Zu diesem Dokument liegt keine Lösung vor.</span>'}</div>
+            <div class="selfgrade"><label class="field"><span>Erreicht</span><input class="input num" type="number" min="0" step="0.5" id="o-points" value="${o.points ?? ''}"></label><label class="field"><span>von</span><input class="input num" type="number" min="1" step="1" id="o-max" value="${o.max}"></label><button type="button" class="btn sm" id="o-done">Speichern</button></div>
+            <p class="small muted" id="o-grade" style="margin-top:var(--space-xs)"></p></div>
+        </aside>
+        <div id="o-pages" style="display:grid;gap:var(--space-md)">${pages.map((p, i) => `<figure style="margin:0"><img data-src="${esc(p)}" alt="Seite ${i + 1}" width="827" height="1169" style="width:100%;height:auto;background:var(--color-scan);outline:var(--rule-hair) solid var(--color-rule-2);outline-offset:-1px"><figcaption class="small muted">Seite ${i + 1} von ${pages.length}</figcaption></figure>`).join('')}</div>
+      </div>`;
+    const persist = () => { try { store.put(o); $('#o-save').textContent = 'gespeichert'; } catch (e) { toast(e.message, true); } };
+    const io = new IntersectionObserver((ents) => ents.forEach((en) => { if (!en.isIntersecting) return; const img = en.target; io.unobserve(img); window.AP2Local.pageSrc(img.dataset.src).then((u) => { img.src = u; }).catch(() => { img.alt = 'Seite konnte nicht geladen werden'; }); }), { rootMargin: '800px 0px' });
+    $$('#o-pages img').forEach((img) => io.observe(img));
+    let t = null;
+    $('#o-notes').oninput = () => { o.notes = $('#o-notes').value; $('#o-save').textContent = '…'; clearTimeout(t); t = setTimeout(persist, 600); };
+    const showGrade = () => { if (o.points === null || o.points === undefined || !o.max) { $('#o-grade').textContent = ''; return; } const pct = o.points / o.max * 100; $('#o-grade').textContent = `${pct.toFixed(0)} %, Note ${gradeFor(pct)}`; };
+    showGrade();
+    $('#o-done').onclick = () => { const p = $('#o-points').value; o.points = p === '' ? null : Math.max(0, +p.replace(',', '.')); o.max = Math.max(1, +$('#o-max').value || 100); o.finished = new Date().toISOString(); persist(); showGrade(); toast('Ergebnis gespeichert'); };
+    $$('[data-sol]', app).forEach((b) => b.onclick = () => { const sd = docs.find((x) => x.id === b.dataset.sol); pageViewer(docPages(sd), 0, `Lösung: ${d.termin}`); });
+    const tick = () => {
+      if (!o.started) return;
+      const left = Math.max(0, Math.round((Date.parse(o.started) + o.minutes * 60000 - Date.now()) / 1000));
+      $('#o-time').textContent = left ? `Restzeit ${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}` : 'Die Zeit ist abgelaufen.';
+      if (!left) { stopTimer(); }
+    };
+    $('#o-start').onclick = () => { o.minutes = Math.max(1, +$('#o-min').value || 90); o.started = new Date().toISOString(); persist(); stopTimer(); tick(); state.timer = setInterval(tick, 1000); $('#o-start').textContent = 'Neu starten'; };
+    if (o.started) { tick(); state.timer = setInterval(tick, 1000); }
+  }
+
+  // ---------- Druckansicht (ersetzt den PDF-Export) ----------
+  async function printView(examId, sid, query) {
+    setNav('exams');
+    const q = new URLSearchParams(query || '');
+    let exam, session = null;
+    if (sid) { const v = await api(`/api/sessions/${sid}`); session = v.session; exam = (await api(`/api/exams/${session.exam_id}`)); }
+    else exam = await api(`/api/exams/${examId}`);
+    const parts = (q.get('parts') || '').split(',').filter(Boolean);
+    const withSol = q.get('solutions') === '1' && (!session || session.mode === 'learn' || session.finished);
+    const chosen = exam.parts.filter((p) => !parts.length || parts.includes(p.id));
+    const lines = (n) => `<div class="p-lines" style="--n:${n}"></div>`;
+    const answerOf = (pid, iid) => (session && session.answers[`${pid}/${iid}`]) || null;
+    const itemHtml = (part, item) => {
+      const a = answerOf(part.id, item.id);
+      const t = item.answer_type;
+      let area = '';
+      if (item.options && item.options.length) area += `<ol class="p-opts">${item.options.map((o) => `<li><b>${esc(o.key)}</b> ${nl(o.text)}</li>`).join('')}</ol>`;
+      if (item.table) area += `<table class="p-table"><thead><tr>${item.table.columns.map((c) => `<th>${nl(c)}</th>`).join('')}</tr></thead><tbody>${item.table.rows.map((r, ri) => `<tr>${r.map((c, ci) => `<td>${(c || '').trim() ? nl(c) : esc(((a && a.cells && a.cells[ri]) || [])[ci] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+      if (a && (a.text || a.value || (a.selected || []).length)) area += `<div class="p-answer">${esc([a.value, (a.selected || []).join(', '), a.text].filter(Boolean).join('\n'))}</div>`;
+      else if (part.kind !== 'WiSo' && t !== 'table') area += t === 'sketch' ? '<div class="p-box"></div>' : lines(Math.min(9, Math.max(2, Math.ceil(item.points * (t === 'number' ? 1.1 : 1.3))))) + (t === 'number' ? `<p class="p-result">Ergebnis: ______________ ${esc(item.unit || '')}</p>` : '');
+      const sol = withSol ? `<div class="p-sol"><b>Lösung${item.expected ? `: ${esc(item.expected)} ${esc(item.unit || '')}` : ''}</b><br>${nl(item.solution || '')}${item.grading ? `<br><i>Bewertung: ${esc(item.grading)}</i>` : ''}</div>` : '';
+      return `<div class="p-item"><div class="p-q"><span class="p-label">${esc(item.label)}</span>${nl(item.text)}</div>${area}${sol}<div class="p-rand">${ptsLabel(item.points)}${a && a.self_points != null ? `<br>erreicht: ${fmtPts(a.self_points)}` : ''}</div></div>`;
+    };
+    const partHtml = (part) => `<section class="p-part">
+      <div class="p-cover"><p>Abschlussprüfung ${esc(exam.season || '')} ${esc(String(exam.year || ''))}${exam.origin === 'generated' ? ' (generierte Übungsprüfung)' : ''}</p>
+        <h2>${esc(kindLabel(part.kind))}</h2><p>${esc(part.title)}</p><p>IT-System-Elektroniker/-in</p>
+        <table class="p-table"><tbody><tr><td>${part.duration_min} Minuten Prüfungszeit</td><td>${part.max_points} Punkte</td><td>${part.tasks.length} Aufgaben</td></tr><tr><td colspan="3">Name, Vorname: ______________________________ Prüflingsnummer: ____________</td></tr></tbody></table>
+        <p class="p-small">Übungsfassung aus dem AP2-Simulator, nur für die persönliche Prüfungsvorbereitung.</p></div>
+      ${part.situation ? `<div class="p-situation">${nl(part.situation)}</div>` : ''}
+      ${part.tasks.map((t) => `<div class="p-task"><h3>${part.kind === 'WiSo' ? `Aufgabe ${t.number}` : `${t.number}. Aufgabe (${t.points} Punkte)`}</h3>${t.intro && part.kind !== 'WiSo' ? `<p class="p-intro">${nl(t.intro)}</p>` : ''}${t.items.map((i) => itemHtml(part, i)).join('')}</div>`).join('')}
+      ${part.kind === 'WiSo' ? `<div class="p-sheet"><h3>Lösungsbogen</h3><table class="p-table"><tbody>${part.tasks.map((t) => { const a = answerOf(part.id, t.items[0].id); return `<tr><td>${t.number}</td><td>${a ? esc(a.value || (a.selected || []).join(', ')) : ''}${withSol ? ` <i>(Lösung: ${esc(t.items[0].expected)})</i>` : ''}</td></tr>`; }).join('')}</tbody></table></div>` : ''}
+    </section>`;
+    app.innerHTML = `<div class="print-bar"><button type="button" class="btn primary" id="p-print">Drucken oder als PDF speichern</button><a class="btn quiet" href="${sid ? `#/result/${sid}` : `#/exam-detail/${exam.id}`}">Zurück</a><span class="small muted">Im Druckdialog „Als PDF speichern“ wählen, Papierformat A4.</span></div>
+      <div class="print-doc">${chosen.map(partHtml).join('')}</div>`;
+    $('#p-print').onclick = () => window.print();
+  }
+
+  async function boot() {
+    let st;
+    try { st = await window.AP2Local.init(); }
+    catch (e) { app.innerHTML = errorState('Daten nicht verfügbar', e.message); return; }
+    if (!st.needsPassword) { route(); return; }
+    document.body.classList.add('locked');
+    app.innerHTML = `<div class="gate"><h1>AP2-Simulator</h1>
+      <p class="lede">Die Prüfungen sind geschützt. Gib das Passwort ein, das du bekommen hast. Es bleibt auf diesem Gerät gespeichert.</p>
+      <form id="gate-form" class="sheet" style="margin-top:var(--space-lg)" novalidate>
+        <label class="field"><span>Passwort</span><input class="input" type="password" id="gate-pw" name="password" autocomplete="current-password" required autofocus></label>
+        <p class="small" id="gate-err" role="alert" style="min-height:1lh;color:var(--color-error);margin-top:var(--space-2xs)"></p>
+        <div class="actions" style="margin-top:var(--space-sm)"><button type="submit" class="btn primary" id="gate-go">Öffnen</button></div>
+      </form></div>`;
+    $('#gate-form').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const pw = $('#gate-pw').value;
+      if (!pw) { $('#gate-err').textContent = 'Bitte das Passwort eingeben.'; $('#gate-pw').setAttribute('aria-invalid', 'true'); $('#gate-pw').focus(); return; }
+      $('#gate-go').disabled = true; $('#gate-go').textContent = 'Wird entschlüsselt …'; $('#gate-err').textContent = '';
+      try { await window.AP2Local.unlock(pw); document.body.classList.remove('locked'); route(); }
+      catch (e) { $('#gate-err').textContent = e.message + '.'; $('#gate-pw').setAttribute('aria-invalid', 'true'); $('#gate-pw').focus(); $('#gate-go').disabled = false; $('#gate-go').textContent = 'Öffnen'; }
+    };
+  }
+  boot();
+})();

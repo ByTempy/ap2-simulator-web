@@ -1,0 +1,51 @@
+/* Vantage-Tokens (Hallmark v2.0.0, App-Scope) mit IHK-Blau als Akzent (.hallmark/brand-spec.md); dunkler Modus = Vantage-Original. */
+:root {
+  color-scheme: light dark;
+  --color-paper: oklch(96.5% 0.005 235); --color-paper-2: oklch(93.5% 0.007 235); --color-paper-3: oklch(90.5% 0.009 235);
+  --color-sheet: oklch(98.8% 0.003 235); --color-well: oklch(95% 0.006 235);
+  --color-ink: oklch(19% 0.016 240); --color-ink-2: oklch(31% 0.014 238); --color-muted: oklch(47% 0.014 235);
+  --color-rule: oklch(88% 0.008 235); --color-rule-2: oklch(76% 0.012 235);
+  --color-accent: oklch(32.3% 0.103 254); --color-accent-2: oklch(25.5% 0.077 252); --color-accent-ink: oklch(97% 0.006 245); --color-focus: oklch(40% 0.120 254);
+  --color-error: oklch(47% 0.17 27); --color-success: oklch(46% 0.11 150); --color-warn: oklch(48% 0.10 70);
+  --color-backdrop: oklch(19% 0.016 240 / 0.55);
+  --font-display: "Geologica", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Geologica", ui-sans-serif, system-ui, sans-serif;
+  --font-outlier: "Geologica", ui-sans-serif, system-ui, sans-serif;
+  --radius-card: 4px; --radius-pill: 999px; --tick: 10px;
+  --tracking-display: -0.035em; --display-weight: 300; --body-weight: 300;
+  --rule-hair: 1px; --rule-bar: 2px; --shadow-card: none;
+  --color-scan: oklch(98% 0.004 245); --color-print-ink: oklch(18% 0.016 240); --color-print-rule: oklch(72% 0.010 240);
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.2rem; --text-xl: 1.44rem; --text-2xl: 1.728rem; --text-3xl: 2.074rem;
+  --text-display-s: 1.44rem; --text-display: 1.728rem; --text-section: 1.2rem; --text-title: 1rem; --text-lead: 1rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+  --container: 1440px; --gutter: 64px; --gap-columns: 32px;
+  --control-h: 40px; --nav-h: 64px; --navigator-w: 19rem;
+  --z-raised: 10; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500;
+}
+
+[data-mode="dark"] {
+  --color-paper: oklch(13.5% 0.012 235); --color-paper-2: oklch(17% 0.014 235); --color-paper-3: oklch(21% 0.016 235);
+  --color-sheet: oklch(16% 0.013 235); --color-well: oklch(20% 0.015 235);
+  --color-ink: oklch(95% 0.006 230); --color-ink-2: oklch(82% 0.012 230); --color-muted: oklch(66% 0.016 230);
+  --color-rule: oklch(27% 0.014 235); --color-rule-2: oklch(38% 0.016 235);
+  --color-accent: oklch(74% 0.090 254); --color-accent-2: oklch(80% 0.080 254); --color-accent-ink: oklch(15% 0.020 245); --color-focus: oklch(78% 0.100 254);
+  --color-error: oklch(72% 0.14 27); --color-success: oklch(74% 0.12 150); --color-warn: oklch(80% 0.11 75);
+  --color-backdrop: oklch(6% 0.010 235 / 0.75);
+  --body-weight: 300;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode]) {
+    --color-paper: oklch(13.5% 0.012 235); --color-paper-2: oklch(17% 0.014 235); --color-paper-3: oklch(21% 0.016 235);
+    --color-sheet: oklch(16% 0.013 235); --color-well: oklch(20% 0.015 235);
+    --color-ink: oklch(95% 0.006 230); --color-ink-2: oklch(82% 0.012 230); --color-muted: oklch(66% 0.016 230);
+    --color-rule: oklch(27% 0.014 235); --color-rule-2: oklch(38% 0.016 235);
+    --color-accent: oklch(74% 0.090 254); --color-accent-2: oklch(80% 0.080 254); --color-accent-ink: oklch(15% 0.020 245); --color-focus: oklch(78% 0.100 254);
+    --color-error: oklch(72% 0.14 27); --color-success: oklch(74% 0.12 150); --color-warn: oklch(80% 0.11 75);
+    --color-backdrop: oklch(6% 0.010 235 / 0.75);
+    --body-weight: 300;
+  }
+}
+[data-mode="light"] { color-scheme: light; }
+[data-mode="dark"] { color-scheme: dark; }
