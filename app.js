@@ -115,8 +115,9 @@
   function applyMode(m) {
     if (m === 'auto') delete document.documentElement.dataset.mode; else document.documentElement.dataset.mode = m;
     try { if (m === 'auto') localStorage.removeItem('ap2-mode'); else localStorage.setItem('ap2-mode', m); } catch (e) { /* privater Modus */ }
-    $('#mode-name').textContent = MODE_NAMES[m];
+    $('#mode-btn').querySelectorAll('svg').forEach((s) => s.toggleAttribute('hidden', s.dataset.m !== m));
     $('#mode-btn').setAttribute('aria-label', `Darstellung: ${MODE_NAMES[m]}. Klicken zum Wechseln`);
+    $('#mode-btn').title = `Darstellung: ${MODE_NAMES[m]}`;
   }
   applyMode(document.documentElement.dataset.mode || 'auto');
   $('#mode-btn').onclick = () => applyMode(MODES[(MODES.indexOf(document.documentElement.dataset.mode || 'auto') + 1) % 3]);

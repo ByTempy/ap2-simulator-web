@@ -24,6 +24,10 @@
 .timer.warn { border-color: var(--color-warn); color: var(--color-warn); }
 .timer.danger { border-color: var(--color-error); color: var(--color-error); }
 .btn.menu-btn { display: none; }
+/* Darstellung: nur ein Icon in Textfarbe, ohne Rahmen, damit es nicht hervorsticht */
+.btn.icon-btn { width: var(--control-h); padding: 0; border-color: transparent; color: var(--color-muted); }
+.btn.icon-btn svg[hidden] { display: none; }
+@media (hover: hover) { .btn.icon-btn:hover { color: var(--color-ink); background: transparent; } }
 @media (max-width: 60rem) {
   .brand-sub { display: none; }
   .btn.menu-btn { display: inline-flex; }
@@ -33,7 +37,7 @@
   .nav a[aria-current="page"] { border-bottom-color: var(--color-rule); color: var(--color-accent); }
   .bar-tools { margin-left: auto; }
 }
-@media (max-width: 40rem) { .timer small { display: none; } .mode-btn .label, .brand-name { display: none; } .topbar-inner { gap: var(--space-sm); } .timer { font-size: var(--text-md); padding-inline: var(--space-xs); } }
+@media (max-width: 40rem) { .timer small { display: none; } .brand-name { display: none; } .topbar-inner { gap: var(--space-sm); } .timer { font-size: var(--text-md); padding-inline: var(--space-xs); } }
 
 main.app { padding-block: var(--space-xl) var(--space-3xl); }
 @media (max-width: 40rem) { main.app { padding-block: var(--space-lg) var(--space-2xl); } }
