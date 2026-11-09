@@ -12,6 +12,7 @@
   const save = (k, v) => {
     try { localStorage.setItem(k, JSON.stringify(v)); }
     catch (e) { throw new Error('Der Browser-Speicher ist voll. Lösche alte Sitzungen in der Statistik'); }
+    if (k !== LS.key) window.dispatchEvent(new Event('ap2:changed'));
   };
   const sessionsAll = () => load(LS.sessions, {});
   const sessionPut = (s) => { const all = sessionsAll(); all[s.id] = s; save(LS.sessions, all); };
@@ -233,7 +234,9 @@
     const total_points = parts.reduce((a, p) => a + p.points, 0);
     const total_max = parts.reduce((a, p) => a + p.max_points, 0);
     const average_grade = parts.length ? parts.reduce((a, p) => a + p.grade, 0) / parts.length : 0;
-    const passed = parts.length > 0 && total_max > 0 && total_points / total_max >= 0.5 && parts.filter((p) => p.grade >= 5).length <= 1 && !parts.some((p) => p.grade === 6);
+    // § 15 Abs. 2 ITSEAusbV, auf die schriftlichen Bereiche übertragen: Stromversorgung (Teil2) mindestens ausreichend, höchstens ein weiterer Bereich darunter, keiner ungenügend
+    const strom = parts.find((p) => p.kind === 'Teil2');
+    const passed = parts.length > 0 && total_max > 0 && total_points / total_max >= 0.5 && (!strom || strom.grade <= 4) && parts.filter((p) => p.grade >= 5).length <= 1 && !parts.some((p) => p.grade === 6);
     const topic_stats = Object.entries(topicMap).map(([topic, [p, m]]) => ({ topic, points: p, max_points: m, ratio: m > 0 ? p / m : 0 })).sort((a, b) => a.ratio - b.ratio);
     return { parts, total_points, total_max, average_grade, passed, topic_stats };
   }
@@ -351,7 +354,7 @@
       let part = parts.find((p) => p.kind === f.part.kind);
       if (!part) { part = { id: KIND[f.part.kind].id, kind: f.part.kind, title: `${KIND[f.part.kind].title} – Thema ${r.topic}`, duration_min: KIND[f.part.kind].dur, max_points: 0, situation: '', page_images: [], solution_pages: [], attachments: [], tasks: [] }; parts.push(part); }
       n++;
-      const it = clone(f.item); it.id = `t${String(n).padStart(3, '0')}`; it.figure_pages = [];
+      const it = clone(f.item); it.id = `t${String(n).padStart(3, '0')}`; it.figure_pages = []; it.src = ref;
       const title = f.part.kind === 'WiSo' ? `WiSo ${e.season} ${e.year}, Aufgabe ${f.task.number}` : `${e.season} ${e.year}, ${f.task.number}. Aufgabe ${f.task.title}`;
       part.tasks.push({ number: part.tasks.length + 1, title, points: Math.round(f.item.points), intro: f.part.kind === 'WiSo' ? '' : f.task.intro, items: [it] });
       part.max_points += Math.round(f.item.points);
@@ -372,6 +375,78 @@
     const r = { kind: 'topic', id: `thema-${slug}-${Date.now().toString(36)}`, topic, title: `Themen-Training: ${topic} (${items.length} Teilaufgaben aus echten Prüfungen)`, created: nowIso(), items };
     const all = generatedAll(); all[r.id] = r; save(LS.generated, all);
     return buildTopic(r);
+  }
+
+  // ---------- Verlauf je Original-Teilaufgabe (Fehlerkorb, Prognose) ----------
+  // Letzter bewerteter Versuch je Teilaufgabe aus echten Prüfungen und Themen-Trainings.
+  // shortcut: generierte Prüfungen fehlen, weil ihre Aufgaben aus dem Fragenpool stammen; bei Bedarf Pool-IDs mitführen.
+  function attempts() {
+    const out = [];
+    for (const s of Object.values(sessionsAll())) {
+      const e = examById(s.exam_id); if (!e || !(e.origin === 'real' || s.exam_id.startsWith('thema-'))) continue;
+      const r = evaluate(s, e);
+      for (const p of r.parts) {
+        const part = e.parts.find((x) => x.id === p.part_id);
+        for (const ir of p.items) {
+          if (ir.points === null || (!ir.answered && !(s.mode === 'exam' && s.finished))) continue;
+          const it = part.tasks.flatMap((t) => t.items).find((x) => x.id === ir.item_id);
+          const src = it.src || { exam: e.id, part: p.part_id, item: ir.item_id };
+          out.push({ ...src, key: `${src.exam}/${src.part}/${src.item}`, points: ir.points, max: ir.max_points, when: ans(s, p.part_id, ir.item_id).updated_at || s.created_at, kind: p.kind, topics: ir.topics });
+        }
+      }
+    }
+    return out.sort((a, b) => a.when.localeCompare(b.when));
+  }
+  function mistakes() {
+    const last = {}; attempts().forEach((a) => { last[a.key] = a; });
+    return Object.values(last).filter((a) => a.points < a.max / 2).reverse().map((a) => {
+      const e = B.data.exams.find((x) => x.id === a.exam); const f = e && findItem(e, a.part, a.item);
+      return f && !f.item.needs_figure ? { ...a, title: `${e.season === 'Winter' ? `Winter ${e.year}/${String(e.year + 1).slice(2)}` : `${e.season} ${e.year}`}, ${kindShortL[a.kind] || a.kind}, Aufgabe ${f.task.number}${f.item.label ? ' ' + f.item.label : ''}` } : null;
+    }).filter(Boolean);
+  }
+  const kindShortL = { Teil1: 'Teil 1', Teil2: 'Teil 2', WiSo: 'WiSo' };
+  // Wie oft kam ein Thema in echten Prüfungen vor? Je Termin einmal gezählt (Methode wie fiae-ap2-pruefungstrainer/Themenanalyse.md).
+  // Unsere Themen sind breiter gefasst, darum gilt als Prüfungskern: in mindestens 70 % der Termine; Trend: letzte vier Termine gegenüber den früheren.
+  function topicAnalysis() {
+    const termine = {}; const occ = {}; const seen = new Set();
+    for (const e of B.data.exams.filter((x) => x.origin === 'real')) {
+      const key = `${e.year}-${e.season === 'Winter' ? 2 : 1}`; const label = e.season === 'Winter' ? `Winter ${e.year}/${String(e.year + 1).slice(2)}` : `${e.season} ${e.year}`;
+      for (const p of e.parts) {
+        (termine[p.kind] || (termine[p.kind] = new Set())).add(key);
+        for (const t of p.tasks) for (const i of t.items) for (const tp of (i.topics || [])) {
+          const id = `${key}|${p.kind}|${t.number}|${i.label}|${tp.toLowerCase()}`; if (seen.has(id)) continue; seen.add(id);
+          const o = occ[tp.toLowerCase()] || (occ[tp.toLowerCase()] = { kind: p.kind, hits: {} });
+          const h = o.hits[key] || (o.hits[key] = { label, refs: [], points: 0 });
+          h.refs.push(`${kindShortL[p.kind]} A${t.number}${i.label ? ' ' + i.label.replace(/\)$/, '') : ''}`); h.points += i.points;
+        }
+      }
+    }
+    const out = {};
+    for (const [topic, o] of Object.entries(occ)) {
+      const all = [...termine[o.kind]].sort(); const keys = Object.keys(o.hits);
+      const recent = all.slice(-4); const older = all.slice(0, -4);
+      const share = (list) => list.length ? list.filter((k) => keys.includes(k)).length / list.length : 0;
+      const d = share(recent) - share(older);
+      out[topic] = { termine: keys.length, of: all.length, label: keys.length / all.length >= 0.7 ? 'Prüfungskern' : 'Kam vor', trend: older.length && d >= 0.4 ? 'zuletzt häufiger' : older.length && d <= -0.4 ? 'zuletzt seltener' : '',
+        avg_points: Math.round(keys.reduce((a, k) => a + o.hits[k].points, 0) / keys.length), found: keys.sort().reverse().map((k) => ({ termin: o.hits[k].label, refs: o.hits[k].refs })) };
+    }
+    return out;
+  }
+  // Prognose je Prüfungsbereich: 60 % letzte drei Simulationen, 40 % letzte 40 bewertete Teilaufgaben (nach Punkten gewichtet), wie ap2-lerntool
+  function readiness() {
+    const sims = {};
+    for (const s of Object.values(sessionsAll())) {
+      if (s.mode !== 'exam' || !s.finished) continue; const e = examById(s.exam_id); if (!e) continue;
+      (s.result || evaluate(s, e)).parts.forEach((p) => (sims[p.kind] || (sims[p.kind] = [])).push({ when: s.created_at, pct: p.points / Math.max(1, p.max_points) * 100 }));
+    }
+    const att = attempts();
+    return ['Teil1', 'Teil2', 'WiSo'].map((kind) => {
+      const sm = (sims[kind] || []).sort((a, b) => a.when.localeCompare(b.when)).slice(-3); const it = att.filter((a) => a.kind === kind).slice(-40);
+      const simPct = sm.length ? sm.reduce((a, x) => a + x.pct, 0) / sm.length : null;
+      const itMax = it.reduce((a, x) => a + x.max, 0); const itPct = it.length >= 5 && itMax ? it.reduce((a, x) => a + x.points, 0) / itMax * 100 : null;
+      const pts = simPct !== null && itPct !== null ? 0.6 * simPct + 0.4 * itPct : simPct ?? itPct;
+      return { kind, points: pts === null ? null : Math.round(pts), simulations: sm.length, items: it.length };
+    });
   }
 
   // ---------- API ----------
@@ -395,6 +470,15 @@
     if (p === '/api/topics') return B.data.topics;
     if (p === '/api/topic-counts') { const c = {}; B.data.exams.forEach((e) => e.parts.forEach((pp) => pp.tasks.forEach((t) => t.items.forEach((i) => (i.topics || []).forEach((tp) => { c[tp] = (c[tp] || 0) + 1; }))))); return Object.entries(c).map(([topic, items]) => ({ topic, items })).sort((a, b) => a.topic.localeCompare(b.topic)); }
     if (p === '/api/topic-exam') return summarize(topicExam(body || {}));
+    if (p === '/api/topic-analysis') return topicAnalysis();
+    if (p === '/api/mistakes' && method === 'GET') return mistakes();
+    if (p === '/api/mistakes/exam') {
+      const items = mistakes().slice(0, 40).map((m) => ({ exam: m.exam, part: m.part, item: m.item }));
+      if (!items.length) fail('Der Fehlerkorb ist leer');
+      const r = { kind: 'topic', id: `thema-fehlerkorb-${Date.now().toString(36)}`, topic: 'Fehlerkorb', title: `Fehlerkorb: ${items.length} Teilaufgaben wiederholen`, created: nowIso(), items };
+      const all = generatedAll(); all[r.id] = r; save(LS.generated, all);
+      return summarize(buildTopic(r));
+    }
     if (p === '/api/archive') return B.data.archive || { docs: [] };
     if (p === '/api/sessions' && method === 'GET') return Object.values(sessionsAll()).map((s) => ({ id: s.id, exam_id: s.exam_id, exam_title: s.exam_title, mode: s.mode, created_at: s.created_at, finished: s.finished, part_order: s.part_order, answered: Object.values(s.answers).filter((a) => !isEmpty(a)).length, total_points: s.result ? s.result.total_points : null, total_max: s.result ? s.result.total_max : null, passed: s.result ? s.result.passed : null })).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     if (p === '/api/sessions' && method === 'POST') {
@@ -462,6 +546,7 @@
       out.topic_stats = Object.entries(topic).filter(([, [, mm]]) => mm > 0).map(([t, [pp, mm]]) => ({ topic: t, points: pp, max_points: mm, ratio: pp / mm })).sort((a, b) => a.ratio - b.ratio);
       out.per_part = Object.entries(per).map(([kind, v]) => ({ kind, attempts: v.length, average_percent: v.reduce((a, x) => a + x, 0) / v.length, best_percent: Math.max(...v) })).sort((a, b) => a.kind.localeCompare(b.kind));
       out.recent = (await handle('GET', '/api/sessions')).slice(0, 15);
+      out.readiness = readiness(); out.mistakes = mistakes().length;
       return out;
     }
     fail('Unbekannte Anfrage: ' + p);

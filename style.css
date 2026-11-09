@@ -5,6 +5,7 @@
 @import url("tokens.css");
 @import url("base.css");
 
+/* Erweiterung Lernhilfen (v2.1): Stand und Empfehlungen auf der Startseite, Notenrechner, Rechentrainer; nur vorhandene Tokens und Bausteine */
 /* ---------- Shell ---------- */
 .skip { position: absolute; left: var(--space-md); top: -100px; z-index: var(--z-toast); background: var(--color-ink); color: var(--color-paper); padding: var(--space-xs) var(--space-md); }
 .skip:focus-visible { top: var(--space-xs); }
@@ -24,6 +25,7 @@
 .timer.warn { border-color: var(--color-warn); color: var(--color-warn); }
 .timer.danger { border-color: var(--color-error); color: var(--color-error); }
 .btn.menu-btn { display: none; }
+@media (max-width: 80rem) { .brand-sub { display: none; } .nav a { padding-inline: var(--space-xs); } } /* Platz für acht Navigationspunkte */
 /* Darstellung: nur ein Icon in Textfarbe, ohne Rahmen, damit es nicht hervorsticht */
 .btn.icon-btn { width: var(--control-h); padding: 0; border-color: transparent; color: var(--color-muted); }
 .btn.icon-btn svg[hidden] { display: none; }
@@ -328,4 +330,42 @@ body.locked .nav, body.locked #menu-btn { visibility: hidden; }
   body, main.app { background: none; }
   .print-bar { display: none !important; }
   .print-doc { padding: 0; max-width: none; background: none; }
+}
+
+/* ---------- Stand, Empfehlungen, Notenrechner, Rechentrainer ---------- */
+.today { margin-bottom: var(--space-xl); }
+.today-sub { font: 500 var(--text-sm)/1.2 var(--font-display); color: var(--color-muted); margin: var(--space-md) 0 var(--space-2xs); }
+.todo { list-style: none; margin: 0; padding: 0; }
+.todo li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) var(--space-md); padding: var(--space-xs) 0; border-top: var(--rule-hair) solid var(--color-rule); }
+.todo li > span:first-child { flex: 1 1 18rem; min-width: 0; }
+.todo.rules .tag { white-space: normal; }
+.dl dd.text { font: 500 var(--text-md)/1.3 var(--font-body); }
+.dl dd.text.ok { color: var(--color-success); } .dl dd.text.bad { color: var(--color-error); }
+.dl dd small { display: inline-block; }
+.prog { display: inline-block; margin-right: var(--space-md); font: 400 var(--text-sm)/1.2 var(--font-body); color: var(--color-muted); }
+.prog b { font: 500 var(--text-2xl)/1.1 var(--font-outlier); color: var(--color-ink); margin-left: var(--space-2xs); }
+.input.date { width: auto; max-width: 100%; font: 400 var(--text-md)/1.2 var(--font-body); }
+.tools-row { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: end; }
+.tools-row .field { width: min(100%, 16rem); }
+.grade-list { display: grid; gap: var(--space-sm); margin-top: var(--space-sm); }
+.grade-row { display: grid; grid-template-columns: minmax(0, 1fr) 7rem; gap: var(--space-2xs) var(--space-md); align-items: center; padding-top: var(--space-sm); border-top: var(--rule-hair) solid var(--color-rule); }
+.grade-row p { grid-column: 1 / -1; margin: 0; }
+.drill-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); gap: var(--space-md); margin-top: var(--space-md); }
+.drill-fields .tag { white-space: normal; min-height: 1.2em; }
+.input[aria-invalid] { border-color: var(--color-error); }
+
+/* ---------- Auswahlfelder: gleicher Stil wie Eingabefelder, Pfeil aus Tokens, Liste gestaltet wo möglich (Chrome/Edge ab 135) ---------- */
+/* html davor: theme-vantage.css setzt background als Kurzform und würde den Pfeil sonst löschen */
+html select.input, html .field select { appearance: none; padding-right: calc(var(--space-sm) + 1.25rem); cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-ink-2) 50%), linear-gradient(135deg, var(--color-ink-2) 50%, transparent 50%);
+  background-position: calc(100% - var(--space-sm) - 0.45rem) 55%, calc(100% - var(--space-sm) - 0.1rem) 55%; background-size: 0.35rem 0.35rem; background-repeat: no-repeat; }
+@supports (appearance: base-select) {
+  html select.input, html .field select, select.input::picker(select), .field select::picker(select) { appearance: base-select; }
+  select.input::picker-icon, .field select::picker-icon { display: none; }
+  ::picker(select) { margin-top: var(--space-2xs); padding: var(--space-2xs); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-card); background: var(--color-sheet); color: var(--color-ink); }
+  select.input option, .field select option { padding: var(--space-xs) var(--space-sm); border-radius: var(--radius-card); font: 400 var(--text-md)/1.3 var(--font-body); color: var(--color-ink); background: transparent; }
+  select.input option:hover, .field select option:hover, select.input option:focus-visible, .field select option:focus-visible { background: var(--color-well); outline: none; }
+  select.input option:checked, .field select option:checked { color: var(--color-accent); font-weight: 500; }
+  select.input option::checkmark, .field select option::checkmark { display: none; }
+  select.input optgroup, .field select optgroup { font: 500 var(--text-sm)/1.3 var(--font-body); color: var(--color-muted); padding: var(--space-xs) var(--space-sm) 0; }
 }

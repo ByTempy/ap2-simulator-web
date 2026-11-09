@@ -6,6 +6,11 @@
   const app = $('#app');
   const setSave = (t) => { const el = $('#save-state'); if (el) el.textContent = t; };
   const state = { exams: null, topics: null, timer: null, view: null };
+  // Eigene Einstellungen (Notenrechner, Prüfungstermin, Rechentrainer); Änderungen lösen die Speicherdatei aus
+  const store = {
+    get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } },
+    set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); window.dispatchEvent(new Event('ap2:changed')); } catch (e) { toast('Der Browser-Speicher ist voll', true); } },
+  };
 
   // ---------- Hilfsfunktionen ----------
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -135,6 +140,8 @@
     [/^#\/generate$/, generateView],
     [/^#\/topics$/, topicsView],
     [/^#\/stats$/, statsView],
+    [/^#\/noten$/, gradesView],
+    [/^#\/rechnen$/, drillView],
     [/^#\/archive(?:\/([a-z0-9-]+))?$/, archiveView],
     [/^#\/learn\/([^/]+)$/, learnView],
     [/^#\/exam\/([^/]+)$/, examView],
@@ -164,7 +171,7 @@
   // ---------- Startseite ----------
   async function home() {
     setNav('home');
-    const [status, exams, sessions] = await Promise.all([api('/api/status'), loadExams(true), api('/api/sessions')]);
+    const [status, exams, sessions, prog] = await Promise.all([api('/api/status'), loadExams(true), api('/api/sessions'), api('/api/progress')]);
     const open = sessions.filter((s) => !s.finished).slice(0, 6);
     const itse = exams.filter((e) => examKind(e) === 'real');
     const wiso = exams.filter((e) => examKind(e) === 'wiso');
@@ -174,6 +181,7 @@
         <h1>AP2-Simulator für IT-System-Elektroniker/-in</h1>
         <p class="lede">Echte IHK-Prüfungen im Lernmodus mit Hilfestufen üben oder mit Zeitlimit als Prüfung schreiben.</p>
       </div></div>
+      ${todayHtml(prog, sessions)}
       <div class="split">
         <section class="sheet" aria-labelledby="start-h">
           <h2 id="start-h">Prüfung wählen</h2>
@@ -206,6 +214,7 @@
         </tbody></table>` : '<p class="empty">Keine offene Sitzung. Wähle oben eine Prüfung und starte den Lernmodus.</p>'}
       </section>
       ${status.warnings.length ? `<section class="section"><details class="disc"><summary>${status.warnings.length} Datenhinweise</summary><div class="disc-body"><ul class="small">${status.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div></details></section>` : ''}`;
+    bindToday();
     const sel = $('#h-exam');
     const syncDetail = () => { $('#h-detail').href = `#/exam-detail/${sel.value}`; };
     sel.onchange = syncDetail;
@@ -216,6 +225,46 @@
       await api(`/api/sessions/${b.dataset.delSession}`, { method: 'DELETE' });
       home();
     });
+  }
+
+  // Stand, Prüfungstermin und was heute sinnvoll ist
+  function todayHtml(prog, sessions) {
+    const st = store.get('ap2.settings', {});
+    const days = st.examDate ? Math.ceil((Date.parse(st.examDate + 'T00:00') - Date.now()) / 864e5) : null;
+    const lastSim = sessions.filter((x) => x.mode === 'exam' && x.finished).map((x) => x.created_at).sort().pop();
+    const simDays = lastSim ? Math.floor((Date.now() - Date.parse(lastSim)) / 864e5) : null;
+    const lastBackup = localStorage.getItem('ap2.lastBackup');
+    const weak = prog.topic_stats.find((t) => t.ratio < 0.67);
+    const todo = [];
+    if (prog.mistakes) todo.push(`<li><span>${prog.mistakes} ${prog.mistakes === 1 ? 'Teilaufgabe' : 'Teilaufgaben'} im Fehlerkorb, beim letzten Versuch unter der Hälfte der Punkte</span><button type="button" class="btn sm" data-mistakes>Fehlerkorb üben</button></li>`);
+    if (weak) todo.push(`<li><span>Schwächstes Thema: ${esc(weak.topic)}, bisher ${Math.round(weak.ratio * 100)} % der Punkte</span><button type="button" class="btn sm" data-train="${esc(weak.topic)}">Thema üben</button></li>`);
+    if (simDays === null || simDays >= 7) todo.push(`<li><span>${simDays === null ? 'Noch keine Prüfungssimulation abgeschlossen' : `Letzte Prüfungssimulation vor ${simDays} Tagen`}</span><a class="btn sm" href="#/exams">Prüfung simulieren</a></li>`);
+    todo.push('<li><span>Fünf Rechenaufgaben zu Subnetting, Spannungsfall und USV</span><a class="btn sm" href="#/rechnen">Rechentrainer</a></li>');
+    if (sessions.length && (!lastBackup || Date.now() - Date.parse(lastBackup) > 14 * 864e5)) todo.push(`<li><span>${lastBackup ? `Letzte Sicherung am ${fmtDate(lastBackup)}` : 'Dein Fortschritt ist noch nicht gesichert'}</span><a class="btn sm" href="#/stats">Sichern</a></li>`);
+    const ready = prog.readiness.filter((r) => r.points !== null);
+    return `<section class="sheet today" aria-labelledby="today-h">
+      <h2 id="today-h">Dein Stand</h2>
+      <dl class="dl">
+        <div><dt><label for="h-date">Prüfungstermin</label></dt><dd><input class="input date" type="date" id="h-date" value="${esc(st.examDate || '')}">${days !== null ? `<small>${days > 0 ? `noch ${days} ${days === 1 ? 'Tag' : 'Tage'}` : days === 0 ? 'heute' : 'vorbei'}</small>` : ''}</dd></div>
+        <div><dt>Prognose der schriftlichen Bereiche</dt><dd>${ready.length ? ready.map((r) => `<span class="prog">${kindShort(r.kind)} <b>${r.points}</b></span>`).join('') : '<small>Noch zu wenige bewertete Antworten</small>'}</dd></div>
+      </dl>
+      <h3 class="today-sub">Heute sinnvoll</h3>
+      <ul class="todo">${todo.join('')}</ul>
+      <p class="small muted"><a href="#/noten">Notenrechner</a>: Was brauchst du in den offenen Bereichen zum Bestehen?</p>
+    </section>`;
+  }
+  function bindToday() {
+    $('#h-date').onchange = (ev) => { const st = store.get('ap2.settings', {}); st.examDate = ev.target.value; store.set('ap2.settings', st); home(); };
+    $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
+    $$('[data-mistakes]', app).forEach((b) => b.onclick = trainMistakes);
+  }
+  async function trainMistakes() {
+    try {
+      const e = await post('/api/mistakes/exam', {});
+      state.exams = null;
+      const v = await post('/api/sessions', { exam_id: e.id, mode: 'learn', parts: [] });
+      location.hash = `#/learn/${v.session.id}`;
+    } catch (err) { toast(err.message, true); }
   }
 
   // ---------- Prüfungsliste ----------
@@ -355,14 +404,23 @@
   async function topicsView() {
     setNav('topics');
     const topics = await loadTopics();
-    const counts = await api('/api/topic-counts');
+    const [counts, ana] = await Promise.all([api('/api/topic-counts'), api('/api/topic-analysis')]);
     const countOf = (n) => (counts.find((c) => c.topic.toLowerCase() === n.toLowerCase()) || {}).items || 0;
+    const anaOf = (n) => ana[n.toLowerCase()] || null;
     const parts = ['Teil1', 'Teil2', 'WiSo'];
+    const sortMode = store.get('ap2.settings', {}).topicSort || 'part';
+    const labelOf = (t) => (anaOf(t.name) || { label: 'Hintergrund' }).label;
+    const share = (t) => { const a = anaOf(t.name); return a ? a.termine / a.of : 0; };
+    const groups = sortMode === 'rel'
+      ? [['Prüfungskern: in mindestens 70 % der Prüfungstermine', topics.filter((t) => labelOf(t) === 'Prüfungskern')], ['Kam vor: seltener gefragt', topics.filter((t) => labelOf(t) === 'Kam vor')], ['Hintergrund: bisher nicht direkt gefragt', topics.filter((t) => labelOf(t) === 'Hintergrund')]].map(([h, l]) => [h, l.sort((a, b) => share(b) - share(a))])
+      : parts.map((p) => [kindLabel(p), topics.filter((t) => t.part === p)]);
     app.innerHTML = `<div class="page-head"><div><h1>Wissen</h1><p class="lede">Prüfungswissen zu jedem Thema. Im Lernmodus erscheinen die passenden Einträge nach einem Tipp.</p></div>
-        <label class="field" style="width:min(100%,22rem)"><span>Thema suchen</span><input class="input" type="search" id="t-search" autocomplete="off" placeholder="RAID, Spannungsfall, Kündigung"></label></div>
-      <div id="t-list">${parts.map((p) => `<section class="section" data-group><h2>${esc(kindLabel(p))}</h2>${topics.filter((t) => t.part === p).map((t) => topicRow(t, countOf(t.name))).join('') || '<p class="empty">Keine Einträge.</p>'}</section>`).join('')}
+        <div class="tools-row"><label class="field"><span>Ordnen</span><select class="input" id="t-sort"><option value="part">Nach Prüfungsbereich</option><option value="rel"${sortMode === 'rel' ? ' selected' : ''}>Nach Prüfungsrelevanz</option></select></label>
+        <label class="field"><span>Thema suchen</span><input class="input" type="search" id="t-search" autocomplete="off" placeholder="RAID, Spannungsfall, Kündigung"></label></div></div>
+      <div id="t-list">${groups.map(([h, list]) => `<section class="section" data-group><h2>${esc(h)}</h2>${list.map((t) => topicRow(t, countOf(t.name), anaOf(t.name))).join('') || '<p class="empty">Keine Einträge.</p>'}</section>`).join('')}
       <p class="empty" id="t-none" hidden>Kein Thema passt zur Suche.</p></div>`;
     $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
+    $('#t-sort').onchange = (ev) => { const st = store.get('ap2.settings', {}); st.topicSort = ev.target.value; store.set('ap2.settings', st); topicsView(); };
     $('#t-search').oninput = (ev) => {
       const q = ev.target.value.toLowerCase().trim();
       $$('[data-topic]', app).forEach((c) => { c.hidden = !!q && !c.dataset.topic.includes(q); });
@@ -378,10 +436,12 @@
       location.hash = `#/learn/${v.session.id}`;
     } catch (err) { toast(err.message, true); }
   }
-  function topicRow(t, n) {
-    return `<details class="disc" data-topic="${esc((t.name + ' ' + t.summary + ' ' + (t.key_points || []).join(' ')).toLowerCase())}"><summary>${esc(t.name)}${n ? `<span class="tag">${n} Teilaufgaben in echten Prüfungen</span>` : ''}</summary>
+  function topicRow(t, n, a) {
+    const label = a ? a.label : 'Hintergrund';
+    return `<details class="disc" data-topic="${esc((t.name + ' ' + t.summary + ' ' + (t.key_points || []).join(' ')).toLowerCase())}"><summary>${esc(t.name)}<span class="tag${label === 'Prüfungskern' ? ' accent' : ''}">${label}${a ? `, ${a.termine} von ${a.of} Terminen` : ''}${a && a.trend ? `, ${a.trend}` : ''}</span></summary>
       <div class="disc-body topic-body prose">
       <p>${esc(t.summary)}</p>
+      ${a ? `<p class="small muted">Kam in ${a.termine} von ${a.of} Prüfungsterminen vor, im Schnitt mit ${a.avg_points} Punkten je Termin. Fundstellen: ${a.found.map((f) => `${esc(f.termin)} (${esc(f.refs.join(', '))})`).join('; ')}.</p>` : ''}
       ${t.key_points && t.key_points.length ? `<h4>Das bringt Punkte</h4><ul>${t.key_points.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
       ${t.formulas && t.formulas.length ? `<h4>Formeln</h4><div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}
       ${t.pitfalls && t.pitfalls.length ? `<h4>Typische Fehler</h4><ul>${t.pitfalls.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
@@ -401,6 +461,14 @@
         <div><dt>Durchschnitt je Simulation</dt><dd>${fmtPts(Math.round(p.average_points))}<small>Punkte, beste ${fmtPts(Math.round(p.best_points))}</small></dd></div>
         <div><dt>Lernsitzungen</dt><dd>${p.learn_sessions}</dd></div>
       </dl>
+      <section class="section"><h2>Prüfungsbereitschaft</h2>
+        <p class="prose small muted">Prognose je schriftlichem Bereich: 60 % aus deinen letzten drei Prüfungssimulationen, 40 % aus den letzten 40 bewerteten Teilaufgaben. Fehlt eine Quelle, zählt die andere allein.</p>
+        ${p.readiness.map((r) => r.points === null ? `<div class="meter-row"><span>${esc(kindLabel(r.kind))}</span><span class="small muted">Noch zu wenig Daten, mindestens 5 bewertete Teilaufgaben oder eine Simulation</span><span></span><span></span></div>` : meterRow(esc(kindLabel(r.kind)), r.points / 100, `${r.points} Punkte, Note ${window.AP2Tools.decimalGrade(r.points)}`, `<span class="small muted">${r.simulations} Sim., ${r.items} Aufg.</span>`)).join('')}
+        <p class="actions" style="margin-top:var(--space-md)"><a class="btn sm" href="#/noten">Im Notenrechner verwenden</a></p>
+      </section>
+      <section class="section"><h2>Fehlerkorb</h2>
+        ${p.mistakes ? `<p class="prose">${p.mistakes} ${p.mistakes === 1 ? 'Teilaufgabe hat' : 'Teilaufgaben haben'} beim letzten Versuch weniger als die Hälfte der Punkte gebracht. Löst du sie beim Wiederholen mit mindestens der Hälfte der Punkte, verlassen sie den Korb.</p><p class="actions" style="margin-top:var(--space-sm)"><button type="button" class="btn" data-mistakes>Fehlerkorb üben</button></p>` : '<p class="empty">Leer. Hier landen Teilaufgaben aus echten Prüfungen und Themen-Trainings, die beim letzten Versuch unter der Hälfte der Punkte lagen.</p>'}
+      </section>
       ${p.per_part.length ? `<section class="section"><h2>Ergebnisse je Prüfungsbereich</h2><table class="t stack"><thead><tr><th>Bereich</th><th class="num">Versuche</th><th class="num">Durchschnitt</th><th class="num">Bestes</th></tr></thead><tbody>${p.per_part.map((x) => `<tr><td data-label="Bereich">${esc(kindLabel(x.kind))}</td><td class="num" data-label="Versuche">${x.attempts}</td><td class="num" data-label="Durchschnitt">${x.average_percent.toFixed(0)} % (Note ${gradeFor(x.average_percent)})</td><td class="num" data-label="Bestes">${x.best_percent.toFixed(0)} %</td></tr>`).join('')}</tbody></table></section>` : ''}
       <section class="section"><h2>Themen, in denen Punkte fehlen</h2>
       ${p.topic_stats.length ? p.topic_stats.slice(0, 25).map((t) => meterRow(esc(t.topic), t.ratio, `${fmtPts(Math.round(t.points * 10) / 10)} / ${fmtPts(t.max_points)}`, `<button type="button" class="btn sm" data-train="${esc(t.topic)}">Üben</button>`)).join('') : '<p class="empty">Noch keine bewerteten Antworten. Nutze im Lernmodus den Stichwort-Check und die Selbstbewertung oder schließe eine Prüfungssimulation ab.</p>'}
@@ -412,32 +480,164 @@
     app.insertAdjacentHTML('beforeend', `<section class="section"><h2>Archiv-Übungen</h2>
       ${orig.length ? `<table class="t stack"><thead><tr><th>Dokument</th><th>Beruf</th><th class="num">Ergebnis</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${orig.map((o) => `<tr><td data-label="Dokument">${esc(o.title)}</td><td data-label="Beruf">${esc(o.beruf || '')}</td><td class="num" data-label="Ergebnis">${o.points != null ? `${fmtPts(o.points)} / ${fmtPts(o.max)}` : 'offen'}</td><td class="acts"><div class="actions"><a class="btn sm" href="#/original/${o.id}">Öffnen</a><button type="button" class="btn sm quiet" data-odel="${o.id}">Löschen</button></div></td></tr>`).join('')}</tbody></table>` : '<p class="empty">Noch keine Originalprüfung aus dem Archiv bearbeitet.</p>'}
       </section>
-      <section class="section"><h2>Deine Daten</h2>
-        <p class="prose small muted">Fortschritt, Antworten und Statistik liegen nur in diesem Browser auf diesem Gerät. Mit einer Sicherung nimmst du sie auf ein anderes Gerät mit.</p>
+      ${drillStatsHtml()}
+      <section class="section" id="daten"><h2>Deine Daten</h2>
+        <p class="prose small muted">Fortschritt, Antworten, Notenrechner und Rechentrainer liegen nur in diesem Browser auf diesem Gerät. Mit einer Sicherung nimmst du sie auf ein anderes Gerät mit oder holst sie nach dem Löschen der Browserdaten zurück.</p>
+        <dl class="dl" style="margin-top:var(--space-sm)">
+          <div><dt>Letzte Sicherung</dt><dd class="text">${localStorage.getItem('ap2.lastBackup') ? fmtDate(localStorage.getItem('ap2.lastBackup')) : 'noch nie'}</dd></div>
+          ${fileApi ? `<div><dt>Speicherdatei</dt><dd class="text">${backupFile.handle ? `${esc(backupFile.handle.name)}<small>${backupFile.state === 'needs-permission' ? 'Zugriff erneuern, dann speichert sie wieder automatisch' : backupFile.state === 'error' ? 'Schreiben fehlgeschlagen' : 'speichert jede Änderung automatisch'}</small>` : 'keine'}</dd></div>` : ''}
+        </dl>
         <div class="actions" style="margin-top:var(--space-md)"><button type="button" class="btn" id="d-export">Sicherung herunterladen</button><label class="btn" for="d-import">Sicherung einspielen</label><input type="file" id="d-import" accept="application/json" class="visually-hidden">
+        ${fileApi ? `<button type="button" class="btn" id="d-file">${!backupFile.handle ? 'Speicherdatei wählen' : backupFile.state === 'needs-permission' ? 'Zugriff erneuern' : 'Andere Speicherdatei'}</button>${backupFile.handle ? '<button type="button" class="btn quiet" id="d-unlink">Speicherdatei trennen</button>' : ''}` : ''}
         ${window.AP2Local.encrypted ? '<button type="button" class="btn quiet" id="d-lock">Passwort auf diesem Gerät vergessen</button>' : ''}</div>
+        <p class="small muted" style="margin-top:var(--space-sm)">${fileApi ? 'Mit einer Speicherdatei schreibt der Browser jede Änderung nach zwei Sekunden in diese Datei, etwa in deinem Cloud-Ordner. Nach einem Neustart des Browsers einmal „Zugriff erneuern“ klicken.' : 'Automatisches Speichern in eine Datei geht in Chrome und Edge. In diesem Browser lädst du die Sicherung von Hand herunter.'}</p>
         ${window.AP2Local.builtAt ? `<p class="small muted" style="margin-top:var(--space-sm)">Datenstand: ${esc(window.AP2Local.builtAt)}</p>` : ''}
       </section>`);
     $$('[data-del]', app).forEach((b) => b.onclick = async () => { if (confirm('Sitzung löschen? Die Antworten gehen verloren.')) { await api(`/api/sessions/${b.dataset.del}`, { method: 'DELETE' }); statsView(); } });
     $$('[data-odel]', app).forEach((b) => b.onclick = () => { if (confirm('Diese Archiv-Übung löschen?')) { window.AP2Local.originals.del(b.dataset.odel); statsView(); } });
     $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
+    $$('[data-mistakes]', app).forEach((b) => b.onclick = trainMistakes);
     $('#d-export').onclick = () => {
-      const data = {}; ['ap2.sessions', 'ap2.generated', 'ap2.originals'].forEach((k) => { data[k] = JSON.parse(localStorage.getItem(k) || '{}'); });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'ap2-simulator', version: 1, saved: new Date().toISOString(), data })], { type: 'application/json' }));
+      a.href = URL.createObjectURL(new Blob([backupJson()], { type: 'application/json' }));
       a.download = `ap2-fortschritt-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      markBackup(); statsView();
     };
     $('#d-import').onchange = async (ev) => {
       const f = ev.target.files[0]; if (!f) return;
       try {
         const j = JSON.parse(await f.text());
-        if (j.app !== 'ap2-simulator' || !j.data) throw new Error('Das ist keine Sicherung des AP2-Simulators');
-        if (!confirm('Sicherung einspielen? Einträge mit gleicher Kennung werden überschrieben, alle anderen bleiben.')) return;
-        Object.entries(j.data).forEach(([k, v]) => { if (!/^ap2[.](sessions|generated|originals)$/.test(k)) return; const cur = JSON.parse(localStorage.getItem(k) || '{}'); localStorage.setItem(k, JSON.stringify(Object.assign(cur, v))); });
+        if (j.app !== 'ap2-simulator' || !j.data || typeof j.data !== 'object') throw new Error('Das ist keine Sicherung des AP2-Simulators');
+        const n = (k) => Object.keys(j.data[k] || {}).length;
+        const what = `${n('ap2.sessions')} Sitzungen, ${n('ap2.generated')} eigene Prüfungen, ${n('ap2.originals')} Archiv-Übungen${j.data['ap2.grades'] ? ', Notenrechner' : ''}${j.data['ap2.drill'] ? ', Rechentrainer' : ''}`;
+        if (!confirm(`Sicherung vom ${j.saved ? fmtDate(j.saved) : 'unbekannten Datum'} einspielen?\n\nEnthalten: ${what}.\n\nEinträge mit gleicher Kennung werden überschrieben, alle anderen bleiben.`)) return;
+        Object.entries(j.data).forEach(([k, v]) => { if (!BACKUP_KEYS.includes(k) || !v || typeof v !== 'object') return; store.set(k, Object.assign(store.get(k, {}), v)); });
         toast('Sicherung eingespielt'); statsView();
-      } catch (e) { toast(e.message, true); }
+      } catch (e) { toast(e.message, true); } finally { ev.target.value = ''; }
     };
+    const fileBtn = $('#d-file'); if (fileBtn) fileBtn.onclick = async () => {
+      try {
+        if (backupFile.handle && backupFile.state === 'needs-permission') { await writeBackupFile(true); statsView(); return; }
+        const h = await window.showSaveFilePicker({ suggestedName: 'ap2-fortschritt.json', types: [{ description: 'AP2-Sicherung', accept: { 'application/json': ['.json'] } }] });
+        backupFile.handle = h; await idb('readwrite', (st) => st.put(h, 'file')); await writeBackupFile(true);
+        toast('Speicherdatei verbunden'); statsView();
+      } catch (e) { if (e.name !== 'AbortError') toast(e.message, true); }
+    };
+    const unlinkBtn = $('#d-unlink'); if (unlinkBtn) unlinkBtn.onclick = async () => { backupFile.handle = null; backupFile.state = ''; await idb('readwrite', (st) => st.delete('file')).catch(() => {}); statsView(); };
     const lockBtn = $('#d-lock'); if (lockBtn) lockBtn.onclick = () => { if (confirm('Passwort auf diesem Gerät vergessen? Dein Fortschritt bleibt erhalten.')) window.AP2Local.lock(); };
+  }
+
+  // ---------- Datensicherung ----------
+  const BACKUP_KEYS = ['ap2.sessions', 'ap2.generated', 'ap2.originals', 'ap2.grades', 'ap2.settings', 'ap2.drill'];
+  const backupJson = () => JSON.stringify({ app: 'ap2-simulator', version: 2, saved: new Date().toISOString(), data: Object.fromEntries(BACKUP_KEYS.map((k) => [k, store.get(k, {})])) });
+  const markBackup = () => { try { localStorage.setItem('ap2.lastBackup', new Date().toISOString()); } catch (e) { /* Speicher voll: Hinweis bleibt aus */ } };
+  // Speicherdatei: Chrome und Edge schreiben nach jeder Änderung in eine gewählte Datei (File System Access API)
+  const fileApi = 'showSaveFilePicker' in window;
+  const idb = (mode, fn) => new Promise((res, rej) => {
+    const o = indexedDB.open('ap2', 1);
+    o.onupgradeneeded = () => o.result.createObjectStore('kv');
+    o.onerror = () => rej(o.error);
+    o.onsuccess = () => { const tx = o.result.transaction('kv', mode); const r = fn(tx.objectStore('kv')); tx.oncomplete = () => res(r && r.result); tx.onerror = () => rej(tx.error); };
+  });
+  const backupFile = { handle: null, state: '', timer: null };
+  async function writeBackupFile(ask) {
+    const h = backupFile.handle; if (!h) return;
+    try {
+      let perm = await h.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted' && ask) perm = await h.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') { backupFile.state = 'needs-permission'; return; }
+      const w = await h.createWritable(); await w.write(backupJson()); await w.close();
+      backupFile.state = 'ok'; markBackup();
+    } catch (e) { backupFile.state = 'error'; console.warn('Speicherdatei:', e); }
+  }
+  window.addEventListener('ap2:changed', () => { clearTimeout(backupFile.timer); backupFile.timer = setTimeout(() => writeBackupFile(false), 2000); });
+  if (fileApi) idb('readonly', (st) => st.get('file')).then((h) => { backupFile.handle = h || null; if (h) writeBackupFile(false); }).catch(() => { /* kein IndexedDB: ohne Speicherdatei weiter */ });
+
+  // ---------- Notenrechner ----------
+  async function gradesView() {
+    setNav('grades');
+    const T = window.AP2Tools;
+    const vals = store.get('ap2.grades', {});
+    app.innerHTML = `<div class="page-head"><div><h1>Notenrechner</h1><p class="lede">Trag ein, was du schon weißt, jeweils 0 bis 100 Punkte. Offene Bereiche bleiben leer. Dann siehst du, was dir dort zum Bestehen noch fehlt.</p></div></div>
+      <div class="split">
+        <section class="sheet" aria-labelledby="g-in-h"><h2 id="g-in-h">Deine Punkte</h2>
+          <div class="grade-list">${T.AREAS.map((a) => `<div class="grade-row"><label class="field" for="g-${a.id}"><span>${esc(a.label)} <span class="tag">${a.w} %</span></span></label><input class="input num" id="g-${a.id}" data-area="${a.id}" type="text" inputmode="decimal" autocomplete="off" placeholder="offen" value="${vals[a.id] ?? ''}" aria-describedby="g-${a.id}-n"><p class="small muted" id="g-${a.id}-n">${esc(a.note)}</p></div>`).join('')}</div>
+          <div class="actions" style="margin-top:var(--space-md)"><button type="button" class="btn" id="g-prog">Prognose übernehmen</button><button type="button" class="btn quiet" id="g-reset">Alles leeren</button></div>
+          <p class="small muted" style="margin-top:var(--space-xs)">„Prognose übernehmen“ setzt die drei schriftlichen Bereiche aus deiner Statistik ein.</p>
+        </section>
+        <section aria-labelledby="g-out-h"><h2 id="g-out-h" class="visually-hidden">Ergebnis</h2><div id="g-out" aria-live="polite"></div></section>
+      </div>
+      <section class="section"><h2>So wird gerechnet</h2><div class="prose small">
+        <p>Grundlage ist die Ausbildungsverordnung IT-System-Elektroniker von 2020, Paragraph 15. Teil 1 zählt 20 %, das Projekt 50 % (Dokumentation und Fachgespräch je zur Hälfte), die drei schriftlichen Bereiche von Teil 2 je 10 %.</p>
+        <p>Bestanden ist, wer im Gesamtergebnis und in der Stromversorgung mindestens 50 Punkte hat, in mindestens zwei weiteren Bereichen von Teil 2 ebenfalls 50 Punkte erreicht und in keinem Bereich von Teil 2 unter 30 Punkten liegt. Teil 1 zählt nur über das Gesamtergebnis.</p>
+        <p>Fehlt nur wenig, kann eine mündliche Ergänzungsprüfung in einem schriftlichen Bereich von Teil 2 helfen. Altes und mündliches Ergebnis zählen dann 2 zu 1. Die Dezimalnote folgt der Tabelle der IHK Oldenburg. Einzelne IHKs runden leicht anders, verbindlich ist dein Zeugnis.</p>
+        <p><a href="https://www.gesetze-im-internet.de/itseausbv/BJNR026800020.html" target="_blank" rel="noopener">Verordnung lesen</a></p>
+      </div></section>`;
+    const read = () => {
+      const v = {};
+      $$('[data-area]', app).forEach((inp) => {
+        const x = T.num(inp.value); const bad = inp.value.trim() !== '' && (x === null || x < 0 || x > 100);
+        inp.toggleAttribute('aria-invalid', bad); v[inp.dataset.area] = bad || x === null ? null : x;
+      });
+      return v;
+    };
+    const render = () => {
+      const v = read(); store.set('ap2.grades', v);
+      const r = T.assess(v); const filled = T.AREAS.length - r.open.length;
+      const st = { ok: ['ok', 'erfüllt'], fail: ['bad', 'nicht mehr erreichbar'], open: ['', 'offen'] };
+      $('#g-out').innerHTML = `<dl class="dl">${r.total !== undefined
+        ? `<div><dt>Gesamtergebnis</dt><dd>${T.de(r.total, 1)}<small>Punkte, Note ${r.grade} (${r.word})</small></dd></div><div><dt>Ergebnis</dt><dd class="text ${r.passed ? 'ok' : 'bad'}">${r.passed ? 'Bestanden' : 'Nicht bestanden'}</dd></div>`
+        : `<div><dt>Eingetragen</dt><dd>${filled}<small>von ${T.AREAS.length} Bereichen</small></dd></div><div><dt>Nächstes Ziel</dt><dd>${r.target !== null ? `${r.target}<small>Punkte in jedem offenen Bereich</small>` : '<small>Bestehen ist mit diesen Werten nicht mehr möglich</small>'}</dd></div>`}</dl>
+        <h3 class="today-sub">Bestehensregeln</h3>
+        <ul class="todo rules">${r.rules.map((x) => `<li><span>${esc(x.label)}</span><span class="tag ${st[x.state][0]}">${st[x.state][1]}</span></li>`).join('')}</ul>
+        ${r.target !== null && r.open.length ? `<p class="small muted" style="margin-top:var(--space-sm)">${r.target} Punkte in jedem offenen Bereich reichen. Andere Verteilungen gehen auch, solange alle Regeln erfüllt sind.</p>` : ''}
+        ${r.oral && r.oral.length ? `<div class="note" style="margin-top:var(--space-md)"><h4>Mündliche Ergänzungsprüfung</h4><p class="small">${r.oral.map((o) => `${esc(o.label)}: mit mindestens ${o.needed} Punkten in der mündlichen Prüfung wäre bestanden.`).join(' ')} Sie ist nur in einem Bereich möglich und muss beantragt werden.</p></div>` : ''}`;
+    };
+    $$('[data-area]', app).forEach((inp) => { inp.oninput = render; });
+    $('#g-reset').onclick = () => { $$('[data-area]', app).forEach((inp) => { inp.value = ''; }); render(); };
+    $('#g-prog').onclick = async () => {
+      const p = await api('/api/progress'); let n = 0;
+      p.readiness.forEach((r) => { const a = T.AREAS.find((x) => x.kind === r.kind); if (a && r.points !== null) { $(`#g-${a.id}`).value = r.points; n++; } });
+      if (!n) toast('Noch keine Prognose. Bearbeite zuerst Teilaufgaben oder eine Prüfungssimulation.', true); else render();
+    };
+    render();
+  }
+
+  // ---------- Rechentrainer ----------
+  function drillStatsHtml() {
+    const d = store.get('ap2.drill', {}); const T = window.AP2Tools; const rows = Object.entries(T.DRILLS).filter(([k]) => d[k] && d[k].n);
+    return `<section class="section"><h2>Rechentrainer</h2>${rows.length ? rows.map(([k, x]) => meterRow(esc(x.name), d[k].ok / d[k].n, `${d[k].ok} von ${d[k].n} richtig`, '<a class="btn sm" href="#/rechnen">Üben</a>')).join('') : '<p class="empty">Noch keine Rechenaufgabe gelöst.</p>'}</section>`;
+  }
+  async function drillView() {
+    setNav('drill');
+    const T = window.AP2Tools; const st = store.get('ap2.settings', {});
+    app.innerHTML = `<div class="page-head"><div><h1>Rechentrainer</h1><p class="lede">Rechenaufgaben wie in den schriftlichen Bereichen, jedes Mal mit neuen Werten und mit Lösungsweg. Kommazahlen mit Komma oder Punkt, Toleranz etwa 1 %.</p></div>
+        <label class="field" style="width:min(100%,22rem)"><span>Aufgabentyp</span><select class="input" id="r-type"><option value="">Gemischt</option>${Object.entries(T.DRILLS).map(([k, x]) => `<option value="${k}"${st.drill === k ? ' selected' : ''}>${esc(x.name)} (${kindShort(x.part)})</option>`).join('')}</select></label></div>
+      <form class="sheet drill" id="r-form" novalidate></form>`;
+    const next = () => {
+      const type = $('#r-type').value || Object.keys(T.DRILLS)[Math.floor(Math.random() * Object.keys(T.DRILLS).length)];
+      const task = T.DRILLS[type].make(Math.random); let counted = false;
+      const f = $('#r-form');
+      f.innerHTML = `<p class="tag">${esc(T.DRILLS[type].name)}, ${esc(kindLabel(T.DRILLS[type].part))}</p>
+        <p class="prose" style="margin-top:var(--space-xs)">${esc(task.text)}</p>
+        <div class="drill-fields">${task.fields.map((x, i) => `<div class="field"><label for="r-f${i}">${esc(x.label)}${x.unit ? ` in ${esc(x.unit)}` : ''}</label><input class="input num" id="r-f${i}" type="text" inputmode="${x.exact ? 'text' : 'decimal'}" autocomplete="off"><span class="tag" id="r-s${i}" aria-live="polite"></span></div>`).join('')}</div>
+        <div class="actions" style="margin-top:var(--space-md)"><button type="submit" class="btn primary">Prüfen</button><button type="button" class="btn" id="r-next">Nächste Aufgabe</button></div>
+        <details class="disc" id="r-steps" style="margin-top:var(--space-md)"><summary>Lösungsweg</summary><div class="disc-body prose"><ol>${task.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div></details>`;
+      f.onsubmit = (ev) => {
+        ev.preventDefault(); let all = true;
+        task.fields.forEach((x, i) => {
+          const ok = T.checkField(x, $(`#r-f${i}`).value); all = all && ok; const s = $(`#r-s${i}`);
+          s.className = `tag ${ok ? 'ok' : 'bad'}`; s.textContent = ok ? 'richtig' : `richtig wäre ${x.exact ?? T.de(x.value, 3)}${x.unit && !x.exact ? ' ' + x.unit : ''}`;
+          $(`#r-f${i}`).toggleAttribute('aria-invalid', !ok);
+        });
+        if (!counted) { counted = true; const d = store.get('ap2.drill', {}); const e = d[type] || (d[type] = { n: 0, ok: 0 }); e.n++; if (all) e.ok++; store.set('ap2.drill', d); }
+        if (!all) $('#r-steps').open = true;
+      };
+      $('#r-next').onclick = next;
+      $('#r-f0').focus();
+    };
+    $('#r-type').onchange = (ev) => { const s = store.get('ap2.settings', {}); s.drill = ev.target.value; store.set('ap2.settings', s); next(); };
+    next();
   }
 
   // ---------- Gemeinsames: Antwortfelder ----------

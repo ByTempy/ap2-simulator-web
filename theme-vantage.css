@@ -62,3 +62,7 @@ h3, h4, .row-title, table.t .row-title, legend, .task-title, .navigator .task-ti
 .modal-card { border-top: 0; border-radius: var(--radius-card); }
 table.t th { border-bottom: var(--rule-hair) solid var(--color-rule-2); font-weight: 400; }
 table.t td { border-top-color: var(--color-rule); }
+/* Messleiste innerhalb eines Bogens (Startseite „Dein Stand“, Notenrechner): kein zweiter Eckrahmen */
+.sheet .dl, #g-out .dl { padding-inline: 0; }
+.sheet .dl::after, #g-out .dl::after { display: none; }
+.sheet .dl div:first-child, #g-out .dl div:first-child { border-left: 0; padding-left: 0; }
