@@ -24,5 +24,3 @@ jobs:
           path: .
       - id: deploy
         uses: actions/deploy-pages@v4
-        with:
-          timeout: 2400000
