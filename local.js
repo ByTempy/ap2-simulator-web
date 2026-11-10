@@ -391,7 +391,9 @@
       for (const p of r.parts) {
         const part = e.parts.find((x) => x.id === p.part_id);
         for (const ir of p.items) {
-          if (ir.points === null || (!ir.answered && !(s.mode === 'exam' && s.finished))) continue;
+          // Selbst bewertet zählt auch ohne getippte Antwort (Bewertung nach Kriterien); leere Antworten nur in abgeschlossenen Prüfungen
+          const own = ans(s, p.part_id, ir.item_id).self_points;
+          if (ir.points === null || (!ir.answered && (own === null || own === undefined) && !(s.mode === 'exam' && s.finished))) continue;
           const it = part.tasks.flatMap((t) => t.items).find((x) => x.id === ir.item_id);
           const src = it.src || { exam: e.id, part: p.part_id, item: ir.item_id };
           out.push({ ...src, key: `${src.exam}/${src.part}/${src.item}`, points: ir.points, max: ir.max_points, when: ans(s, p.part_id, ir.item_id).updated_at || s.created_at, kind: p.kind, topics: ir.topics });
@@ -400,12 +402,27 @@
     }
     return out.sort((a, b) => a.when.localeCompare(b.when));
   }
-  function mistakes() {
-    const last = {}; attempts().forEach((a) => { last[a.key] = a; });
-    return Object.values(last).filter((a) => a.points < a.max / 2).reverse().map((a) => {
+  // Wiederholung nach festen Abständen (Leitner wie ap2-lerntool und ap2-tracker): Stufe 0 ist der Fehlerkorb und sofort fällig,
+  // ab 80 % der Punkte eine Stufe höher (nur wenn die Aufgabe fällig war), unter 50 % zurück auf 0, Stufe 5 gilt als gemeistert.
+  const BOX_DAYS = [0, 1, 3, 7, 14];
+  // s: bisheriger Stand der Teilaufgabe oder undefined, r: Anteil der Punkte, t: Zeitpunkt des Versuchs (ms)
+  const nextBox = (s, r, t) => r < 0.5 ? 0 : r >= 0.8 && (!s || t >= s.dueAt - 12 * 3600e3) ? Math.min((s ? s.box : 0) + 1, 5) : Math.max(s ? s.box : 0, 1);
+  function reviewItems() {
+    const st = {};
+    for (const a of attempts()) {
+      const s = st[a.key]; const r = a.points / Math.max(0.5, a.max); const t = Date.parse(a.when);
+      const box = nextBox(s, r, t);
+      st[a.key] = { ...a, ratio: r, box, dueAt: box >= 5 ? Infinity : t + BOX_DAYS[box] * 864e5 };
+    }
+    return Object.values(st).map((a) => {
       const e = B.data.exams.find((x) => x.id === a.exam); const f = e && findItem(e, a.part, a.item);
       return f && !f.item.needs_figure ? { ...a, title: `${e.season === 'Winter' ? `Winter ${e.year}/${String(e.year + 1).slice(2)}` : `${e.season} ${e.year}`}, ${kindShortL[a.kind] || a.kind}, Aufgabe ${f.task.number}${f.item.label ? ' ' + f.item.label : ''}` } : null;
     }).filter(Boolean);
+  }
+  function reviewSummary() {
+    const all = reviewItems(); const now = Date.now(); const boxes = [0, 0, 0, 0, 0, 0]; all.forEach((a) => { boxes[a.box]++; });
+    const future = all.filter((a) => a.dueAt > now && a.dueAt !== Infinity).map((a) => a.dueAt);
+    return { due: all.filter((a) => a.dueAt <= now).length, mistakes: boxes[0], boxes, total: all.length, next: future.length ? new Date(Math.min(...future)).toISOString() : null };
   }
   const kindShortL = { Teil1: 'Teil 1', Teil2: 'Teil 2', WiSo: 'WiSo' };
   // Wie oft kam ein Thema in echten Prüfungen vor? Je Termin einmal gezählt (Methode wie fiae-ap2-pruefungstrainer/Themenanalyse.md).
@@ -474,11 +491,12 @@
     if (p === '/api/topic-counts') { const c = {}; B.data.exams.forEach((e) => e.parts.forEach((pp) => pp.tasks.forEach((t) => t.items.forEach((i) => (i.topics || []).forEach((tp) => { c[tp] = (c[tp] || 0) + 1; }))))); return Object.entries(c).map(([topic, items]) => ({ topic, items })).sort((a, b) => a.topic.localeCompare(b.topic)); }
     if (p === '/api/topic-exam') return summarize(topicExam(body || {}));
     if (p === '/api/topic-analysis') return topicAnalysis();
-    if (p === '/api/mistakes' && method === 'GET') return mistakes();
-    if (p === '/api/mistakes/exam') {
-      const items = mistakes().slice(0, 40).map((m) => ({ exam: m.exam, part: m.part, item: m.item }));
-      if (!items.length) fail('Der Fehlerkorb ist leer');
-      const r = { kind: 'topic', id: `thema-fehlerkorb-${Date.now().toString(36)}`, topic: 'Fehlerkorb', title: `Fehlerkorb: ${items.length} Teilaufgaben wiederholen`, created: nowIso(), items };
+    if (p === '/api/review' && method === 'GET') return reviewSummary();
+    if (p === '/api/review/exam') {
+      const now = Date.now();
+      const items = reviewItems().filter((a) => a.dueAt <= now).sort((a, b) => a.box - b.box || a.dueAt - b.dueAt).slice(0, 40).map((m) => ({ exam: m.exam, part: m.part, item: m.item }));
+      if (!items.length) fail('Heute ist nichts fällig');
+      const r = { kind: 'topic', id: `thema-wiederholung-${Date.now().toString(36)}`, topic: 'Wiederholung', title: `Wiederholung: ${items.length} fällige Teilaufgaben`, created: nowIso(), items };
       const all = generatedAll(); all[r.id] = r; save(LS.generated, all);
       return summarize(buildTopic(r));
     }
@@ -525,7 +543,7 @@
         return { check: check(f.item, ans(s, body.part, body.item)), solution: f.item.solution, grading: f.item.grading, expected: f.item.expected, unit: f.item.unit };
       }
       if (action === 'self-grade') {
-        const key = `${body.part}/${body.item}`; const a = s.answers[key] || (s.answers[key] = {}); a.self_points = body.points; a.updated_at = nowIso();
+        const key = `${body.part}/${body.item}`; const a = s.answers[key] || (s.answers[key] = {}); a.self_points = body.points; a.updated_at = nowIso(); if (Array.isArray(body.criteria)) a.criteria = body.criteria; else delete a.criteria;
         if (s.finished) s.result = evaluate(s, exam());
         sessionPut(s); return { ok: true, result: s.result };
       }
@@ -549,7 +567,7 @@
       out.topic_stats = Object.entries(topic).filter(([, [, mm]]) => mm > 0).map(([t, [pp, mm]]) => ({ topic: t, points: pp, max_points: mm, ratio: pp / mm })).sort((a, b) => a.ratio - b.ratio);
       out.per_part = Object.entries(per).map(([kind, v]) => ({ kind, attempts: v.length, average_percent: v.reduce((a, x) => a + x, 0) / v.length, best_percent: Math.max(...v) })).sort((a, b) => a.kind.localeCompare(b.kind));
       out.recent = (await handle('GET', '/api/sessions')).slice(0, 15);
-      out.readiness = readiness(); out.mistakes = mistakes().length;
+      out.readiness = readiness(); out.review = reviewSummary();
       return out;
     }
     fail('Unbekannte Anfrage: ' + p);
@@ -569,6 +587,10 @@
   assert(check({ points: 4, answer_type: 'text', keywords: ['Hot-Spare', 'Ruhezustand', 'Ausfall', 'Rekonstruktion'] }, { text: 'Die Hotspare Platte ist im Ruhezustand und springt beim Ausfall ein' }).keywords.filter((k) => k.hit).length === 3, 'Stichworte');
   assert(check({ points: 3, answer_type: 'multi_choice', expected: '2,4' }, { selected: ['4', '2'] }).correct === true, 'Mehrfachauswahl');
   assert(check({ points: 2, answer_type: 'number', expected: '15.06.2023' }, { value: '15.06.2023' }).correct === true, 'Datum');
+  const day = 864e5;
+  assert(nextBox(undefined, 0.3, 0) === 0 && nextBox(undefined, 0.9, 0) === 1 && nextBox(undefined, 0.6, 0) === 1, 'Wiederholung: erster Versuch');
+  assert(nextBox({ box: 2, dueAt: 10 * day }, 0.9, 2 * day) === 2 && nextBox({ box: 2, dueAt: 10 * day }, 0.9, 10 * day) === 3, 'Wiederholung: Aufstieg nur wenn fällig');
+  assert(nextBox({ box: 4, dueAt: 0 }, 1, 0) === 5 && nextBox({ box: 5, dueAt: Infinity }, 0.2, 0) === 0, 'Wiederholung: gemeistert und Rückfall');
 
   window.AP2Local = { init, unlock, lock, handle, pageSrc, originals, get encrypted() { return B.encrypted; }, get builtAt() { return B.data && B.data.built; } };
 })();

@@ -120,6 +120,74 @@
     return res;
   }
 
+  // ---------- Projekt und Fachgespräch (§ 11 ITSEAusbV: 50 % der Gesamtnote) ----------
+  const DOC_CHECKLIST = [
+    'Deckblatt mit Projekttitel, Name, Prüflingsnummer und Ausbildungsbetrieb',
+    'Inhaltsverzeichnis mit Seitenzahlen',
+    'Ausgangssituation, Auftraggeber und Auftrag',
+    'Projektziel und Abgrenzung: was gehört dazu, was nicht',
+    'Ist-Analyse des vorhandenen Systems',
+    'Soll-Konzept mit Alternativen und begründeter Entscheidung (z. B. Entscheidungsmatrix)',
+    'Zeitplanung mit Soll-Ist-Vergleich, höchstens 40 Stunden',
+    'Kosten und Wirtschaftlichkeit',
+    'Durchführung: technische Umsetzung mit Plänen, Schemata und Konfiguration',
+    'Normen und Sicherheit: DIN VDE 0100, fünf Sicherheitsregeln, Datenschutz',
+    'Qualitätssicherung: Prüfungen und Messungen mit Protokollen (z. B. DIN VDE 0100-600)',
+    'Übergabe, Abnahme und Einweisung des Kunden',
+    'Fazit mit Soll-Ist-Vergleich und Ausblick',
+    'Anhang: Pläne, Protokolle, Auszüge aus der Kundendokumentation',
+    'Quellenverzeichnis und Erklärung zur selbstständigen Durchführung',
+  ];
+  const TALK_OUTLINE = ['Einstieg und Vorstellung (1 min)', 'Ausgangssituation und Auftrag (2 min)', 'Ziel und Planung (2 min)', 'Entscheidung und Alternativen (2 min)', 'Umsetzung (4 min)', 'Prüfung und Übergabe (2 min)', 'Fazit (2 min)'];
+  const FG = [
+    ['Auftrag und Planung', ['Warum haben Sie sich für dieses Projekt entschieden, und was war Ihr konkreter Auftrag?', 'Wer war Ihr Auftraggeber, und wie haben Sie die Anforderungen aufgenommen?', 'Welche Alternativen haben Sie geprüft, und warum haben Sie sich für Ihre Lösung entschieden?', 'Wie haben Sie die 40 Stunden geplant, und wo wichen Soll und Ist voneinander ab?', 'Welche Risiken haben Sie vorab gesehen, und wie sind Sie damit umgegangen?']],
+    ['Technik und Umsetzung', ['Erklären Sie den Aufbau Ihrer Lösung anhand Ihres Plans oder Schemas.', 'Welche Normen und Vorschriften mussten Sie beachten?', 'Wie haben Sie Leitungen, Schutzorgane oder Komponenten dimensioniert?', 'Welche Schutzmaßnahme gegen elektrischen Schlag gilt in Ihrer Anlage, und wie haben Sie sie nachgewiesen?', 'Wie haben Sie die fünf Sicherheitsregeln bei Ihren Arbeiten angewendet?', 'Welche Netzwerkkonfiguration haben Sie umgesetzt, zum Beispiel Adressen, VLANs und Dienste, und warum?', 'Wie haben Sie Datensicherheit und Datenschutz berücksichtigt?', 'Was hätten Sie getan, wenn eine geplante Komponente nicht lieferbar gewesen wäre?']],
+    ['Prüfung und Qualität', ['Welche Prüfungen und Messungen haben Sie nach der Installation durchgeführt?', 'Welche Messwerte haben Sie erwartet, und welche Grenzwerte gelten?', 'Wie haben Sie die Funktion gegenüber dem Kunden nachgewiesen?', 'Welche Fehler traten auf, und wie haben Sie sie systematisch eingegrenzt?']],
+    ['Wirtschaftlichkeit', ['Wie setzen sich die Projektkosten zusammen?', 'Wie haben Sie die Wirtschaftlichkeit bewertet, zum Beispiel über Amortisation oder Energiekosten?', 'Hätte es eine günstigere Lösung gegeben? Warum haben Sie sie nicht gewählt?']],
+    ['Übergabe und Kunde', ['Wie lief die Übergabe ab, und was enthält die Kundendokumentation?', 'Wie haben Sie den Kunden eingewiesen?', 'Welche Wartungs- und Prüffristen muss der Kunde künftig beachten?']],
+    ['Rückblick', ['Was würden Sie beim nächsten Mal anders machen?', 'Was haben Sie in diesem Projekt gelernt?', 'Wie ließe sich Ihre Lösung erweitern oder skalieren?', 'Welche Aufgaben haben Sie selbst erledigt, und wobei hatten Sie Unterstützung?']],
+    ['Fachliche Vertiefung', ['Erklären Sie den Unterschied zwischen einem TN-S- und einem TN-C-S-System.', 'Wann ist eine Fehlerstrom-Schutzeinrichtung vorgeschrieben, und wie funktioniert sie?', 'Wie berechnen Sie den Spannungsfall einer Leitung?', 'Worin unterscheiden sich die Schutzklassen I, II und III?', 'Wie dimensionieren Sie eine USV?', 'Wie unterscheiden sich Switch und Router, bezogen auf das OSI-Modell?', 'Was ist Power over Ethernet, und welche Leistungsklassen gibt es?', 'Welche Vorteile bieten VLANs?', 'Was regelt die DGUV Vorschrift 3?']],
+  ];
+  const FG_QUESTIONS = FG.flatMap(([cat, qs], c) => qs.map((text, i) => ({ id: `q${c + 1}-${i + 1}`, cat, text })));
+
+  // ---------- Bewertungskriterien aus dem Bewertungshinweis (grading) ----------
+  // Liefert [{label, points}] oder null, wenn der Hinweis nicht sicher in Kriterien zerlegbar ist.
+  const P = '(\\d+(?:,\\d+)?)\\s*(?:Punkte?|P\\.?)';
+  const pnum = (x) => +String(x).replace(',', '.');
+  function criteria(item) {
+    if (!item || ['number', 'choice', 'multi_choice', 'assignment', 'order'].includes(item.answer_type)) return null;
+    const pts = item.points; let g = String(item.grading || '').trim().replace(/\.$/, '');
+    // Gesamtpunkte vorneweg weglassen: „4 Punkte: …“, „4 Punkte, …“, „4 Punkte (…)“
+    g = g.replace(new RegExp('^' + P + '\\s*[:,]\\s*'), '');
+    const wrapped = g.match(new RegExp('^' + P + '\\s*\\((.+)\\)$')); if (wrapped) g = wrapped[2].trim();
+    if (!g) return null;
+    const half = (x) => x > 0 && Math.round(x * 2) === x * 2;
+    // Zählregel: „je 2 Punkte für A, B und C“, „1 Punkt je Verfahren“, „Je Nennung 1 Punkt“
+    const m = g.match(new RegExp('^je\\s+' + P + '\\s*(?:für|pro|je)?\\s*(.*)$', 'i')) || g.match(new RegExp('^' + P + '\\s+(?:je|pro)\\s+(.+)$', 'i'));
+    const m2 = !m && g.match(new RegExp('^(?:je|pro)\\s+(.+?)\\s+' + P + '$', 'i'));
+    if (m || m2) {
+      const per = pnum(m ? m[1] : m2[2]); const rest = (m ? m[2] : m2[1]).trim().replace(/^richtig\w*\s+/i, '').replace(/^Punkt$/i, '') || 'Nennung';
+      const named = rest.split(/,\s*|\s+und\s+|\s+sowie\s+/).map((x) => x.trim()).filter(Boolean);
+      if (named.length >= 2 && Math.abs(named.length * per - pts) < 0.01) return named.map((label) => ({ label, points: per }));
+      const k = pts / per; const unit = rest.replace(/\s*\(.*\)\s*$/, '').replace(/^(jede[nrs]?|eine[nrs]?)\s+/i, '');
+      if (Number.isInteger(k) && k >= 2 && k <= 12 && unit && !/[,;]/.test(unit)) return Array.from({ length: k }, (_, i) => ({ label: `${unit[0].toUpperCase()}${unit.slice(1)} ${i + 1}`, points: per }));
+      return null;
+    }
+    // Einzelkriterien: „2 Punkte Verfahren, 2 Punkte Ergebnis“, „Personenschutz (1)“, „Querschnitt 1 Punkt“
+    const segs = g.split(/[;\n]|,\s*(?![^()]*\))|\s\/\s/).map((x) => x.trim()).filter(Boolean);
+    if (segs.length < 2) return null;
+    const out = segs.map((x) => {
+      let r = x.match(new RegExp('^' + P + '\\s+(?:für\\s+)?(.+)$')); if (r) return { label: r[2], points: pnum(r[1]) };
+      r = x.match(/^(.+?)\s*\((\d+(?:,\d+)?)(?:\s*P(?:unkte?)?)?\)$/); if (r) return { label: r[1], points: pnum(r[2]) };
+      r = x.match(new RegExp('^(.+?)\\s+' + P + '$')); if (r) return { label: r[1], points: pnum(r[2]) };
+      return /\d\s*Punkt/.test(x) ? false : { label: x, points: null };
+    });
+    if (out.some((x) => !x)) return null;
+    if (out.every((x) => x.points === null)) { const each = pts / out.length; if (!half(each)) return null; out.forEach((x) => { x.points = each; }); }
+    if (out.some((x) => x.points === null) || Math.abs(out.reduce((a, x) => a + x.points, 0) - pts) > 0.01) return null;
+    return out.map((x) => ({ label: x.label.replace(/^\w/, (c) => c.toUpperCase()), points: x.points }));
+  }
+
   // Selbsttest (Fehler landen in der Konsole)
   const assert = (c, m) => { if (!c) console.error('Selbsttest tools.js fehlgeschlagen:', m); };
   const sn = DRILLS.subnet.make(Math.random, { ip: ((192 << 24) | (168 << 16) | (50 << 8) | 17) >>> 0, prefix: 26 });
@@ -130,5 +198,18 @@
   assert(assess(all(50)).passed === true && assess({ ...all(80), t2: 45 }).passed === false && assess({ ...all(80), t1: 40 }).passed === true && assess({ ...all(80), t1: 40, wiso: 45 }).passed === false && assess({ ...all(80), wiso: 25 }).passed === false, 'Bestehensregeln');
   assert(assess({ ap1: 60 }).target === 50 && assess({ ...all(70), t2: 40 }).oral[0].needed === 69, 'Ziel und Ergänzungsprüfung');
 
-  window.AP2Tools = { DRILLS, checkField, num, de, AREAS, assess, decimalGrade, gradeWord };
+  const crit = (grading, points) => (criteria({ answer_type: 'text', grading, points }) || []).map((c) => `${c.label}=${c.points}`).join('|');
+  assert(crit('6 Punkte: je 2 Punkte für IP-Adresse, Subnetzmaske und Standardgateway', 6) === 'IP-Adresse=2|Subnetzmaske=2|Standardgateway=2', 'Kriterien je für');
+  assert(crit('3 Punkte: je 1 Punkt pro Nennung', 3) === 'Nennung 1=1|Nennung 2=1|Nennung 3=1', 'Kriterien je pro');
+  assert(crit('Je Nennung 1 Punkt', 3) === 'Nennung 1=1|Nennung 2=1|Nennung 3=1', 'Kriterien Je … Punkt');
+  assert(crit('2 Punkte Verfahren (ff:fe einfügen, U/L-Bit kippen), 2 Punkte Ergebnis', 4) === 'Verfahren (ff:fe einfügen, U/L-Bit kippen)=2|Ergebnis=2', 'Kriterien mit Klammer');
+  assert(crit('4 Punkte: Personenschutz/Fehlerschutz (1), Brandschutz bzw. Zusatzschutz (1), Wirkprinzip (1), Abschaltung (1)', 4).split('|').length === 4, 'Kriterien (1)');
+  assert(crit('2 Punkte: Querschnitt 1 Punkt, Anschlussort 1 Punkt', 2) === 'Querschnitt=1|Anschlussort=1', 'Kriterien nachgestellt');
+  assert(crit('6 Punkte: Attribute zugeordnet, Schlüssel gekennzeichnet, Kardinalitäten eingetragen', 6) === 'Attribute zugeordnet=2|Schlüssel gekennzeichnet=2|Kardinalitäten eingetragen=2', 'Kriterien gleich verteilt');
+  assert(crit('2 Punkte', 2) === '' && crit('1 Punkt Faserdämpfung, 1 Punkt Stecker', 3) === '', 'Kriterien nur bei passender Summe');
+  assert(crit('3 Punkte, je Nennung 1 Punkt', 3) === 'Nennung 1=1|Nennung 2=1|Nennung 3=1' && crit('4 Punkte (je 1 Punkt pro Ursache)', 4).split('|').length === 4, 'Kriterien nach Komma und in Klammern');
+  assert(crit('2 Punkte: je 1 Punkt', 2) === 'Nennung 1=1|Nennung 2=1' && crit('3 Punkte (je richtigem Eintrag 1 Punkt)', 3) === 'Eintrag 1=1|Eintrag 2=1|Eintrag 3=1', 'Kriterien ohne Einheit');
+  assert(crit('4 Punkte (Grund 2 Punkte, Beschreibung 2 Punkte)', 4) === 'Grund=2|Beschreibung=2', 'Kriterien in Klammern');
+
+  window.AP2Tools = { DRILLS, checkField, num, de, AREAS, assess, decimalGrade, gradeWord, criteria, DOC_CHECKLIST, TALK_OUTLINE, FG_QUESTIONS };
 })();
