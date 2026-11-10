@@ -89,6 +89,7 @@
           <label><span class="visually-hidden">Zoom</span><select class="input dv-zoom" data-dv="zoom"><option value="fit">Ganze Seite</option><option value="width">Seitenbreite</option>${ZOOM_STEPS.map((z) => `<option value="${z}">${z} %</option>`).join('')}</select></label>
           <button type="button" class="btn icon-btn" data-dv="in" aria-label="Vergrößern" title="Vergrößern (Strg und Mausrad)">${icon('<path d="M12 5v14M5 12h14"/>')}</button>
         </div>
+        <button type="button" class="btn icon-btn" data-dv="print" aria-label="Alle Seiten drucken" title="Alle Seiten drucken oder als PDF speichern">${icon('<path d="M6 9V3h12v6"/><rect x="4" y="9" width="16" height="8" rx="1"/><path d="M7 14h10v7H7z"/>')}</button>
         ${opts.inline ? '' : '<button type="button" class="btn sm dv-close" data-close>Schließen</button>'}
       </div>
       <div class="dv-scroll" tabindex="0" aria-label="${esc(opts.title || 'Seiten')}">
@@ -147,6 +148,7 @@
     $('[data-dv="prev"]', host).onclick = () => go(cur() - 1);
     $('[data-dv="next"]', host).onclick = () => go(cur() + 1);
     $('[data-dv="in"]', host).onclick = () => step(1);
+    $('[data-dv="print"]', host).onclick = () => printPages(pages, opts.printTitle || opts.title || 'Seiten');
     $('[data-dv="out"]', host).onclick = () => step(-1);
     sel.onchange = () => setZoom(/^\d+$/.test(sel.value) ? +sel.value : sel.value);
     pin.onchange = () => { const v = parseInt(pin.value, 10); if (v) go(v - 1); else pin.value = cur() + 1; };
@@ -157,6 +159,29 @@
     apply(false);
     if (opts.start) requestAnimationFrame(() => go(opts.start));
     return { go };
+  }
+  // Seiten drucken: alle Seitenbilder entschlüsseln, je Seite ein A4-Blatt, dann Druckdialog (auch „Als PDF speichern“)
+  let printing = false;
+  async function printPages(pages, title) {
+    if (printing || !pages || !pages.length) return;
+    printing = true;
+    const box = document.createElement('div'); box.id = 'print-pages';
+    box.innerHTML = pages.map((p, i) => `<figure class="pp"><img alt="Seite ${i + 1}"></figure>`).join('');
+    document.body.appendChild(box);
+    const imgs = [...box.querySelectorAll('img')]; let n = 0;
+    toast(`Seiten werden für den Druck vorbereitet (0 von ${pages.length})`);
+    try {
+      await Promise.all(pages.map((p, i) => window.AP2Local.pageSrc(p).then((u) => new Promise((res, rej) => {
+        imgs[i].onload = () => { n++; if (n % 5 === 0 || n === pages.length) toast(`Seiten werden für den Druck vorbereitet (${n} von ${pages.length})`); res(); };
+        imgs[i].onerror = () => rej(new Error(`Seite ${i + 1} konnte nicht geladen werden`));
+        imgs[i].src = u;
+      }))));
+    } catch (e) { toast(e.message, true); box.remove(); printing = false; return; }
+    const oldTitle = document.title; document.title = title; // Dateiname beim Speichern als PDF
+    document.body.classList.add('printing-pages');
+    const done = () => { document.body.classList.remove('printing-pages'); box.remove(); document.title = oldTitle; printing = false; window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    window.print();
   }
   function pageViewer(pages, start = 0, title = 'Originalseiten') {
     if (!pages || !pages.length) { toast('Keine Seitenbilder vorhanden', true); return; }
@@ -1489,6 +1514,7 @@
     const docRow = (d) => { const so = sols[d.id] || []; return `<tr><td data-label="Teil">${esc(d.teil || '')}</td><td data-label="Dokument">${esc(d.title)}${d.rolle === 'loesung' ? ' <span class="tag">Lösung</span>' : ''}${d.note ? `<span class="sub tag warn">${esc(d.note)}</span>` : ''}${bookNote(d) ? `<span class="sub tag warn">${bookNote(d)}</span>` : ''}</td><td class="num" data-label="Seiten">${d.pages}</td><td class="acts"><div class="actions">
         ${d.rolle === 'aufgaben' ? `<a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>` : ''}
         <button type="button" class="btn sm quiet" data-view="${d.id}">Ansehen</button>
+        <button type="button" class="btn sm quiet" data-print="${d.id}">Drucken</button>
         ${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">Lösung</button>`).join('')}</div></td></tr>`; };
     app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Alle Originalprüfungen als Seiten zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
         <div class="actions" style="align-items:end">
@@ -1502,6 +1528,7 @@
     $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
     const byId = Object.fromEntries(docs.map((d) => [d.id, d]));
     $$('[data-view]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.view]; pageViewer(docPages(d), 0, `${d.termin}: ${d.title}`); });
+    $$('[data-print]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.print]; printPages(docPages(d), `${d.termin}: ${d.title}`); });
     $('#a-search').oninput = (ev) => {
       const q = ev.target.value.toLowerCase().trim();
       $$('[data-term]', app).forEach((c) => { c.hidden = !!q && !c.dataset.term.includes(q); });
@@ -1537,7 +1564,7 @@
         <div id="o-pages" class="o-viewer"></div>
       </div>`;
     const persist = () => { try { store.put(o); $('#o-save').textContent = 'gespeichert'; } catch (e) { toast(e.message, true); } };
-    docViewer($('#o-pages'), pages, { inline: true });
+    docViewer($('#o-pages'), pages, { inline: true, printTitle: `${d.termin}: ${d.title}` });
     let t = null;
     $('#o-notes').oninput = () => { o.notes = $('#o-notes').value; $('#o-save').textContent = '…'; clearTimeout(t); t = setTimeout(persist, 600); };
     const showGrade = () => { if (o.points === null || o.points === undefined || !o.max) { $('#o-grade').textContent = ''; return; } const pct = o.points / o.max * 100; $('#o-grade').textContent = `${pct.toFixed(0)} %, Note ${gradeFor(pct)}`; };
