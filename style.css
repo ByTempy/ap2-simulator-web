@@ -5,6 +5,7 @@
 @import url("tokens.css");
 @import url("base.css");
 
+/* Struktur (v2.2): sechs Menüpunkte; Generator, Formelsammlung, Notenrechner und Daten als Reiter (.subnav) in ihrem Bereich, Startseite ohne Bestandszahlen */
 /* Erweiterung Lernhilfen (v2.1): Stand und Empfehlungen auf der Startseite, Notenrechner, Rechentrainer; nur vorhandene Tokens und Bausteine */
 /* ---------- Shell ---------- */
 .skip { position: absolute; left: var(--space-md); top: -100px; z-index: var(--z-toast); background: var(--color-ink); color: var(--color-paper); padding: var(--space-xs) var(--space-md); }
@@ -30,7 +31,7 @@
 .btn.icon-btn { width: var(--control-h); padding: 0; border-color: transparent; color: var(--color-muted); }
 .btn.icon-btn svg[hidden] { display: none; }
 @media (hover: hover) { .btn.icon-btn:hover { color: var(--color-ink); background: transparent; } }
-@media (max-width: 68rem) { /* Menü statt Leiste: neun Navigationspunkte brauchen gut 1.010 px */
+@media (max-width: 60rem) { /* Menü statt Leiste */
   .brand-sub { display: none; }
   .btn.menu-btn { display: inline-flex; }
   .nav { display: none; position: absolute; left: 0; right: 0; top: 100%; flex-direction: column; gap: 0; margin: 0; padding: var(--space-xs) var(--gutter) var(--space-md); background: var(--color-paper); border-bottom: var(--rule-bar) solid var(--color-rule-2); }
@@ -493,3 +494,9 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
 .az-list { columns: 3 15rem; margin: 0; padding-left: 1.1em; }
 .az-list li { break-inside: avoid; padding: var(--space-3xs) 0; }
 .wiki-license { margin-top: var(--space-xl); }
+
+/* ---------- Reiter innerhalb eines Bereichs ---------- */
+.subnav { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-md); margin: 0 0 var(--space-md); border-bottom: var(--rule-hair) solid var(--color-rule); }
+.subnav a { padding: var(--space-xs) 0; margin-bottom: -1px; border-bottom: var(--rule-bar) solid transparent; color: var(--color-ink-2); text-decoration: none; font: 500 var(--text-sm)/1.2 var(--font-display); }
+.subnav a[aria-current="page"] { color: var(--color-ink); border-bottom-color: var(--color-accent); }
+@media (hover: hover) { .subnav a:hover { color: var(--color-ink); border-bottom-color: var(--color-rule-2); } }

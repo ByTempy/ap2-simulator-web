@@ -212,7 +212,7 @@
     [/^#\/wiki\/thema\/([a-z0-9-]+)$/, wikiThema],
     [/^#\/wiki\/artikel\/([a-z0-9.&-]+)$/, wikiArtikel],
     [/^#\/formeln$/, formulasView],
-    [/^#\/stats$/, statsView],
+    [/^#\/stats(?:\/(verlauf|daten))?$/, statsView],
     [/^#\/noten$/, gradesView],
     [/^#\/rechnen$/, drillView],
     [/^#\/projekt$/, projectView],
@@ -242,13 +242,18 @@
   }
   window.addEventListener('hashchange', route);
 
+  // ---------- Reiter innerhalb eines Bereichs (statt eigener Menüpunkte) ----------
+  const subnav = (items, cur) => `<nav class="subnav" aria-label="Bereich">${items.map(([k, label, href]) => `<a href="${href}"${k === cur ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
+  const EXAM_TABS = [['exams', 'Prüfungen', '#/exams'], ['generate', 'Generator', '#/generate']];
+  const WIKI_TABS = [['wiki', 'Themen und Artikel', '#/topics'], ['formeln', 'Formelsammlung', '#/formeln']];
+  const STATS_TABS = [['ueberblick', 'Überblick', '#/stats'], ['verlauf', 'Verlauf', '#/stats/verlauf'], ['noten', 'Notenrechner', '#/noten'], ['daten', 'Deine Daten', '#/stats/daten']];
+
   // ---------- Startseite ----------
   async function home() {
     setNav('home');
     const [status, exams, sessions, prog] = await Promise.all([api('/api/status'), loadExams(true), api('/api/sessions'), api('/api/progress')]);
     const open = sessions.filter((s) => !s.finished).slice(0, 6);
     const itse = exams.filter((e) => examKind(e) === 'real');
-    const wiso = exams.filter((e) => examKind(e) === 'wiso');
     const gen = exams.filter((e) => examKind(e) === 'gen');
     app.innerHTML = `
       <div class="page-head"><div>
@@ -269,24 +274,13 @@
           </div>
           <p class="small muted" style="margin-top:var(--space-md)">Lernmodus: ohne Zeitlimit, mit drei Tipps je Teilaufgabe und Musterlösung. Prüfung: Teil 1 und 2 je 90 Minuten, WiSo 60 Minuten, ohne Hilfen.</p>
         </section>
-        <section aria-labelledby="bestand-h">
-          <h2 id="bestand-h" class="visually-hidden">Bestand</h2>
-          <dl class="dl two">
-            <div><dt>Prüfungstermine mit allen drei Teilen</dt><dd>${itse.length}</dd></div>
-            <div><dt>WiSo-Sätze</dt><dd>${wiso.length}</dd></div>
-            <div><dt>Aufgabenblöcke im Generator</dt><dd>${status.bank_blocks}<small>und ${status.bank_wiso_items} WiSo-Fragen</small></dd></div>
-            <div><dt>Themen in der Wissensbasis</dt><dd>${status.topics}</dd></div>
-          </dl>
-          <p class="actions" style="margin-top:var(--space-md)"><a class="btn sm quiet" href="#/generate">Neue Prüfung generieren</a><a class="btn sm quiet" href="#/topics">Wissen nachschlagen</a></p>
+        <section class="sheet" aria-labelledby="open-h">
+          <h2 id="open-h">Weitermachen</h2>
+          ${open.length ? `<ul class="todo" style="margin-top:var(--space-sm)">${open.map((s2) => `<li><span><a class="row-title" href="${sessionHref(s2)}">${esc(s2.exam_title)}</a><br><span class="small muted">${s2.mode === 'exam' ? 'Prüfung' : 'Lernen'}, ${fmtDate(s2.created_at)}, ${s2.answered} ${s2.answered === 1 ? 'Antwort' : 'Antworten'}</span></span><span class="actions"><a class="btn sm" href="${sessionHref(s2)}">Fortsetzen</a><button type="button" class="btn sm quiet" data-del-session="${s2.id}">Löschen</button></span></li>`).join('')}</ul>`
+            : '<p class="empty">Keine offene Sitzung. Wähle links eine Prüfung und starte den Lernmodus.</p>'}
+          <p class="small muted" style="margin-top:var(--space-md)">Ältere und abgeschlossene Sitzungen findest du unter <a href="#/stats/verlauf">Statistik, Verlauf</a>.</p>
         </section>
       </div>
-      <section class="section" aria-labelledby="open-h">
-        <h2 id="open-h">Weitermachen</h2>
-        ${open.length ? `<table class="t stack"><thead><tr><th>Prüfung</th><th>Modus</th><th>Begonnen</th><th class="num">Antworten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>
-          ${open.map((s) => `<tr><td data-label="Prüfung"><a class="row-title" href="${sessionHref(s)}">${esc(s.exam_title)}</a></td><td data-label="Modus">${s.mode === 'exam' ? 'Prüfung' : 'Lernen'}</td><td data-label="Begonnen">${fmtDate(s.created_at)}</td><td class="num" data-label="Antworten">${s.answered}</td>
-            <td class="acts"><div class="actions"><a class="btn sm" href="${sessionHref(s)}">Fortsetzen</a><button type="button" class="btn sm quiet" data-del-session="${s.id}">Löschen</button></div></td></tr>`).join('')}
-        </tbody></table>` : '<p class="empty">Keine offene Sitzung. Wähle oben eine Prüfung und starte den Lernmodus.</p>'}
-      </section>
       ${status.warnings.length ? `<section class="section"><details class="disc"><summary>${status.warnings.length} Datenhinweise</summary><div class="disc-body"><ul class="small">${status.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div></details></section>` : ''}`;
     bindToday();
     const sel = $('#h-exam');
@@ -316,7 +310,7 @@
     if (weak) todo.push(`<li><span>Schwächstes Thema: ${esc(weak.topic)}, bisher ${Math.round(weak.ratio * 100)} % der Punkte</span><button type="button" class="btn sm" data-train="${esc(weak.topic)}">Thema üben</button></li>`);
     if (simDays === null || simDays >= 7) todo.push(`<li><span>${simDays === null ? 'Noch keine Prüfungssimulation abgeschlossen' : `Letzte Prüfungssimulation vor ${simDays} Tagen`}</span><a class="btn sm" href="#/exams">Prüfung simulieren</a></li>`);
     todo.push('<li><span>Fünf Rechenaufgaben zu Subnetting, Spannungsfall und USV</span><a class="btn sm" href="#/rechnen">Rechentrainer</a></li>');
-    if (sessions.length && (!lastBackup || Date.now() - Date.parse(lastBackup) > 14 * 864e5)) todo.push(`<li><span>${lastBackup ? `Letzte Sicherung am ${fmtDate(lastBackup)}` : 'Dein Fortschritt ist noch nicht gesichert'}</span><a class="btn sm" href="#/stats">Sichern</a></li>`);
+    if (sessions.length && (!lastBackup || Date.now() - Date.parse(lastBackup) > 14 * 864e5)) todo.push(`<li><span>${lastBackup ? `Letzte Sicherung am ${fmtDate(lastBackup)}` : 'Dein Fortschritt ist noch nicht gesichert'}</span><a class="btn sm" href="#/stats/daten">Sichern</a></li>`);
     const ready = prog.readiness.filter((r) => r.points !== null);
     return `<section class="sheet today" aria-labelledby="today-h">
       <h2 id="today-h">Dein Stand</h2>
@@ -351,7 +345,7 @@
     const groups = { real: 'Originalprüfungen', wiso: 'Nur WiSo', gen: 'Generiert', topic: 'Themen-Training' };
     const count = (k) => exams.filter((e) => examKind(e) === k).length;
     const rows = exams.filter((e) => examKind(e) === f);
-    app.innerHTML = `<div class="page-head"><div><h1>Prüfungen</h1><p class="lede">Jede Prüfung lässt sich lernen, als Prüfung simulieren oder als Bogen mit Korrekturrand drucken.</p></div>
+    app.innerHTML = `${subnav(EXAM_TABS, 'exams')}<div class="page-head"><div><h1>Prüfungen</h1><p class="lede">Jede Prüfung lässt sich lernen, als Prüfung simulieren oder als Bogen mit Korrekturrand drucken.</p></div>
         <a class="btn" href="#/generate">Neue Prüfung generieren</a></div>
       <nav class="tabs" aria-label="Prüfungsarten">${Object.entries(groups).map(([k, label]) => `<a href="#/exams/${k}" ${k === f ? 'aria-current="page"' : ''}>${label}<span class="count">${count(k)}</span></a>`).join('')}</nav>
       ${rows.length ? `<table class="t stack"><thead><tr><th>Prüfung</th><th>Teile</th><th>Lösungen</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>
@@ -435,9 +429,9 @@
 
   // ---------- Generator ----------
   async function generateView() {
-    setNav('generate');
+    setNav('exams');
     const bank = await api('/api/bank/summary');
-    app.innerHTML = `<div class="page-head"><div><h1>Prüfung generieren</h1><p class="lede">Eine neue Prüfung nach IHK-Schema aus dem Fragenpool zusammenstellen.</p></div></div>
+    app.innerHTML = `${subnav(EXAM_TABS, 'generate')}<div class="page-head"><div><h1>Prüfung generieren</h1><p class="lede">Eine neue Prüfung nach IHK-Schema aus dem Fragenpool zusammenstellen.</p></div></div>
       <div class="split">
         <form class="sheet" id="g-form" novalidate>
           <fieldset><legend>Teile</legend>
@@ -572,8 +566,8 @@
         : parts.map((p) => [kindLabel(p), W.themen.filter((x) => x.part === p)]);
       return groups.map(([h, list]) => `<section class="section"><h2>${esc(h)}</h2><div class="wiki-grid">${list.map(wikiCard).join('')}</div></section>`).join('');
     };
-    app.innerHTML = `<div class="page-head"><div><h1>Wiki</h1><p class="lede">Das Nachschlagewerk zur Prüfung: ${W.themen.length} Themen mit Schaubildern, Formeln und Fundstellen aus echten Prüfungen, dazu ${W.artikel.length} vertiefende Artikel.</p></div>
-        <p class="actions"><a class="btn sm" href="#/formeln">Formelsammlung</a></p></div>
+    app.innerHTML = `${subnav(WIKI_TABS, 'wiki')}<div class="page-head"><div><h1>Wiki</h1><p class="lede">Das Nachschlagewerk zur Prüfung: ${W.themen.length} Themen mit Schaubildern, Formeln und Fundstellen aus echten Prüfungen, dazu ${W.artikel.length} vertiefende Artikel.</p></div>
+</div>
       <div class="tools-row wiki-tools"><label class="field wiki-search"><span>Im Wiki suchen</span><input class="input" type="search" id="w-q" autocomplete="off" placeholder="DHCP, Schleifenimpedanz, Kündigungsfrist"></label>
         <div class="seg" role="group" aria-label="Ansicht">${[['part', 'Nach Bereich'], ['rel', 'Nach Relevanz'], ['az', 'A bis Z']].map(([k, l]) => `<button type="button" class="btn sm${k === mode ? ' primary' : ''}" data-wmode="${k}" aria-pressed="${k === mode}">${l}</button>`).join('')}</div></div>
       <div id="w-results" aria-live="polite"></div>
@@ -644,8 +638,8 @@
     setNav('topics');
     const topics = (await loadTopics()).filter((t) => t.formulas && t.formulas.length);
     const parts = ['Teil1', 'Teil2', 'WiSo'];
-    app.innerHTML = `<div class="page-head"><div><h1>Formelsammlung</h1><p class="lede">Alle Formeln aus der Wissensbasis, nach Prüfungsbereich und Thema. Zum Ausdrucken als Spickzettel fürs Lernen; in der Prüfung gilt der Belegsatz.</p></div>
-        <p class="actions"><button type="button" class="btn" id="f-print">Drucken</button><a class="btn quiet" href="#/topics">Zurück zum Wiki</a></p></div>
+    app.innerHTML = `${subnav(WIKI_TABS, 'formeln')}<div class="page-head"><div><h1>Formelsammlung</h1><p class="lede">Alle Formeln aus der Wissensbasis, nach Prüfungsbereich und Thema. Zum Ausdrucken als Spickzettel fürs Lernen; in der Prüfung gilt der Belegsatz.</p></div>
+        <p class="actions"><button type="button" class="btn" id="f-print">Drucken</button></p></div>
       ${parts.map((p) => { const list = topics.filter((t) => t.part === p); return list.length ? `<section class="section formulas"><h2>${esc(kindLabel(p))}</h2>${list.map((t) => `<div class="f-topic"><h3>${esc(t.name)}</h3><ul>${t.formulas.map((f) => `<li class="formula">${esc(f)}</li>`).join('')}</ul></div>`).join('')}</section>` : ''; }).join('')}`;
     $('#f-print').onclick = () => window.print();
   }
@@ -659,11 +653,13 @@
   }
   // ---------- Statistik ----------
   const meterRow = (label, ratio, right, extra) => `<div class="meter-row"><span>${label}</span><div class="meter ${ratio >= 0.67 ? 'good' : ratio < 0.5 ? 'bad' : ''}" role="img" aria-label="${Math.round(ratio * 100)} Prozent"><span style="width:${Math.round(ratio * 100)}%"></span></div><span class="num small">${right}</span>${extra || '<span></span>'}</div>`;
-  async function statsView() {
+  async function statsView(tab) {
+    tab = tab || 'ueberblick';
     setNav('stats');
     const p = await api('/api/progress');
-    app.innerHTML = `<div class="page-head"><div><h1>Statistik</h1><p class="lede">Was du schon kannst und wo noch Punkte fehlen.</p></div></div>
-      <dl class="dl">
+    const orig = Object.values(window.AP2Local.originals.all()).sort((a, b) => (b.finished || b.created).localeCompare(a.finished || a.created));
+    const sections = {
+      ueberblick: () => `<dl class="dl">
         <div><dt>Abgeschlossene Prüfungssimulationen</dt><dd>${p.exams_finished}<small>${p.passed} bestanden</small></dd></div>
         <div><dt>Durchschnitt je Simulation</dt><dd>${fmtPts(Math.round(p.average_points))}<small>Punkte, beste ${fmtPts(Math.round(p.best_points))}</small></dd></div>
         <div><dt>Lernsitzungen</dt><dd>${p.learn_sessions}</dd></div>
@@ -679,41 +675,43 @@
         <p class="actions" style="margin-top:var(--space-md)">${p.review.due ? `<button type="button" class="btn" data-review>${p.review.due} fällige wiederholen</button>` : `<span class="small muted">Heute ist nichts fällig${p.review.next ? `, die nächste Wiederholung kommt am ${fmtDate(p.review.next)}` : ''}.</span>`}</p>`
         : '<p class="empty">Noch nichts zu wiederholen. Hier landen alle bewerteten Teilaufgaben aus echten Prüfungen und Themen-Trainings.</p>'}
       </section>
-      ${p.per_part.length ? `<section class="section"><h2>Ergebnisse je Prüfungsbereich</h2><table class="t stack"><thead><tr><th>Bereich</th><th class="num">Versuche</th><th class="num">Durchschnitt</th><th class="num">Bestes</th></tr></thead><tbody>${p.per_part.map((x) => `<tr><td data-label="Bereich">${esc(kindLabel(x.kind))}</td><td class="num" data-label="Versuche">${x.attempts}</td><td class="num" data-label="Durchschnitt">${x.average_percent.toFixed(0)} % (Note ${gradeFor(x.average_percent)})</td><td class="num" data-label="Bestes">${x.best_percent.toFixed(0)} %</td></tr>`).join('')}</tbody></table></section>` : ''}
       <section class="section"><h2>Themen, in denen Punkte fehlen</h2>
-      ${p.topic_stats.length ? p.topic_stats.slice(0, 25).map((t) => meterRow(esc(t.topic), t.ratio, `${fmtPts(Math.round(t.points * 10) / 10)} / ${fmtPts(t.max_points)}`, `<button type="button" class="btn sm" data-train="${esc(t.topic)}">Üben</button>`)).join('') : '<p class="empty">Noch keine bewerteten Antworten. Nutze im Lernmodus den Stichwort-Check und die Selbstbewertung oder schließe eine Prüfungssimulation ab.</p>'}
-      </section>
+      ${p.topic_stats.length ? p.topic_stats.slice(0, 12).map((t) => meterRow(esc(t.topic), t.ratio, `${fmtPts(Math.round(t.points * 10) / 10)} / ${fmtPts(t.max_points)}`, `<button type="button" class="btn sm" data-train="${esc(t.topic)}">Üben</button>`)).join('') : '<p class="empty">Noch keine bewerteten Antworten. Nutze im Lernmodus den Stichwort-Check und die Selbstbewertung oder schließe eine Prüfungssimulation ab.</p>'}
+      </section>`,
+      verlauf: () => `${p.per_part.length ? `<section class="section"><h2>Ergebnisse je Prüfungsbereich</h2><table class="t stack"><thead><tr><th>Bereich</th><th class="num">Versuche</th><th class="num">Durchschnitt</th><th class="num">Bestes</th></tr></thead><tbody>${p.per_part.map((x) => `<tr><td data-label="Bereich">${esc(kindLabel(x.kind))}</td><td class="num" data-label="Versuche">${x.attempts}</td><td class="num" data-label="Durchschnitt">${x.average_percent.toFixed(0)} % (Note ${gradeFor(x.average_percent)})</td><td class="num" data-label="Bestes">${x.best_percent.toFixed(0)} %</td></tr>`).join('')}</tbody></table></section>` : ''}
       <section class="section"><h2>Letzte Sitzungen</h2>
-      ${p.recent.length ? `<table class="t stack"><thead><tr><th>Datum</th><th>Prüfung</th><th>Modus</th><th class="num">Stand</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${p.recent.map((s) => `<tr><td data-label="Datum">${fmtDate(s.created_at)}</td><td data-label="Prüfung">${esc(s.exam_title)}</td><td data-label="Modus">${s.mode === 'exam' ? 'Prüfung' : 'Lernen'}</td><td class="num" data-label="Stand">${s.finished ? `${fmtPts(s.total_points)} / ${s.total_max}` : `${s.answered} Antw.`}</td><td class="acts"><div class="actions"><a class="btn sm" href="${sessionHref(s)}">${s.finished ? 'Auswertung' : 'Öffnen'}</a><button type="button" class="btn sm quiet" data-del="${s.id}">Löschen</button></div></td></tr>`).join('')}</tbody></table>` : '<p class="empty">Noch keine Sitzungen.</p>'}
-      </section>`;
-    const orig = Object.values(window.AP2Local.originals.all()).sort((a, b) => (b.finished || b.created).localeCompare(a.finished || a.created));
-    app.insertAdjacentHTML('beforeend', `<section class="section"><h2>Archiv-Übungen</h2>
+      ${p.recent.length ? `<table class="t stack"><thead><tr><th>Datum</th><th>Prüfung</th><th>Modus</th><th class="num">Stand</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${p.recent.map((s2) => `<tr><td data-label="Datum">${fmtDate(s2.created_at)}</td><td data-label="Prüfung">${esc(s2.exam_title)}</td><td data-label="Modus">${s2.mode === 'exam' ? 'Prüfung' : 'Lernen'}</td><td class="num" data-label="Stand">${s2.finished ? `${fmtPts(s2.total_points)} / ${s2.total_max}` : `${s2.answered} Antw.`}</td><td class="acts"><div class="actions"><a class="btn sm" href="${sessionHref(s2)}">${s2.finished ? 'Auswertung' : 'Öffnen'}</a><button type="button" class="btn sm quiet" data-del="${s2.id}">Löschen</button></div></td></tr>`).join('')}</tbody></table>` : '<p class="empty">Noch keine Sitzungen.</p>'}
+      </section>
+      <section class="section"><h2>Archiv-Übungen</h2>
       ${orig.length ? `<table class="t stack"><thead><tr><th>Dokument</th><th>Beruf</th><th class="num">Ergebnis</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${orig.map((o) => `<tr><td data-label="Dokument">${esc(o.title)}</td><td data-label="Beruf">${esc(o.beruf || '')}</td><td class="num" data-label="Ergebnis">${o.points != null ? `${fmtPts(o.points)} / ${fmtPts(o.max)}` : 'offen'}</td><td class="acts"><div class="actions"><a class="btn sm" href="#/original/${o.id}">Öffnen</a><button type="button" class="btn sm quiet" data-odel="${o.id}">Löschen</button></div></td></tr>`).join('')}</tbody></table>` : '<p class="empty">Noch keine Originalprüfung aus dem Archiv bearbeitet.</p>'}
       </section>
-      ${drillStatsHtml()}
-      <section class="section" id="daten"><h2>Deine Daten</h2>
-        <p class="prose small muted">Fortschritt, Antworten, Notenrechner und Rechentrainer liegen nur in diesem Browser auf diesem Gerät. Mit einer Sicherung nimmst du sie auf ein anderes Gerät mit oder holst sie nach dem Löschen der Browserdaten zurück.</p>
+      ${drillStatsHtml()}`,
+      daten: () => `<section class="section" id="daten"><h2>Sicherung</h2>
+        <p class="prose small muted">Fortschritt, Antworten, Notenrechner, Rechentrainer und Projekt liegen nur in diesem Browser auf diesem Gerät. Mit einer Sicherung nimmst du sie auf ein anderes Gerät mit oder holst sie nach dem Löschen der Browserdaten zurück.</p>
         <dl class="dl" style="margin-top:var(--space-sm)">
           <div><dt>Letzte Sicherung</dt><dd class="text">${localStorage.getItem('ap2.lastBackup') ? fmtDate(localStorage.getItem('ap2.lastBackup')) : 'noch nie'}</dd></div>
           ${fileApi ? `<div><dt>Speicherdatei</dt><dd class="text">${backupFile.handle ? `${esc(backupFile.handle.name)}<small>${backupFile.state === 'needs-permission' ? 'Zugriff erneuern, dann speichert sie wieder automatisch' : backupFile.state === 'error' ? 'Schreiben fehlgeschlagen' : 'speichert jede Änderung automatisch'}</small>` : 'keine'}</dd></div>` : ''}
         </dl>
         <div class="actions" style="margin-top:var(--space-md)"><button type="button" class="btn" id="d-export">Sicherung herunterladen</button><label class="btn" for="d-import">Sicherung einspielen</label><input type="file" id="d-import" accept="application/json" class="visually-hidden">
-        ${fileApi ? `<button type="button" class="btn" id="d-file">${!backupFile.handle ? 'Speicherdatei wählen' : backupFile.state === 'needs-permission' ? 'Zugriff erneuern' : 'Andere Speicherdatei'}</button>${backupFile.handle ? '<button type="button" class="btn quiet" id="d-unlink">Speicherdatei trennen</button>' : ''}` : ''}
-        ${window.AP2Local.encrypted ? '<button type="button" class="btn quiet" id="d-lock">Passwort auf diesem Gerät vergessen</button>' : ''}</div>
+        ${fileApi ? `<button type="button" class="btn" id="d-file">${!backupFile.handle ? 'Speicherdatei wählen' : backupFile.state === 'needs-permission' ? 'Zugriff erneuern' : 'Andere Speicherdatei'}</button>${backupFile.handle ? '<button type="button" class="btn quiet" id="d-unlink">Speicherdatei trennen</button>' : ''}` : ''}</div>
         <p class="small muted" style="margin-top:var(--space-sm)">${fileApi ? 'Mit einer Speicherdatei schreibt der Browser jede Änderung nach zwei Sekunden in diese Datei, etwa in deinem Cloud-Ordner. Nach einem Neustart des Browsers einmal „Zugriff erneuern“ klicken.' : 'Automatisches Speichern in eine Datei geht in Chrome und Edge. In diesem Browser lädst du die Sicherung von Hand herunter.'}</p>
-        ${window.AP2Local.builtAt ? `<p class="small muted" style="margin-top:var(--space-sm)">Datenstand: ${esc(window.AP2Local.builtAt)}</p>` : ''}
-      </section>`);
-    $$('[data-del]', app).forEach((b) => b.onclick = async () => { if (confirm('Sitzung löschen? Die Antworten gehen verloren.')) { await api(`/api/sessions/${b.dataset.del}`, { method: 'DELETE' }); statsView(); } });
-    $$('[data-odel]', app).forEach((b) => b.onclick = () => { if (confirm('Diese Archiv-Übung löschen?')) { window.AP2Local.originals.del(b.dataset.odel); statsView(); } });
+      </section>
+      ${window.AP2Local.encrypted ? '<section class="section"><h2>Zugang</h2><p class="prose small muted">Das Passwort ist auf diesem Gerät gespeichert. Vergessen heißt: Beim nächsten Öffnen wird es wieder abgefragt. Dein Fortschritt bleibt erhalten.</p><p class="actions" style="margin-top:var(--space-sm)"><button type="button" class="btn quiet" id="d-lock">Passwort auf diesem Gerät vergessen</button></p></section>' : ''}
+      ${window.AP2Local.builtAt ? `<p class="small muted" style="margin-top:var(--space-lg)">Datenstand: ${esc(window.AP2Local.builtAt)}</p>` : ''}`,
+    };
+    const titles = { ueberblick: ['Statistik', 'Was du schon kannst und wo noch Punkte fehlen.'], verlauf: ['Verlauf', 'Deine Sitzungen, Archiv-Übungen und der Rechentrainer.'], daten: ['Deine Daten', 'Sichern, auf ein anderes Gerät mitnehmen, Zugang verwalten.'] };
+    app.innerHTML = `${subnav(STATS_TABS, tab)}<div class="page-head"><div><h1>${titles[tab][0]}</h1><p class="lede">${titles[tab][1]}</p></div></div>${sections[tab]()}`;
+    $$('[data-del]', app).forEach((b) => b.onclick = async () => { if (confirm('Sitzung löschen? Die Antworten gehen verloren.')) { await api(`/api/sessions/${b.dataset.del}`, { method: 'DELETE' }); statsView(tab); } });
+    $$('[data-odel]', app).forEach((b) => b.onclick = () => { if (confirm('Diese Archiv-Übung löschen?')) { window.AP2Local.originals.del(b.dataset.odel); statsView(tab); } });
     $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
     $$('[data-review]', app).forEach((b) => b.onclick = trainReview);
-    $('#d-export').onclick = () => {
+    const exp = $('#d-export'); if (exp) exp.onclick = () => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([backupJson()], { type: 'application/json' }));
       a.download = `ap2-fortschritt-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-      markBackup(); statsView();
+      markBackup(); statsView(tab);
     };
-    $('#d-import').onchange = async (ev) => {
+    const imp = $('#d-import'); if (imp) imp.onchange = async (ev) => {
       const f = ev.target.files[0]; if (!f) return;
       try {
         const j = JSON.parse(await f.text());
@@ -722,18 +720,18 @@
         const what = `${n('ap2.sessions')} Sitzungen, ${n('ap2.generated')} eigene Prüfungen, ${n('ap2.originals')} Archiv-Übungen${j.data['ap2.grades'] ? ', Notenrechner' : ''}${j.data['ap2.drill'] ? ', Rechentrainer' : ''}${j.data['ap2.project'] ? ', Projekt' : ''}`;
         if (!confirm(`Sicherung vom ${j.saved ? fmtDate(j.saved) : 'unbekannten Datum'} einspielen?\n\nEnthalten: ${what}.\n\nEinträge mit gleicher Kennung werden überschrieben, alle anderen bleiben.`)) return;
         Object.entries(j.data).forEach(([k, v]) => { if (!BACKUP_KEYS.includes(k) || !v || typeof v !== 'object') return; store.set(k, Object.assign(store.get(k, {}), v)); });
-        toast('Sicherung eingespielt'); statsView();
+        toast('Sicherung eingespielt'); statsView(tab);
       } catch (e) { toast(e.message, true); } finally { ev.target.value = ''; }
     };
     const fileBtn = $('#d-file'); if (fileBtn) fileBtn.onclick = async () => {
       try {
-        if (backupFile.handle && backupFile.state === 'needs-permission') { await writeBackupFile(true); statsView(); return; }
+        if (backupFile.handle && backupFile.state === 'needs-permission') { await writeBackupFile(true); statsView(tab); return; }
         const h = await window.showSaveFilePicker({ suggestedName: 'ap2-fortschritt.json', types: [{ description: 'AP2-Sicherung', accept: { 'application/json': ['.json'] } }] });
         backupFile.handle = h; await idb('readwrite', (st) => st.put(h, 'file')); await writeBackupFile(true);
-        toast('Speicherdatei verbunden'); statsView();
+        toast('Speicherdatei verbunden'); statsView(tab);
       } catch (e) { if (e.name !== 'AbortError') toast(e.message, true); }
     };
-    const unlinkBtn = $('#d-unlink'); if (unlinkBtn) unlinkBtn.onclick = async () => { backupFile.handle = null; backupFile.state = ''; await idb('readwrite', (st) => st.delete('file')).catch(() => {}); statsView(); };
+    const unlinkBtn = $('#d-unlink'); if (unlinkBtn) unlinkBtn.onclick = async () => { backupFile.handle = null; backupFile.state = ''; await idb('readwrite', (st) => st.delete('file')).catch(() => {}); statsView(tab); };
     const lockBtn = $('#d-lock'); if (lockBtn) lockBtn.onclick = () => { if (confirm('Passwort auf diesem Gerät vergessen? Dein Fortschritt bleibt erhalten.')) window.AP2Local.lock(); };
   }
 
@@ -765,10 +763,10 @@
 
   // ---------- Notenrechner ----------
   async function gradesView() {
-    setNav('grades');
+    setNav('stats');
     const T = window.AP2Tools;
     const vals = store.get('ap2.grades', {});
-    app.innerHTML = `<div class="page-head"><div><h1>Notenrechner</h1><p class="lede">Trag ein, was du schon weißt, jeweils 0 bis 100 Punkte. Offene Bereiche bleiben leer. Dann siehst du, was dir dort zum Bestehen noch fehlt.</p></div></div>
+    app.innerHTML = `${subnav(STATS_TABS, 'noten')}<div class="page-head"><div><h1>Notenrechner</h1><p class="lede">Trag ein, was du schon weißt, jeweils 0 bis 100 Punkte. Offene Bereiche bleiben leer. Dann siehst du, was dir dort zum Bestehen noch fehlt.</p></div></div>
       <div class="split">
         <section class="sheet" aria-labelledby="g-in-h"><h2 id="g-in-h">Deine Punkte</h2>
           <div class="grade-list">${T.AREAS.map((a) => `<div class="grade-row"><label class="field" for="g-${a.id}"><span>${esc(a.label)} <span class="tag">${a.w} %</span></span></label><input class="input num" id="g-${a.id}" data-area="${a.id}" type="text" inputmode="decimal" autocomplete="off" placeholder="offen" value="${vals[a.id] ?? ''}" aria-describedby="g-${a.id}-n"><p class="small muted" id="g-${a.id}-n">${esc(a.note)}</p></div>`).join('')}</div>
@@ -838,7 +836,7 @@
     pr.form = pr.form || {}; pr.antrag = pr.antrag || {};
     const standHtml = () => `<div><dt>Projektantrag</dt><dd>${T.ANTRAG.filter((_, i) => pr.antrag[i]).length}<small>von ${T.ANTRAG.length} Punkten erfüllt</small></dd></div><div><dt>Dokumentation</dt><dd>${T.DOC_CHECKLIST.filter((_, i) => pr.checks[i]).length + T.DOC_FORM.filter((_, i) => pr.form[i]).length}<small>von ${T.DOC_CHECKLIST.length + T.DOC_FORM.length} Punkten erledigt</small></dd></div>
           <div><dt>Fachgespräch</dt><dd>${rated('sicher')}<small>sicher, ${rated('unsicher')} unsicher, ${T.FG_QUESTIONS.length - rated('sicher') - rated('unsicher')} offen</small></dd></div>`;
-    app.innerHTML = `<div class="page-head"><div><h1>Projekt und Fachgespräch</h1><p class="lede">Der Prüfungsbereich mit Projektarbeit, Dokumentation, Präsentation und Fachgespräch zählt 50 % der Gesamtnote. Hier bereitest du ihn vor.</p></div></div>
+    app.innerHTML = `<nav class="subnav" aria-label="Abschnitte">${[['pj-h', 'Projekt'], ['pj-antrag', 'Antrag'], ['pj-doku', 'Dokumentation'], ['pj-praes', 'Präsentation'], ['pj-fg', 'Fachgespräch']].map(([id, l]) => `<a href="#/projekt" data-jump="${id}">${l}</a>`).join('')}</nav><div class="page-head"><div><h1>Projekt und Fachgespräch</h1><p class="lede">Der Prüfungsbereich mit Projektarbeit, Dokumentation, Präsentation und Fachgespräch zählt 50 % der Gesamtnote. Hier bereitest du ihn vor.</p></div></div>
       <div class="split">
         <section class="sheet" aria-labelledby="pj-h"><h2 id="pj-h">Dein Projekt</h2>
           <div class="grade-list">
@@ -854,11 +852,11 @@
           <p class="actions" style="margin-top:var(--space-sm)"><a class="btn sm quiet" href="#/noten">Im Notenrechner eintragen</a></p>
         </section>
       </div>
-      <section class="section"><h2>Projektantrag prüfen</h2>
+      <section class="section"><h2 id="pj-antrag">Projektantrag prüfen</h2>
         <p class="prose small muted">Bevor du den Antrag einreichst: Erfüllt dein Vorhaben, was ein Prüfungsprojekt ausmacht? Fehlt Projektcharakter oder fachliche Tiefe, lehnt die IHK den Antrag oft ab.</p>
         <div class="checklist">${T.ANTRAG.map((c, i) => `<label class="check"><input type="checkbox" data-antrag="${i}"${pr.antrag[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
       </section>
-      <section class="section"><h2>Checkliste Dokumentation</h2>
+      <section class="section"><h2 id="pj-doku">Checkliste Dokumentation</h2>
         <h3 class="today-sub">Inhalt</h3>
         <div class="checklist">${T.DOC_CHECKLIST.map((c, i) => `<label class="check"><input type="checkbox" data-doc="${i}"${pr.checks[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
         <h3 class="today-sub">Form</h3>
@@ -866,7 +864,7 @@
         <h4 style="margin-top:var(--space-md)">Mehr dazu</h4>
         <ul class="links"><li><a href="https://www.digitalklempner.de/unterrichtsmaterial/technische_dokumentation/projektdoku/" target="_blank" rel="noopener">Digitalklempner: Projektdokumentation</a> <span class="small muted">ausführlicher Leitfaden eines IT-Ausbilders</span></li><li><a href="https://www.digitalklempner.de/kursinfos/besuchswoche/" target="_blank" rel="noopener">Digitalklempner: Projektfindung und Projektantrag</a> <span class="small muted">Projektcharakter und fachliche Tiefe</span></li></ul>
       </section>
-      <section class="section"><h2>Präsentation üben</h2>
+      <section class="section"><h2 id="pj-praes">Präsentation üben</h2>
         <div class="split">
           <div class="sheet"><p class="tag">Höchstens 15 Minuten</p><p class="clock" id="pt-clock" aria-live="off">15:00</p>
             <div class="actions"><button type="button" class="btn primary" id="pt-start">Start</button><button type="button" class="btn" id="pt-reset">Zurücksetzen</button></div>
@@ -874,11 +872,12 @@
           <div><h3 class="today-sub">Möglicher Ablauf</h3><ol class="outline" id="pt-outline">${T.TALK_OUTLINE.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
         </div>
       </section>
-      <section class="section"><h2>Fachgespräch trainieren</h2>
+      <section class="section"><h2 id="pj-fg">Fachgespräch trainieren</h2>
         <div class="tools-row"><label class="field"><span>Fragen</span><select class="input" id="fg-mode"><option value="open">Offene und unsichere zuerst</option><option value="all">Alle gemischt</option><option value="unsicher">Nur unsichere</option></select></label></div>
         <div class="sheet fg-card" id="fg-card" style="margin-top:var(--space-md)"></div>
         <details class="disc" style="margin-top:var(--space-md)"><summary>Alle ${T.FG_QUESTIONS.length} Fragen mit deinen Notizen</summary><div class="disc-body" id="fg-all"></div></details>
       </section>`;
+    $$('[data-jump]', app).forEach((a) => a.onclick = (ev) => { ev.preventDefault(); const el = document.getElementById(a.dataset.jump); if (el) el.scrollIntoView({ behavior: 'smooth' }); });
     const bindField = (id, key) => { $(id).oninput = (ev) => { pr[key] = ev.target.value; save(); }; };
     bindField('#pj-title', 'title'); bindField('#pj-desc', 'desc');
     $('#pj-date').onchange = (ev) => { pr.docDate = ev.target.value; save(); projectView(); };
