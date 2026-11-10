@@ -386,3 +386,41 @@ html select.input, html .field select { appearance: none; padding-right: calc(va
 .fg-tools { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
 .fg-row { padding: var(--space-xs) 0; border-top: var(--rule-hair) solid var(--color-rule); }
 .fg-row p { margin: 0; }
+
+/* ---------- Schaubilder im Wissensbereich (web/diagrams.js): nur Klassen, Farben aus Tokens, Hell und Dunkel ---------- */
+.dia-fig { margin: var(--space-md) 0 0; max-width: 46rem; }
+.dia-wrap { overflow-x: auto; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-sheet); padding: var(--space-sm); }
+.dia { display: block; width: 100%; min-width: 30rem; height: auto; font-family: var(--font-body); }
+.dia-fig figcaption { margin-top: var(--space-2xs); font-size: var(--text-sm); color: var(--color-muted); }
+.dia .t { fill: var(--color-ink); font-size: 15px; }
+.dia .th { fill: var(--color-ink); font-size: 17px; font-weight: 600; }
+.dia .ts { fill: var(--color-ink-2); font-size: 12.5px; }
+.dia .tm { fill: var(--color-muted); font-size: 12.5px; }
+.dia .tw { fill: var(--color-paper); font-size: 14px; font-weight: 600; }
+.dia .ln { stroke: var(--color-ink-2); stroke-width: 1.5; fill: none; }
+.dia .lt { stroke: var(--color-rule-2); stroke-width: 1; fill: none; }
+.dia .ld { stroke: var(--color-ink-2); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+.dia .la { stroke: var(--color-accent); stroke-width: 2.5; fill: none; }
+.dia .lb { stroke: var(--color-error); stroke-width: 2.5; fill: none; }
+.dia .lo { stroke: var(--color-success); stroke-width: 2.5; fill: none; }
+.dia .bx { fill: var(--color-sheet); stroke: var(--color-ink-2); stroke-width: 1.5; }
+.dia .bw { fill: var(--color-well); stroke: var(--color-rule-2); stroke-width: 1; }
+.dia .ba { fill: var(--color-accent); stroke: none; }
+.dia .bal { fill: color-mix(in oklab, var(--color-accent) 18%, var(--color-sheet)); stroke: var(--color-accent); stroke-width: 1.5; }
+.dia .bok { fill: color-mix(in oklab, var(--color-success) 18%, var(--color-sheet)); stroke: var(--color-success); stroke-width: 1.5; }
+.dia .bbad { fill: color-mix(in oklab, var(--color-error) 16%, var(--color-sheet)); stroke: var(--color-error); stroke-width: 1.5; }
+.dia .bwarn { fill: color-mix(in oklab, var(--color-warn) 18%, var(--color-sheet)); stroke: var(--color-warn); stroke-width: 1.5; }
+.dia .fi { fill: var(--color-ink-2); stroke: none; }
+.dia .fa { fill: var(--color-accent); stroke: none; }
+.dia .fb { fill: var(--color-error); stroke: none; }
+.dia .fo { fill: var(--color-success); stroke: none; }
+
+/* ---------- Mehr dazu, Formelsammlung ---------- */
+.links { margin: 0; padding-left: 1.1em; }
+.links li { padding: var(--space-2xs) 0; }
+.formulas { columns: 2 22rem; column-gap: var(--gap-columns); }
+.formulas h2 { column-span: all; }
+.f-topic { break-inside: avoid; padding: var(--space-xs) 0 var(--space-sm); border-top: var(--rule-hair) solid var(--color-rule); }
+.f-topic h3 { font-size: var(--text-md); margin-bottom: var(--space-2xs); }
+.f-topic ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+@media print { .formulas { columns: 2; } .page-head .actions { display: none; } .dia-wrap { overflow: visible; } .dia { min-width: 0; } }

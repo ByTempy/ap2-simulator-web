@@ -139,6 +139,7 @@
     [/^#\/exam-detail\/([^/]+)$/, examDetail],
     [/^#\/generate$/, generateView],
     [/^#\/topics$/, topicsView],
+    [/^#\/formeln$/, formulasView],
     [/^#\/stats$/, statsView],
     [/^#\/noten$/, gradesView],
     [/^#\/rechnen$/, drillView],
@@ -404,6 +405,11 @@
   }
 
   // ---------- Wissen ----------
+  // Schaubilder stammen aus web/diagrams.js (eigene SVGs, nur Klassen und Tokens), Links aus topics.json
+  // Schlüssel „Teil1:Fehlersuche“ geht vor „Fehlersuche“, weil manche Themennamen in zwei Prüfungsteilen vorkommen
+  const diagramsOf = (t) => { const D = window.AP2Diagrams || {}; return D[`${t.part}:${t.name}`] || D[t.name] || []; };
+  const figuresHtml = (t) => diagramsOf(t).map((d) => `<figure class="dia-fig"><div class="dia-wrap">${d.svg}</div><figcaption><strong>${esc(d.title)}.</strong> ${esc(d.caption)}</figcaption></figure>`).join('');
+  const linksHtml = (t) => t.links && t.links.length ? `<h4>Mehr dazu</h4><ul class="links">${t.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a> <span class="small muted">${esc(new URL(l.url).hostname.replace(/^www\./, ''))}</span></li>`).join('')}</ul>` : '';
   async function topicsView() {
     setNav('topics');
     const topics = await loadTopics();
@@ -417,7 +423,7 @@
     const groups = sortMode === 'rel'
       ? [['Prüfungskern: in mindestens 70 % der Prüfungstermine', topics.filter((t) => labelOf(t) === 'Prüfungskern')], ['Kam vor: seltener gefragt', topics.filter((t) => labelOf(t) === 'Kam vor')], ['Hintergrund: bisher nicht direkt gefragt', topics.filter((t) => labelOf(t) === 'Hintergrund')]].map(([h, l]) => [h, l.sort((a, b) => share(b) - share(a))])
       : parts.map((p) => [kindLabel(p), topics.filter((t) => t.part === p)]);
-    app.innerHTML = `<div class="page-head"><div><h1>Wissen</h1><p class="lede">Prüfungswissen zu jedem Thema. Im Lernmodus erscheinen die passenden Einträge nach einem Tipp.</p></div>
+    app.innerHTML = `<div class="page-head"><div><h1>Wissen</h1><p class="lede">Prüfungswissen zu jedem Thema, mit Schaubildern und Links zum Weiterlesen. Im Lernmodus erscheinen die passenden Einträge nach einem Tipp.</p><p class="actions" style="margin-top:var(--space-sm)"><a class="btn sm" href="#/formeln">Formelsammlung</a></p></div>
         <div class="tools-row"><label class="field"><span>Ordnen</span><select class="input" id="t-sort"><option value="part">Nach Prüfungsbereich</option><option value="rel"${sortMode === 'rel' ? ' selected' : ''}>Nach Prüfungsrelevanz</option></select></label>
         <label class="field"><span>Thema suchen</span><input class="input" type="search" id="t-search" autocomplete="off" placeholder="RAID, Spannungsfall, Kündigung"></label></div></div>
       <div id="t-list">${groups.map(([h, list]) => `<section class="section" data-group><h2>${esc(h)}</h2>${list.map((t) => topicRow(t, countOf(t.name), anaOf(t.name))).join('') || '<p class="empty">Keine Einträge.</p>'}</section>`).join('')}
@@ -431,6 +437,15 @@
       $('#t-none').hidden = $$('[data-topic]', app).some((c) => !c.hidden);
     };
   }
+  async function formulasView() {
+    setNav('topics');
+    const topics = (await loadTopics()).filter((t) => t.formulas && t.formulas.length);
+    const parts = ['Teil1', 'Teil2', 'WiSo'];
+    app.innerHTML = `<div class="page-head"><div><h1>Formelsammlung</h1><p class="lede">Alle Formeln aus der Wissensbasis, nach Prüfungsbereich und Thema. Zum Ausdrucken als Spickzettel fürs Lernen; in der Prüfung gilt der Belegsatz.</p></div>
+        <p class="actions"><button type="button" class="btn" id="f-print">Drucken</button><a class="btn quiet" href="#/topics">Zurück zu Wissen</a></p></div>
+      ${parts.map((p) => { const list = topics.filter((t) => t.part === p); return list.length ? `<section class="section formulas"><h2>${esc(kindLabel(p))}</h2>${list.map((t) => `<div class="f-topic"><h3>${esc(t.name)}</h3><ul>${t.formulas.map((f) => `<li class="formula">${esc(f)}</li>`).join('')}</ul></div>`).join('')}</section>` : ''; }).join('')}`;
+    $('#f-print').onclick = () => window.print();
+  }
   async function trainTopic(topic) {
     try {
       const e = await post('/api/topic-exam', { topic, limit: 40 });
@@ -441,14 +456,16 @@
   }
   function topicRow(t, n, a) {
     const label = a ? a.label : 'Hintergrund';
-    return `<details class="disc" data-topic="${esc((t.name + ' ' + t.summary + ' ' + (t.key_points || []).join(' ')).toLowerCase())}"><summary>${esc(t.name)}<span class="tag${label === 'Prüfungskern' ? ' accent' : ''}">${label}${a ? `, ${a.termine} von ${a.of} Terminen` : ''}${a && a.trend ? `, ${a.trend}` : ''}</span></summary>
+    return `<details class="disc" data-topic="${esc((t.name + ' ' + t.summary + ' ' + (t.key_points || []).join(' ')).toLowerCase())}"><summary>${esc(t.name)}<span class="tag${label === 'Prüfungskern' ? ' accent' : ''}">${label}${a ? `, ${a.termine} von ${a.of} Terminen` : ''}${a && a.trend ? `, ${a.trend}` : ''}${diagramsOf(t).length ? `, ${diagramsOf(t).length === 1 ? 'Schaubild' : diagramsOf(t).length + ' Schaubilder'}` : ''}</span></summary>
       <div class="disc-body topic-body prose">
       <p>${esc(t.summary)}</p>
       ${a ? `<p class="small muted">Kam in ${a.termine} von ${a.of} Prüfungsterminen vor, im Schnitt mit ${a.avg_points} Punkten je Termin. Fundstellen: ${a.found.map((f) => `${esc(f.termin)} (${esc(f.refs.join(', '))})`).join('; ')}.</p>` : ''}
       ${t.key_points && t.key_points.length ? `<h4>Das bringt Punkte</h4><ul>${t.key_points.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
       ${t.formulas && t.formulas.length ? `<h4>Formeln</h4><div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}
       ${t.pitfalls && t.pitfalls.length ? `<h4>Typische Fehler</h4><ul>${t.pitfalls.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
+      ${figuresHtml(t)}
       ${t.example_question ? `<p class="small muted" style="margin-top:var(--space-sm)">Typische Aufgabe: ${esc(t.example_question)}</p>` : ''}
+      ${linksHtml(t)}
       ${n ? `<p style="margin-top:var(--space-md)"><button type="button" class="btn sm" data-train="${esc(t.name)}">Zu diesem Thema üben</button></p>` : ''}
       </div></details>`;
   }
@@ -937,7 +954,7 @@
       area.addEventListener('change', () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 100); });
 
       const renderTopics = (topics) => {
-        $('#topicbox').innerHTML = topics.map((t) => `<div class="panel"><h4>Nachschlagen: ${esc(t.name)}</h4><p>${esc(t.summary)}</p>${t.key_points && t.key_points.length ? `<ul>${t.key_points.slice(0, 6).map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}${t.formulas && t.formulas.length ? `<div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}</div>`).join('');
+        $('#topicbox').innerHTML = topics.map((t) => `<div class="panel"><h4>Nachschlagen: ${esc(t.name)}</h4><p>${esc(t.summary)}</p>${t.key_points && t.key_points.length ? `<ul>${t.key_points.slice(0, 6).map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}${t.formulas && t.formulas.length ? `<div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}${figuresHtml(t)}${linksHtml(t)}</div>`).join('');
       };
       const showHints = (upTo) => {
         // Hinweise kommen vom Server (zeichnet die Nutzung auf)

@@ -534,7 +534,9 @@
         const hints = f.item.hints || [];
         const hint = hints.length ? hints[Math.min(level - 1, hints.length - 1)] : genericHint(f.item, level);
         const key = `${body.part}/${body.item}`; const a = s.answers[key] || (s.answers[key] = {}); a.hints_used = Math.max(a.hints_used || 0, level); sessionPut(s);
-        const topics = B.data.topics.filter((t) => (f.item.topics || []).some((x) => x.toLowerCase() === t.name.toLowerCase()));
+        // Gleichnamige Themen (z. B. Fehlersuche in Teil 1 und Teil 2): nur das aus dem Prüfungsteil der Aufgabe
+        const topics = B.data.topics.filter((t) => (f.item.topics || []).some((x) => x.toLowerCase() === t.name.toLowerCase()))
+          .filter((t, _, all) => all.filter((x) => x.name === t.name).length === 1 || t.part === f.part.kind);
         return { level, max_level: Math.max(hints.length, 3), hint, topics };
       }
       if (action === 'check') {
