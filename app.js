@@ -961,7 +961,9 @@
       const type = $('#r-type').value || Object.keys(T.DRILLS)[Math.floor(Math.random() * Object.keys(T.DRILLS).length)];
       const task = T.DRILLS[type].make(Math.random); let counted = false;
       const f = $('#r-form');
-      f.innerHTML = `<p class="tag">${esc(T.DRILLS[type].name)}, ${esc(kindLabel(T.DRILLS[type].part))}</p>
+      const lv = T.DRILLS[type].level, lvName = ['Leicht', 'Mittel', 'Schwer'][lv - 1];
+      f.innerHTML = `<div class="drill-top"><p class="tag">${esc(T.DRILLS[type].name)}, ${esc(kindLabel(T.DRILLS[type].part))}</p>
+        <span class="level" title="Schwierigkeit: ${lvName}"><span class="visually-hidden">Schwierigkeit: </span><span class="level-bars" aria-hidden="true">${[1, 2, 3].map((i) => `<i${i <= lv ? ' class="on"' : ''}></i>`).join('')}</span>${lvName}</span></div>
         <p class="prose" style="margin-top:var(--space-xs)">${esc(task.text)}</p>
         <div class="drill-fields">${task.fields.map((x, i) => `<div class="field"><label for="r-f${i}">${esc(x.label)}${x.unit ? ` in ${esc(x.unit)}` : ''}</label><input class="input num" id="r-f${i}" type="text" inputmode="${x.exact ? 'text' : 'decimal'}" autocomplete="off"><span class="tag" id="r-s${i}" aria-live="polite"></span></div>`).join('')}</div>
         <div class="actions" style="margin-top:var(--space-md)"><button type="submit" class="btn primary">Prüfen</button><button type="button" class="btn" id="r-hint">Tipp</button><button type="button" class="btn" id="r-formula" aria-expanded="false" aria-controls="r-formulas">Formel</button><button type="button" class="btn" id="r-next">Nächste Aufgabe</button></div>
