@@ -208,7 +208,9 @@
     [/^#\/exams(?:\/(real|wiso|gen|topic))?$/, examsView],
     [/^#\/exam-detail\/([^/]+)$/, examDetail],
     [/^#\/generate$/, generateView],
-    [/^#\/topics$/, topicsView],
+    [/^#\/(?:topics|wiki)$/, wikiIndex],
+    [/^#\/wiki\/thema\/([a-z0-9-]+)$/, wikiThema],
+    [/^#\/wiki\/artikel\/([a-z0-9.&-]+)$/, wikiArtikel],
     [/^#\/formeln$/, formulasView],
     [/^#\/stats$/, statsView],
     [/^#\/noten$/, gradesView],
@@ -480,39 +482,170 @@
   const diagramsOf = (t) => { const D = window.AP2Diagrams || {}; return D[`${t.part}:${t.name}`] || D[t.name] || []; };
   const figuresHtml = (t) => diagramsOf(t).map((d) => `<figure class="dia-fig"><div class="dia-wrap">${d.svg}</div><figcaption><strong>${esc(d.title)}.</strong> ${esc(d.caption)}</figcaption></figure>`).join('');
   const linksHtml = (t) => t.links && t.links.length ? `<h4>Mehr dazu</h4><ul class="links">${t.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a> <span class="small muted">${esc(new URL(l.url).hostname.replace(/^www\./, ''))}</span></li>`).join('')}</ul>` : '';
-  async function topicsView() {
+  // ---------- Wiki: Themen der Wissensbasis und vertiefende Artikel (fidup-wiki, ISC-Lizenz) ----------
+  const slugify = (x) => x.toLowerCase().replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  let wikiCache = null;
+  async function wikiData() {
+    if (wikiCache) return wikiCache;
+    const [topics, counts, ana, articles] = await Promise.all([loadTopics(), api('/api/topic-counts'), api('/api/topic-analysis'), api('/api/wiki')]);
+    const dup = new Set(topics.map((t) => t.name).filter((n, i, a) => a.indexOf(n) !== i));
+    const strip = (h) => h.replace(/<[^>]+>/g, ' ');
+    const themen = topics.map((t) => ({
+      kind: 'thema', t, name: t.name, part: t.part, slug: dup.has(t.name) ? slugify(`${t.part} ${t.name}`) : slugify(t.name),
+      ana: ana[t.name.toLowerCase()] || null, items: (counts.find((c) => c.topic.toLowerCase() === t.name.toLowerCase()) || {}).items || 0,
+      text: [t.name, t.summary, ...(t.key_points || []), ...(t.pitfalls || []), ...(t.formulas || [])].join(' ').toLowerCase(),
+    }));
+    // Gleichnamige Themen (Fehlersuche): Vertiefungsartikel gehören zum IT-Teil
+    const themaOf = (name) => themen.find((x) => x.name === name && (!dup.has(name) || x.part === 'Teil1'));
+    const artikel = articles.map((a) => ({ kind: 'artikel', ...a, name: a.title, thema: themaOf(a.topic), text: `${a.title} ${a.description} ${strip(a.html)}`.toLowerCase() }));
+    themen.forEach((x) => { x.artikel = artikel.filter((a) => a.thema === x); });
+    wikiCache = { themen, artikel, all: [...themen, ...artikel] };
+    return wikiCache;
+  }
+  const wikiHref = (e) => `#/wiki/${e.kind}/${e.slug}`;
+  const labelOf = (x) => (x.ana || { label: 'Hintergrund' }).label;
+  // Formeln aus LaTeX lesbar machen (ohne Formelbibliothek)
+  function latexText(s) {
+    // \left und \right zuerst, sonst macht die Ersetzung für \le daraus „≤ft“
+    let t = s.replace(/\\(?:left|right)\s*/g, '').replace(/\\text\{([^}]*)\}/g, '$1').replace(/\\(?:mathrm|mathbf|operatorname)\{([^}]*)\}/g, '$1');
+    // Hoch- und Tiefstellungen zuerst auflösen, damit innere Klammern Brüche nicht blockieren
+    t = t.replace(/\\_/g, '_').replace(/\^\{([^{}]*)\}/g, '^$1').replace(/_\{([^{}]*)\}/g, '_$1');
+    for (let k = 0; k < 3; k++) t = t.replace(/\\[dt]?frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1) / ($2)').replace(/\\sqrt\{([^{}]*)\}/g, '√($1)');
+    const R = { '\\times': '×', '\\cdot': '·', '\\leq': '≤', '\\le': '≤', '\\geq': '≥', '\\ge': '≥', '\\neq': '≠', '\\approx': '≈', '\\Rightarrow': '⇒', '\\rightarrow': '→', '\\to': '→', '\\sum': 'Σ', '\\Delta': 'Δ', '\\varphi': 'φ', '\\phi': 'φ', '\\Omega': 'Ω', '\\pi': 'π', '\\%': '%', '\\,': ' ', '\\;': ' ', '\\space': ' ', '\\ ': ' ' };
+    Object.entries(R).forEach(([a, b]) => { t = t.split(a).join(b); });
+    return t.replace(/\^\{([^}]*)\}/g, '^$1').replace(/_\{([^}]*)\}/g, '_$1').replace(/[{}]/g, '').replace(/\\([a-zA-Z]+)/g, '$1').replace(/\s+/g, ' ').trim();
+  }
+  // Mermaid-Diagramme als Baumliste bzw. Nachrichtenfolge darstellen (keine Diagrammbibliothek nötig)
+  function mermaidHtml(code) {
+    const lines = code.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('%%'));
+    const head = lines.shift() || '';
+    if (/^sequenceDiagram/.test(head)) {
+      const msgs = lines.map((l) => l.match(/^(.+?)\s*-{1,2}>{1,2}[+-]?\s*(.+?)\s*:\s*(.+)$/)).filter(Boolean);
+      return msgs.length ? `<ol class="seq">${msgs.map((m) => `<li><strong>${esc(m[1])}</strong> an <strong>${esc(m[2])}</strong>: ${esc(m[3])}</li>`).join('')}</ol>` : '';
+    }
+    if (!/^(graph|flowchart)/.test(head)) return '';
+    const label = {}, kids = {}, child = new Set(), order = [];
+    const node = (tok) => { const m = tok.trim().match(/^([\w-]+)\s*(?:[[({>]+\s*["/\\]?(.*?)["/\\]?\s*[\])}]+)?\s*$/); if (!m) return null; if (m[2]) label[m[1]] = m[2]; if (!order.includes(m[1])) order.push(m[1]); return m[1]; };
+    for (const l of lines) {
+      if (/^(subgraph|end|style|classDef|class|click|direction|linkStyle)\b/.test(l)) continue;
+      const parts = l.split(/\s*(?:-{2,}>?|-\.+->?|={2,}>?)\s*(?:\|[^|]*\|\s*)?/).map(node);
+      for (let k = 0; k + 1 < parts.length; k++) if (parts[k] && parts[k + 1]) { (kids[parts[k]] = kids[parts[k]] || []).push(parts[k + 1]); child.add(parts[k + 1]); }
+    }
+    const seen = new Set();
+    const li = (n, d) => { const again = seen.has(n); seen.add(n); const sub = !again && d < 6 && kids[n] ? `<ul>${kids[n].map((c) => li(c, d + 1)).join('')}</ul>` : ''; return `<li>${esc(latexText(label[n] || n).replace(/<br\s*\/?>/gi, ' '))}${sub}</li>`; };
+    const roots = order.filter((n) => !child.has(n));
+    return roots.length ? `<ul class="mtree">${roots.map((r) => li(r, 0)).join('')}</ul>` : '';
+  }
+  function articleBody(html, known) {
+    const box = document.createElement('div'); box.innerHTML = html;
+    box.querySelectorAll('pre > code.language-mermaid').forEach((c) => { const h = mermaidHtml(c.textContent); const f = document.createElement('figure'); f.className = 'mermaid-tree'; f.innerHTML = h ? `<figcaption>Übersicht</figcaption>${h}` : ''; c.parentElement.replaceWith(f); if (!h) f.remove(); });
+    box.querySelectorAll('.math').forEach((m) => { const sp = document.createElement('span'); sp.className = 'formula'; sp.textContent = latexText(m.textContent); m.replaceWith(sp); });
+    box.querySelectorAll('a[href]').forEach((a) => {
+      const h = a.getAttribute('href');
+      if (/^https?:/.test(h)) { a.target = '_blank'; a.rel = 'noopener'; return; }
+      const slug = h.replace(/[#?].*$/, '').replace(/\/$/, '').split('/').pop();
+      if (known.has(slug)) a.setAttribute('href', `#/wiki/artikel/${slug}`);
+      else { a.href = `https://t128n.github.io/fidup-wiki/lerninhalte/${slug}/`; a.target = '_blank'; a.rel = 'noopener'; }
+    });
+    box.querySelectorAll('h2').forEach((h, k) => { h.id = `abschnitt-${k + 1}`; });
+    return box.innerHTML;
+  }
+  const crumbs = (list) => `<nav class="crumbs" aria-label="Brotkrumen"><ol>${list.map(([t, h]) => `<li>${h ? `<a href="${h}">${esc(t)}</a>` : `<span aria-current="page">${esc(t)}</span>`}</li>`).join('')}</ol></nav>`;
+  function wikiCard(x) {
+    return x.kind === 'thema'
+      ? `<a class="wiki-card" href="${wikiHref(x)}"><span class="wc-title">${esc(x.name)}</span><span class="tag${labelOf(x) === 'Prüfungskern' ? ' accent' : ''}">${labelOf(x)}${x.ana ? `, ${x.ana.termine} von ${x.ana.of} Terminen` : ''}</span><span class="small muted wc-sum">${esc((x.t.summary || '').split(/(?<=\.)\s/)[0])}</span><span class="small wc-meta">${[diagramsOf(x.t).length ? `${diagramsOf(x.t).length} ${diagramsOf(x.t).length === 1 ? 'Schaubild' : 'Schaubilder'}` : '', x.artikel.length ? `${x.artikel.length} ${x.artikel.length === 1 ? 'Vertiefung' : 'Vertiefungen'}` : ''].filter(Boolean).join(', ')}</span></a>`
+      : `<a class="wiki-card art" href="${wikiHref(x)}"><span class="wc-title">${esc(x.title)}</span><span class="tag">Vertiefung${x.thema ? `, ${esc(x.thema.name)}` : ''}</span><span class="small muted wc-sum">${esc(x.description.split(/(?<=\.)\s/)[0])}</span></a>`;
+  }
+  async function wikiIndex() {
     setNav('topics');
-    const topics = await loadTopics();
-    const [counts, ana] = await Promise.all([api('/api/topic-counts'), api('/api/topic-analysis')]);
-    const countOf = (n) => (counts.find((c) => c.topic.toLowerCase() === n.toLowerCase()) || {}).items || 0;
-    const anaOf = (n) => ana[n.toLowerCase()] || null;
+    const W = await wikiData();
+    const st = store.get('ap2.settings', {}); const mode = ['part', 'rel', 'az'].includes(st.wikiMode) ? st.wikiMode : 'part';
     const parts = ['Teil1', 'Teil2', 'WiSo'];
-    const sortMode = store.get('ap2.settings', {}).topicSort || 'part';
-    const labelOf = (t) => (anaOf(t.name) || { label: 'Hintergrund' }).label;
-    const share = (t) => { const a = anaOf(t.name); return a ? a.termine / a.of : 0; };
-    const groups = sortMode === 'rel'
-      ? [['Prüfungskern: in mindestens 70 % der Prüfungstermine', topics.filter((t) => labelOf(t) === 'Prüfungskern')], ['Kam vor: seltener gefragt', topics.filter((t) => labelOf(t) === 'Kam vor')], ['Hintergrund: bisher nicht direkt gefragt', topics.filter((t) => labelOf(t) === 'Hintergrund')]].map(([h, l]) => [h, l.sort((a, b) => share(b) - share(a))])
-      : parts.map((p) => [kindLabel(p), topics.filter((t) => t.part === p)]);
-    app.innerHTML = `<div class="page-head"><div><h1>Wissen</h1><p class="lede">Prüfungswissen zu jedem Thema, mit Schaubildern und Links zum Weiterlesen. Im Lernmodus erscheinen die passenden Einträge nach einem Tipp.</p><p class="actions" style="margin-top:var(--space-sm)"><a class="btn sm" href="#/formeln">Formelsammlung</a></p></div>
-        <div class="tools-row"><label class="field"><span>Ordnen</span><select class="input" id="t-sort"><option value="part">Nach Prüfungsbereich</option><option value="rel"${sortMode === 'rel' ? ' selected' : ''}>Nach Prüfungsrelevanz</option></select></label>
-        <label class="field"><span>Thema suchen</span><input class="input" type="search" id="t-search" autocomplete="off" placeholder="RAID, Spannungsfall, Kündigung"></label></div></div>
-      <div id="t-list">${groups.map(([h, list]) => `<section class="section" data-group><h2>${esc(h)}</h2>${list.map((t) => topicRow(t, countOf(t.name), anaOf(t.name))).join('') || '<p class="empty">Keine Einträge.</p>'}</section>`).join('')}
-      <p class="empty" id="t-none" hidden>Kein Thema passt zur Suche.</p></div>`;
-    $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
-    $('#t-sort').onchange = (ev) => { const st = store.get('ap2.settings', {}); st.topicSort = ev.target.value; store.set('ap2.settings', st); topicsView(); };
-    $('#t-search').oninput = (ev) => {
-      const q = ev.target.value.toLowerCase().trim();
-      $$('[data-topic]', app).forEach((c) => { c.hidden = !!q && !c.dataset.topic.includes(q); });
-      $$('[data-group]', app).forEach((g) => { g.hidden = !$$('[data-topic]', g).some((c) => !c.hidden); });
-      $('#t-none').hidden = $$('[data-topic]', app).some((c) => !c.hidden);
+    const body = () => {
+      if (mode === 'az') {
+        const all = [...W.all].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+        const letters = [...new Set(all.map((x) => x.name[0].toUpperCase()))];
+        return `<nav class="az" aria-label="Buchstaben">${letters.map((l) => `<a href="#az-${encodeURIComponent(l)}" data-az="${esc(l)}">${esc(l)}</a>`).join('')}</nav>${letters.map((l) => `<section class="section" id="az-${esc(l)}"><h2>${esc(l)}</h2><ul class="az-list">${all.filter((x) => x.name[0].toUpperCase() === l).map((x) => `<li><a href="${wikiHref(x)}">${esc(x.name)}</a> <span class="small muted">${x.kind === 'thema' ? kindShort(x.part) : 'Vertiefung'}</span></li>`).join('')}</ul></section>`).join('')}`;
+      }
+      const groups = mode === 'rel'
+        ? [['Prüfungskern: in mindestens 70 % der Prüfungstermine', 'Prüfungskern'], ['Kam vor: seltener gefragt', 'Kam vor'], ['Hintergrund: bisher nicht direkt gefragt', 'Hintergrund']].map(([h, l]) => [h, W.themen.filter((x) => labelOf(x) === l).sort((a, b) => (b.ana ? b.ana.termine / b.ana.of : 0) - (a.ana ? a.ana.termine / a.ana.of : 0))])
+        : parts.map((p) => [kindLabel(p), W.themen.filter((x) => x.part === p)]);
+      return groups.map(([h, list]) => `<section class="section"><h2>${esc(h)}</h2><div class="wiki-grid">${list.map(wikiCard).join('')}</div></section>`).join('');
     };
+    app.innerHTML = `<div class="page-head"><div><h1>Wiki</h1><p class="lede">Das Nachschlagewerk zur Prüfung: ${W.themen.length} Themen mit Schaubildern, Formeln und Fundstellen aus echten Prüfungen, dazu ${W.artikel.length} vertiefende Artikel.</p></div>
+        <p class="actions"><a class="btn sm" href="#/formeln">Formelsammlung</a></p></div>
+      <div class="tools-row wiki-tools"><label class="field wiki-search"><span>Im Wiki suchen</span><input class="input" type="search" id="w-q" autocomplete="off" placeholder="DHCP, Schleifenimpedanz, Kündigungsfrist"></label>
+        <div class="seg" role="group" aria-label="Ansicht">${[['part', 'Nach Bereich'], ['rel', 'Nach Relevanz'], ['az', 'A bis Z']].map(([k, l]) => `<button type="button" class="btn sm${k === mode ? ' primary' : ''}" data-wmode="${k}" aria-pressed="${k === mode}">${l}</button>`).join('')}</div></div>
+      <div id="w-results" aria-live="polite"></div>
+      <div id="w-browse">${body()}</div>`;
+    $$('[data-wmode]', app).forEach((b) => b.onclick = () => { const s2 = store.get('ap2.settings', {}); s2.wikiMode = b.dataset.wmode; store.set('ap2.settings', s2); wikiIndex(); });
+    $$('[data-az]', app).forEach((a) => a.onclick = (ev) => { ev.preventDefault(); const el = document.getElementById(`az-${a.dataset.az}`); if (el) el.scrollIntoView({ behavior: 'smooth' }); });
+    const q = $('#w-q');
+    q.oninput = () => {
+      const words = q.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      $('#w-browse').hidden = !!words.length;
+      if (!words.length) { $('#w-results').innerHTML = ''; return; }
+      const hits = W.all.filter((x) => words.every((w) => x.text.includes(w)))
+        .map((x) => ({ x, score: (words.every((w) => x.name.toLowerCase().includes(w)) ? 10 : 0) + (x.kind === 'thema' ? 2 : 0) }))
+        .sort((a, b) => b.score - a.score || a.x.name.localeCompare(b.x.name, 'de')).slice(0, 40);
+      $('#w-results').innerHTML = hits.length ? `<p class="small muted">${hits.length === 40 ? 'Die ersten 40' : hits.length} Treffer</p><div class="wiki-grid">${hits.map((h) => wikiCard(h.x)).join('')}</div>` : '<p class="empty">Nichts gefunden. Versuche einen anderen Begriff.</p>';
+    };
+  }
+  async function wikiThema(slug) {
+    setNav('topics');
+    const W = await wikiData();
+    // Adresse mit oder ohne Prüfungsteil („teil1-fehlersuche“ oder „netzwerk“)
+    const x = W.themen.find((e) => e.slug === slug) || W.themen.find((e) => slugify(`${e.part} ${e.name}`) === slug);
+    if (!x) { app.innerHTML = errorState('Thema nicht gefunden', 'Dieses Thema gibt es im Wiki nicht.'); return; }
+    const t = x.t, a = x.ana;
+    const sec = [['zusammenfassung', 'Zusammenfassung'], t.key_points && t.key_points.length && ['punkte', 'Das bringt Punkte'], diagramsOf(t).length && ['schaubilder', 'Schaubilder'], t.formulas && t.formulas.length && ['formeln', 'Formeln'], t.pitfalls && t.pitfalls.length && ['fehler', 'Typische Fehler'], a && ['pruefungen', 'In Prüfungen'], x.artikel.length && ['vertiefung', 'Vertiefung'], t.links && t.links.length && ['mehr', 'Mehr dazu']].filter(Boolean);
+    app.innerHTML = `${crumbs([['Wiki', '#/topics'], [kindLabel(x.part), '#/topics'], [x.name]])}
+      <div class="page-head"><div><h1>${esc(x.name)}</h1><p class="small"><span class="tag${labelOf(x) === 'Prüfungskern' ? ' accent' : ''}">${labelOf(x)}${a ? `, ${a.termine} von ${a.of} Prüfungsterminen${a.trend ? `, ${a.trend}` : ''}` : ''}</span></p></div>
+        ${x.items ? `<p class="actions"><button type="button" class="btn primary" data-train="${esc(x.name)}">Zu diesem Thema üben</button></p>` : ''}</div>
+      <div class="wiki-layout">
+        <nav class="wiki-toc" aria-label="Inhalt"><p class="small muted">Inhalt</p><ol>${sec.map(([id, l]) => `<li><a href="#w-${id}" data-toc="w-${id}">${l}</a></li>`).join('')}</ol></nav>
+        <article class="wiki-body prose">
+          <section id="w-zusammenfassung"><h2>Zusammenfassung</h2><p>${esc(t.summary)}</p>${t.example_question ? `<p class="note small"><strong>Typische Aufgabe:</strong> ${esc(t.example_question)}</p>` : ''}</section>
+          ${t.key_points && t.key_points.length ? `<section id="w-punkte"><h2>Das bringt Punkte</h2><ul>${t.key_points.map((k) => `<li>${esc(k)}</li>`).join('')}</ul></section>` : ''}
+          ${diagramsOf(t).length ? `<section id="w-schaubilder"><h2>Schaubilder</h2>${figuresHtml(t)}</section>` : ''}
+          ${t.formulas && t.formulas.length ? `<section id="w-formeln"><h2>Formeln</h2><div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div></section>` : ''}
+          ${t.pitfalls && t.pitfalls.length ? `<section id="w-fehler"><h2>Typische Fehler</h2><ul>${t.pitfalls.map((k) => `<li>${esc(k)}</li>`).join('')}</ul></section>` : ''}
+          ${a ? `<section id="w-pruefungen"><h2>In Prüfungen</h2><p>Kam in ${a.termine} von ${a.of} Prüfungsterminen vor, im Schnitt mit ${a.avg_points} Punkten je Termin.</p><ul class="small">${a.found.map((f) => `<li>${esc(f.termin)}: ${esc(f.refs.join(', '))}</li>`).join('')}</ul></section>` : ''}
+          ${x.artikel.length ? `<section id="w-vertiefung"><h2>Vertiefung</h2><div class="wiki-grid">${x.artikel.map(wikiCard).join('')}</div></section>` : ''}
+          ${t.links && t.links.length ? `<section id="w-mehr">${linksHtml(t).replace('<h4>Mehr dazu</h4>', '<h2>Mehr dazu</h2>')}</section>` : ''}
+        </article>
+      </div>`;
+    $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
+    $$('[data-toc]', app).forEach((l) => l.onclick = (ev) => { ev.preventDefault(); const el = document.getElementById(l.dataset.toc); if (el) el.scrollIntoView({ behavior: 'smooth' }); });
+  }
+  async function wikiArtikel(slug) {
+    setNav('topics');
+    const W = await wikiData();
+    const x = W.artikel.find((e) => e.slug === slug);
+    if (!x) { app.innerHTML = errorState('Artikel nicht gefunden', 'Diesen Artikel gibt es im Wiki nicht.'); return; }
+    const known = new Set(W.artikel.map((e) => e.slug));
+    const body = articleBody(x.html, known);
+    const box = document.createElement('div'); box.innerHTML = body;
+    const heads = [...box.querySelectorAll('h2')].map((h) => [h.id, h.textContent]);
+    const siblings = x.thema ? x.thema.artikel.filter((e) => e !== x) : [];
+    app.innerHTML = `${crumbs([['Wiki', '#/topics'], ...(x.thema ? [[kindLabel(x.thema.part), '#/topics'], [x.thema.name, wikiHref(x.thema)]] : []), [x.title]])}
+      <div class="page-head"><div><h1>${esc(x.title)}</h1><p class="lede">${esc(x.description)}</p></div></div>
+      <div class="wiki-layout">
+        ${heads.length > 1 ? `<nav class="wiki-toc" aria-label="Inhalt"><p class="small muted">Inhalt</p><ol>${heads.map(([id, l]) => `<li><a href="#${id}" data-toc="${id}">${esc(l)}</a></li>`).join('')}</ol></nav>` : '<div></div>'}
+        <article class="wiki-body prose">${body}
+          ${x.sources.length ? `<section><h2>Quellen</h2><ul class="links">${x.sources.map((s2) => `<li><a href="${esc(s2.url)}" target="_blank" rel="noopener">${esc(s2.title)}</a></li>`).join('')}</ul></section>` : ''}
+          ${x.thema ? `<section><h2>Zum Thema</h2><div class="wiki-grid">${wikiCard(x.thema)}${siblings.slice(0, 5).map(wikiCard).join('')}</div></section>` : ''}
+          <p class="small muted wiki-license">Artikel aus <a href="https://t128n.github.io/fidup-wiki/lerninhalte/${esc(x.slug)}/" target="_blank" rel="noopener">fidup-wiki</a> (Lernzettel für Fachinformatiker Daten- und Prozessanalyse), © 2026 Torben Haack, ISC-Lizenz. Unverändert übernommen; Formeln und Diagramme vereinfacht dargestellt.</p>
+        </article>
+      </div>`;
+    $$('[data-toc]', app).forEach((l) => l.onclick = (ev) => { ev.preventDefault(); const el = document.getElementById(l.dataset.toc); if (el) el.scrollIntoView({ behavior: 'smooth' }); });
   }
   async function formulasView() {
     setNav('topics');
     const topics = (await loadTopics()).filter((t) => t.formulas && t.formulas.length);
     const parts = ['Teil1', 'Teil2', 'WiSo'];
     app.innerHTML = `<div class="page-head"><div><h1>Formelsammlung</h1><p class="lede">Alle Formeln aus der Wissensbasis, nach Prüfungsbereich und Thema. Zum Ausdrucken als Spickzettel fürs Lernen; in der Prüfung gilt der Belegsatz.</p></div>
-        <p class="actions"><button type="button" class="btn" id="f-print">Drucken</button><a class="btn quiet" href="#/topics">Zurück zu Wissen</a></p></div>
+        <p class="actions"><button type="button" class="btn" id="f-print">Drucken</button><a class="btn quiet" href="#/topics">Zurück zum Wiki</a></p></div>
       ${parts.map((p) => { const list = topics.filter((t) => t.part === p); return list.length ? `<section class="section formulas"><h2>${esc(kindLabel(p))}</h2>${list.map((t) => `<div class="f-topic"><h3>${esc(t.name)}</h3><ul>${t.formulas.map((f) => `<li class="formula">${esc(f)}</li>`).join('')}</ul></div>`).join('')}</section>` : ''; }).join('')}`;
     $('#f-print').onclick = () => window.print();
   }
@@ -524,22 +657,6 @@
       location.hash = `#/learn/${v.session.id}`;
     } catch (err) { toast(err.message, true); }
   }
-  function topicRow(t, n, a) {
-    const label = a ? a.label : 'Hintergrund';
-    return `<details class="disc" data-topic="${esc((t.name + ' ' + t.summary + ' ' + (t.key_points || []).join(' ')).toLowerCase())}"><summary>${esc(t.name)}<span class="tag${label === 'Prüfungskern' ? ' accent' : ''}">${label}${a ? `, ${a.termine} von ${a.of} Terminen` : ''}${a && a.trend ? `, ${a.trend}` : ''}${diagramsOf(t).length ? `, ${diagramsOf(t).length === 1 ? 'Schaubild' : diagramsOf(t).length + ' Schaubilder'}` : ''}</span></summary>
-      <div class="disc-body topic-body prose">
-      <p>${esc(t.summary)}</p>
-      ${a ? `<p class="small muted">Kam in ${a.termine} von ${a.of} Prüfungsterminen vor, im Schnitt mit ${a.avg_points} Punkten je Termin. Fundstellen: ${a.found.map((f) => `${esc(f.termin)} (${esc(f.refs.join(', '))})`).join('; ')}.</p>` : ''}
-      ${t.key_points && t.key_points.length ? `<h4>Das bringt Punkte</h4><ul>${t.key_points.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
-      ${t.formulas && t.formulas.length ? `<h4>Formeln</h4><div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}
-      ${t.pitfalls && t.pitfalls.length ? `<h4>Typische Fehler</h4><ul>${t.pitfalls.map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
-      ${figuresHtml(t)}
-      ${t.example_question ? `<p class="small muted" style="margin-top:var(--space-sm)">Typische Aufgabe: ${esc(t.example_question)}</p>` : ''}
-      ${linksHtml(t)}
-      ${n ? `<p style="margin-top:var(--space-md)"><button type="button" class="btn sm" data-train="${esc(t.name)}">Zu diesem Thema üben</button></p>` : ''}
-      </div></details>`;
-  }
-
   // ---------- Statistik ----------
   const meterRow = (label, ratio, right, extra) => `<div class="meter-row"><span>${label}</span><div class="meter ${ratio >= 0.67 ? 'good' : ratio < 0.5 ? 'bad' : ''}" role="img" aria-label="${Math.round(ratio * 100)} Prozent"><span style="width:${Math.round(ratio * 100)}%"></span></div><span class="num small">${right}</span>${extra || '<span></span>'}</div>`;
   async function statsView() {
@@ -718,7 +835,8 @@
     const save = () => { store.set('ap2.project', pr); const st = $('#pj-stand'); if (st) st.innerHTML = standHtml(); };
     const days = pr.docDate ? Math.ceil((Date.parse(pr.docDate + 'T00:00') - Date.now()) / 864e5) : null;
     const rated = (r) => T.FG_QUESTIONS.filter((q) => pr.fg[q.id] && pr.fg[q.id].r === r).length;
-    const standHtml = () => `<div><dt>Dokumentation</dt><dd>${T.DOC_CHECKLIST.filter((_, i) => pr.checks[i]).length}<small>von ${T.DOC_CHECKLIST.length} Abschnitten erledigt</small></dd></div>
+    pr.form = pr.form || {}; pr.antrag = pr.antrag || {};
+    const standHtml = () => `<div><dt>Projektantrag</dt><dd>${T.ANTRAG.filter((_, i) => pr.antrag[i]).length}<small>von ${T.ANTRAG.length} Punkten erfüllt</small></dd></div><div><dt>Dokumentation</dt><dd>${T.DOC_CHECKLIST.filter((_, i) => pr.checks[i]).length + T.DOC_FORM.filter((_, i) => pr.form[i]).length}<small>von ${T.DOC_CHECKLIST.length + T.DOC_FORM.length} Punkten erledigt</small></dd></div>
           <div><dt>Fachgespräch</dt><dd>${rated('sicher')}<small>sicher, ${rated('unsicher')} unsicher, ${T.FG_QUESTIONS.length - rated('sicher') - rated('unsicher')} offen</small></dd></div>`;
     app.innerHTML = `<div class="page-head"><div><h1>Projekt und Fachgespräch</h1><p class="lede">Der Prüfungsbereich mit Projektarbeit, Dokumentation, Präsentation und Fachgespräch zählt 50 % der Gesamtnote. Hier bereitest du ihn vor.</p></div></div>
       <div class="split">
@@ -736,8 +854,17 @@
           <p class="actions" style="margin-top:var(--space-sm)"><a class="btn sm quiet" href="#/noten">Im Notenrechner eintragen</a></p>
         </section>
       </div>
+      <section class="section"><h2>Projektantrag prüfen</h2>
+        <p class="prose small muted">Bevor du den Antrag einreichst: Erfüllt dein Vorhaben, was ein Prüfungsprojekt ausmacht? Fehlt Projektcharakter oder fachliche Tiefe, lehnt die IHK den Antrag oft ab.</p>
+        <div class="checklist">${T.ANTRAG.map((c, i) => `<label class="check"><input type="checkbox" data-antrag="${i}"${pr.antrag[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
+      </section>
       <section class="section"><h2>Checkliste Dokumentation</h2>
+        <h3 class="today-sub">Inhalt</h3>
         <div class="checklist">${T.DOC_CHECKLIST.map((c, i) => `<label class="check"><input type="checkbox" data-doc="${i}"${pr.checks[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
+        <h3 class="today-sub">Form</h3>
+        <div class="checklist">${T.DOC_FORM.map((c, i) => `<label class="check"><input type="checkbox" data-form="${i}"${pr.form[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
+        <h4 style="margin-top:var(--space-md)">Mehr dazu</h4>
+        <ul class="links"><li><a href="https://www.digitalklempner.de/unterrichtsmaterial/technische_dokumentation/projektdoku/" target="_blank" rel="noopener">Digitalklempner: Projektdokumentation</a> <span class="small muted">ausführlicher Leitfaden eines IT-Ausbilders</span></li><li><a href="https://www.digitalklempner.de/kursinfos/besuchswoche/" target="_blank" rel="noopener">Digitalklempner: Projektfindung und Projektantrag</a> <span class="small muted">Projektcharakter und fachliche Tiefe</span></li></ul>
       </section>
       <section class="section"><h2>Präsentation üben</h2>
         <div class="split">
@@ -756,6 +883,8 @@
     bindField('#pj-title', 'title'); bindField('#pj-desc', 'desc');
     $('#pj-date').onchange = (ev) => { pr.docDate = ev.target.value; save(); projectView(); };
     $$('[data-doc]', app).forEach((c) => c.onchange = () => { pr.checks[c.dataset.doc] = c.checked; save(); });
+    $$('[data-form]', app).forEach((c) => c.onchange = () => { pr.form[c.dataset.form] = c.checked; save(); });
+    $$('[data-antrag]', app).forEach((c) => c.onchange = () => { pr.antrag[c.dataset.antrag] = c.checked; save(); });
     // Präsentationstimer
     const steps = $$('#pt-outline li', app); const bounds = [1, 3, 5, 7, 11, 13, 15].map((m) => m * 60);
     const sw = stopwatch($('#pt-clock'), 900, 780, (t) => { const k = bounds.findIndex((b) => t < b); steps.forEach((li, i) => li.classList.toggle('now', i === (k < 0 ? steps.length - 1 : k))); });
@@ -1006,6 +1135,9 @@
             <div id="topicbox"></div>`)}
           <div class="pager"><button type="button" class="btn" id="b-prev" ${idx === 0 ? 'disabled' : ''}>Vorherige</button><span class="pos">${idx + 1} / ${items.length}</span><button type="button" class="btn" id="b-next">${idx === items.length - 1 ? 'Nächster Teil' : 'Nächste'}</button></div>
         </div></div>`;
+      // Operatoren im Aufgabentext markieren und erklären (nur Lernmodus)
+      const itx = $('.item-text');
+      if (itx) { const m = window.AP2Tools.markOps(itx.innerHTML); itx.innerHTML = m.html; if (m.ops.length) itx.closest('.item-head').insertAdjacentHTML('afterend', `<details class="ops"><summary>Verlangt: ${m.ops.map((o) => o.op[0].toUpperCase() + o.op.slice(1)).join(', ')}${m.ops.length > 1 ? `, also ${m.ops.length} Teilleistungen` : ''}</summary><ul>${m.ops.map((o) => `<li>${esc(o.hint)}</li>`).join('')}</ul></details>`); }
       if (focusSheet) { $('#task-h').setAttribute('tabindex', '-1'); $('#task-h').focus(); }
       const go = { part: (pid) => { pos = { part: pid, item: null }; renderLearn(true); }, item: (iid) => { pos.item = iid; renderLearn(true); } };
       bindNavigator(view, part.id, go.part, go.item);
@@ -1024,7 +1156,7 @@
       area.addEventListener('change', () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 100); });
 
       const renderTopics = (topics) => {
-        $('#topicbox').innerHTML = topics.map((t) => `<div class="panel"><h4>Nachschlagen: ${esc(t.name)}</h4><p>${esc(t.summary)}</p>${t.key_points && t.key_points.length ? `<ul>${t.key_points.slice(0, 6).map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}${t.formulas && t.formulas.length ? `<div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}${figuresHtml(t)}${linksHtml(t)}</div>`).join('');
+        $('#topicbox').innerHTML = topics.map((t) => `<div class="panel"><h4>Nachschlagen: ${esc(t.name)} <a class="small" href="#/wiki/thema/${slugify(`${t.part} ${t.name}`)}" target="_blank" rel="noopener">im Wiki öffnen</a></h4><p>${esc(t.summary)}</p>${t.key_points && t.key_points.length ? `<ul>${t.key_points.slice(0, 6).map((k) => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}${t.formulas && t.formulas.length ? `<div>${t.formulas.map((f) => `<span class="formula">${esc(f)}</span>`).join('')}</div>` : ''}${figuresHtml(t)}${linksHtml(t)}</div>`).join('');
       };
       const showHints = (upTo) => {
         // Hinweise kommen vom Server (zeichnet die Nutzung auf)
