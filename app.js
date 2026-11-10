@@ -23,6 +23,13 @@
   const seasonLabel = (e) => e.season === 'Winter' ? `Winter ${e.year}/${String(e.year + 1).slice(2)}` : `${e.season} ${e.year}`;
   const gradeFor = (pct) => pct >= 92 ? 1 : pct >= 81 ? 2 : pct >= 67 ? 3 : pct >= 50 ? 4 : pct >= 30 ? 5 : 6;
   const examKind = (e) => e.id.startsWith('thema-') ? 'topic' : e.origin === 'generated' ? 'gen' : e.parts.length === 1 && e.parts[0].kind === 'WiSo' ? 'wiso' : 'real';
+  // Originalprüfungen: notes sind Transkriptionsnotizen; angezeigt werden nur Termin und fehlende Teile
+  const examNote = (e) => {
+    if (examKind(e) !== 'real') return e.notes || '';
+    const date = ((e.notes || '').match(/^Prüfungstermin [^(]*\([^)]*\)\./) || [''])[0];
+    const missing = [['Teil1', 'Teil 1 (Installation und Service)'], ['Teil2', 'Teil 2 (Stromversorgung)']].filter(([k]) => !e.parts.some((p) => p.kind === k)).map(([, l]) => l);
+    return [date, missing.length ? `${missing.join(' und ')} liegt für diesen Termin nicht als Aufgabensatz vor.` : ''].filter(Boolean).join(' ');
+  };
   const examName = (e) => examKind(e) === 'real' ? `Abschlussprüfung ${seasonLabel(e)}` : examKind(e) === 'wiso' ? `WiSo ${seasonLabel(e)}` : e.title;
   const sessionHref = (s) => `#/${s.finished ? 'result' : (s.mode === 'exam' ? 'exam' : 'learn')}/${s.id}`;
   // Früher Server-PDF, jetzt Druckansicht im Browser („Drucken“ → „Als PDF speichern“)
@@ -418,7 +425,7 @@
         <p class="meta"><span>${kind === 'real' || kind === 'wiso' ? 'IHK-Originalprüfung' : kind === 'topic' ? 'Themen-Training' : 'Generierte Prüfung'}</span><span>${e.official_solutions ? 'mit IHK-Lösungshinweisen' : 'mit eigenen Musterlösungen'}</span></p>
       </div>
       <div class="actions"><button type="button" class="btn primary" id="d-learn">Lernmodus</button><button type="button" class="btn" id="d-exam">Prüfung simulieren</button></div></div>
-      ${e.notes ? `<p class="small muted prose">${esc(e.notes)}</p>` : ''}
+      ${examNote(e) ? `<p class="small muted prose">${esc(examNote(e))}</p>` : ''}
       <section class="section" aria-labelledby="teile-h">
         <h2 id="teile-h">Teile</h2>
         <table class="t stack"><thead><tr><th>Teil</th><th class="num">Zeit</th><th class="num">Punkte</th><th class="num">Teilaufgaben</th><th>Material</th></tr></thead><tbody>
@@ -1712,7 +1719,7 @@
         </div></div>
       ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
       ${list.some((d) => bookNote(d)) ? '<div class="note warn"><h3>Bis Winter 2012/13 war ein Fachbuch erlaubt</h3><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></div>' : ''}
-      <section class="section" id="a-list">${keys.map((k) => { const [, termin, ordnung] = k.split('|'); return `<details class="disc" data-term="${esc(termin.toLowerCase())}"><summary>${esc(termin)}<span class="tag">${ordnung === 'AO1997' ? 'alte Ordnung' : 'Ordnung 2020'}, ${terms[k].length} Dokumente</span></summary><div class="disc-body"><table class="t stack"><thead><tr><th>Teil</th><th>Dokument</th><th class="num">Seiten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${terms[k].map(docRow).join('')}</tbody></table></div></details>`; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</section>
+      <section class="section" id="a-list">${keys.map((k) => { const [, termin, ordnung] = k.split('|'); return `<details class="disc" data-term="${esc(termin.toLowerCase())}"><summary>${esc(termin)}<span class="tag">${ordnung === 'AO1997' ? 'alte Ordnung' : 'Ordnung 2020'}, ${terms[k].length} ${terms[k].length === 1 ? 'Dokument' : 'Dokumente'}</span></summary><div class="disc-body"><table class="t stack"><thead><tr><th>Teil</th><th>Dokument</th><th class="num">Seiten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${terms[k].map(docRow).join('')}</tbody></table></div></details>`; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</section>
       <p class="empty" id="a-none" hidden>Kein Termin passt zum Filter.</p>`;
     $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
     const byId = Object.fromEntries(docs.map((d) => [d.id, d]));
