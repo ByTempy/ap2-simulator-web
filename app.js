@@ -950,8 +950,15 @@
     setNav('drill');
     const T = window.AP2Tools; const st = store.get('ap2.settings', {});
     app.innerHTML = `<div class="page-head"><div><h1>Rechentrainer</h1><p class="lede">Rechenaufgaben wie in den schriftlichen Bereichen, jedes Mal mit neuen Werten und mit Lösungsweg. Kommazahlen mit Komma oder Punkt, Toleranz etwa 1 %.</p></div>
-        <label class="field" style="width:min(100%,22rem)"><span>Aufgabentyp</span><select class="input" id="r-type"><option value="">Gemischt</option>${Object.entries(T.DRILLS).map(([k, x]) => `<option value="${k}"${st.drill === k ? ' selected' : ''}>${esc(x.name)} (${kindShort(x.part)})</option>`).join('')}</select></label></div>
-      <form class="sheet drill" id="r-form" novalidate></form>`;
+        <div class="actions"><label class="field" style="width:min(100%,22rem)"><span>Aufgabentyp</span><select class="input" id="r-type"><option value="">Gemischt</option>${Object.entries(T.DRILLS).map(([k, x]) => `<option value="${k}"${st.drill === k ? ' selected' : ''}>${esc(x.name)} (${kindShort(x.part)})</option>`).join('')}</select></label>
+        <button type="button" class="btn" id="r-pad-btn" aria-controls="r-pad" aria-expanded="${!!st.pad}">Karopapier</button>
+        <button type="button" class="btn calc-toggle" id="r-calc-btn" aria-controls="r-calc" aria-expanded="${!!st.calc}">Taschenrechner</button></div></div>
+      <div class="drill-wrap${st.calc ? ' with-calc' : ''}"><div class="drill-main"><form class="sheet drill" id="r-form" novalidate></form>
+        <section class="pad" id="r-pad" aria-label="Karopapier für Notizen"${st.pad ? '' : ' hidden'}>
+          <div class="pad-bar"><button type="button" class="btn sm" data-pad="pen" aria-pressed="true">Stift</button><button type="button" class="btn sm" data-pad="erase" aria-pressed="false">Radierer</button><button type="button" class="btn sm quiet" data-pad="undo">Rückgängig</button><button type="button" class="btn sm quiet" data-pad="clear">Leeren</button></div>
+          <canvas id="r-canvas" role="img" aria-label="Zeichenfläche mit Karomuster"></canvas>
+        </section></div>
+      <aside class="calc" id="r-calc" aria-label="Taschenrechner"${st.calc ? '' : ' hidden'}></aside></div>`;
     const next = () => {
       const type = $('#r-type').value || Object.keys(T.DRILLS)[Math.floor(Math.random() * Object.keys(T.DRILLS).length)];
       const task = T.DRILLS[type].make(Math.random); let counted = false;
@@ -959,7 +966,8 @@
       f.innerHTML = `<p class="tag">${esc(T.DRILLS[type].name)}, ${esc(kindLabel(T.DRILLS[type].part))}</p>
         <p class="prose" style="margin-top:var(--space-xs)">${esc(task.text)}</p>
         <div class="drill-fields">${task.fields.map((x, i) => `<div class="field"><label for="r-f${i}">${esc(x.label)}${x.unit ? ` in ${esc(x.unit)}` : ''}</label><input class="input num" id="r-f${i}" type="text" inputmode="${x.exact ? 'text' : 'decimal'}" autocomplete="off"><span class="tag" id="r-s${i}" aria-live="polite"></span></div>`).join('')}</div>
-        <div class="actions" style="margin-top:var(--space-md)"><button type="submit" class="btn primary">Prüfen</button><button type="button" class="btn" id="r-next">Nächste Aufgabe</button></div>
+        <div class="actions" style="margin-top:var(--space-md)"><button type="submit" class="btn primary">Prüfen</button><button type="button" class="btn" id="r-hint">Tipp</button><button type="button" class="btn" id="r-next">Nächste Aufgabe</button></div>
+        <ol class="hints" id="r-hints" aria-live="polite"></ol>
         <details class="disc" id="r-steps" style="margin-top:var(--space-md)"><summary>Lösungsweg</summary><div class="disc-body prose"><ol>${task.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div></details>`;
       f.onsubmit = (ev) => {
         ev.preventDefault(); let all = true;
@@ -972,10 +980,133 @@
         if (!all) $('#r-steps').open = true;
       };
       $('#r-next').onclick = next;
+      const hints = T.DRILLS[type].hints; let shown = 0;
+      $('#r-hint').onclick = (ev) => {
+        $('#r-hints').insertAdjacentHTML('beforeend', `<li>${esc(hints[shown++])}</li>`);
+        ev.target.textContent = shown < hints.length ? `Noch ein Tipp (${shown} von ${hints.length})` : 'Alle Tipps gezeigt';
+        ev.target.disabled = shown >= hints.length;
+      };
       $('#r-f0').focus();
     };
     $('#r-type').onchange = (ev) => { const s = store.get('ap2.settings', {}); s.drill = ev.target.value; store.set('ap2.settings', s); next(); };
+    // Taschenrechner rechts; der Knopf ist nur bei breitem Fenster sichtbar (style.css)
+    $('#r-calc-btn').onclick = (ev) => {
+      const on = $('#r-calc').hidden; $('#r-calc').hidden = !on; $('.drill-wrap').classList.toggle('with-calc', on); ev.target.setAttribute('aria-expanded', on);
+      const s = store.get('ap2.settings', {}); s.calc = on; store.set('ap2.settings', s); if (on) $('#c-in').focus();
+    };
+    $('#r-pad-btn').onclick = (ev) => {
+      const on = $('#r-pad').hidden; $('#r-pad').hidden = !on; ev.target.setAttribute('aria-expanded', on);
+      const s = store.get('ap2.settings', {}); s.pad = on; store.set('ap2.settings', s); if (on) $('#r-pad').scrollIntoView({ block: 'nearest' });
+    };
+    calculator($('#r-calc'), st.calcMode === 'base' ? 'base' : 'calc');
+    drawPad($('#r-pad'));
     next();
+  }
+
+  // Taschenrechner nach dem Vorbild des Casio fx-991DE CW; jede Taste nennt ihren Weg am Gerät (aus der Casio-Bedienungsanleitung)
+  const CALC_KEYS = [
+    ['sin', 'sin(', 'sin-Taste'], ['cos', 'cos(', 'cos-Taste'], ['tan', 'tan(', 'tan-Taste'], ['log', 'log(', 'SHIFT, x² (log). Mit Basis: log(2;16) über die Taste log■□'], ['ln', 'ln(', 'SHIFT, log■□ (ln)'],
+    ['sin⁻¹', 'sin⁻¹(', 'SHIFT, sin (sin⁻¹)'], ['cos⁻¹', 'cos⁻¹(', 'SHIFT, cos (cos⁻¹)'], ['tan⁻¹', 'tan⁻¹(', 'SHIFT, tan (tan⁻¹)'], ['π', 'π', 'SHIFT, 7 (π)'], ['e', 'e', 'SHIFT, 8 (e)'],
+    ['x²', '²', 'x²-Taste'], ['xʸ', '^', 'x^■-Taste'], ['x⁻¹', '⁻¹', 'SHIFT, x^■ (x⁻¹)'], ['√', '√(', '√-Taste'], ['ⁿ√', 'ⁿ√(', 'SHIFT, √ (ⁿ√): erst n, dann die Zahl. Hier ⁿ√(3;27)'],
+    ['(', '('], [')', ')'], [';', ';', 'Trennt zwei Werte, hier in log(a;b) und ⁿ√(n;x)'], ['×10ˣ', '×10^', '×10^x-Taste'], ['Ans', 'Ans', 'Ans-Taste: letztes Ergebnis'],
+    ['7', '7'], ['8', '8'], ['9', '9'], ['←', 'back', 'Löschtaste'], ['AC', 'clear', 'AC-Taste'],
+    ['4', '4'], ['5', '5'], ['6', '6'], ['×', '×'], ['÷', '÷'],
+    ['1', '1'], ['2', '2'], ['3', '3'], ['+', '+'], ['−', '−'],
+    ['0', '0'], [',', ','], ['=', 'eq', 'EXE-Taste'],
+  ];
+  const BASE_KEYS = [
+    ['and', ' and ', 'CATALOG, Logikoperatoren, and'], ['or', ' or ', 'CATALOG, Logikoperatoren, or'], ['xor', ' xor ', 'CATALOG, Logikoperatoren, xor'], ['xnor', ' xnor ', 'CATALOG, Logikoperatoren, xnor'], ['Not', 'Not(', 'CATALOG, Logikoperatoren, Not'],
+    ['A', 'A', 'SHIFT, 4 (A)'], ['B', 'B', 'SHIFT, 5 (B)'], ['C', 'C', 'SHIFT, 6 (C)'], ['Neg', 'Neg(', 'CATALOG, Logikoperatoren, Neg'], ['←', 'back', 'Löschtaste'],
+    ['D', 'D', 'SHIFT, 1 (D)'], ['E', 'E', 'SHIFT, 2 (E)'], ['F', 'F', 'SHIFT, 3 (F)'], ['(', '('], [')', ')'],
+    ['7', '7'], ['8', '8'], ['9', '9'], ['÷', '÷'], ['AC', 'clear', 'AC-Taste'],
+    ['4', '4'], ['5', '5'], ['6', '6'], ['×', '×'], ['−', '−'],
+    ['1', '1'], ['2', '2'], ['3', '3'], ['+', '+'], ['Ans', 'Ans', 'Ans-Taste'],
+    ['0', '0'], ['=', 'eq', 'EXE-Taste'],
+  ];
+  const CASIO_MORE = [['Ergebnis als Dezimalzahl', 'FORMAT, Dezimal (oder SHIFT, EXE für ≈)'], ['Ingenieurschreibweise (×10³, ×10⁻³ …)', 'FORMAT, ENG Notation'], ['Winkel in Grad', 'SETTINGS, Recheneinstell., Winkeleinheit, Gradmaß (D)'], ['Wert speichern', 'VARIABLE, A=, Speichern'], ['Zahlensysteme', 'HOME, Basis-N, OK'], ['Zahlensystem wechseln', 'FORMAT, dann Dezimal, Hexadezimal, Binär oder Oktal']];
+  function calculator(box, mode) {
+    const T = window.AP2Tools; let ans = 0, bans = 0, base = 10, fresh = false; // fresh: nach „=“ beginnt eine Ziffer neu, ein Operator rechnet mit Ans weiter
+    const keys = (list) => list.map(([l, v, c]) => `<button type="button" class="btn${v === 'eq' ? ' primary eq' : ''}${l.length > 2 ? ' fn' : ''}" data-v="${esc(v)}"${c ? ` title="fx-991DE CW: ${esc(c)}"` : ''}>${esc(l)}</button>`).join('');
+    const draw = () => {
+      box.innerHTML = `<div class="seg calc-mode" role="group" aria-label="Modus"><button type="button" class="btn sm" data-mode="calc" aria-pressed="${mode === 'calc'}">Rechnen</button><button type="button" class="btn sm" data-mode="base" aria-pressed="${mode === 'base'}" title="fx-991DE CW: HOME, Basis-N, OK">Basis-N</button></div>
+        ${mode === 'base' ? `<div class="seg calc-bases" role="group" aria-label="Zahlensystem der Eingabe">${Object.entries(T.BASES).map(([n, b]) => `<button type="button" class="btn sm" data-base="${b}" aria-pressed="${b === base}" title="fx-991DE CW: FORMAT, ${T.BASE_NAME[b]}">${n}</button>`).join('')}</div>` : ''}
+        <label class="field"><span>${mode === 'base' ? `Eingabe ${T.BASE_NAME[base]}` : 'Rechnung'}</span><input class="input num" id="c-in" type="text" autocomplete="off" spellcheck="false" placeholder="${mode === 'base' ? 'z. B. 1010 and 1100' : 'z. B. 2 × 25 ÷ (56 × 1,5)'}"></label>
+        <output class="calc-out" id="c-out" for="c-in" aria-live="polite"></output>
+        <p class="calc-casio" id="c-casio">${mode === 'base' ? '32 Bit, negative Zahlen im Zweierkomplement.' : 'Winkel in Grad.'} Zeige auf eine Taste, um ihren Weg am fx-991DE CW zu sehen.</p>
+        <div class="calc-keys">${keys(mode === 'base' ? BASE_KEYS : CALC_KEYS)}</div>
+        <ol class="calc-hist" id="c-hist" aria-label="Verlauf"></ol>
+        <details class="disc calc-more"><summary>Weitere Tastenwege am fx-991DE CW</summary><dl>${CASIO_MORE.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join('')}</dl></details>`;
+      const cin = $('#c-in', box), out = $('#c-out', box);
+      const run = (x) => mode === 'base' ? T.baseCalc(x, base, bans) : T.calc(x, ans);
+      const show = (v) => {
+        out.classList.remove('bad');
+        if (v === null || v === undefined) { out.innerHTML = '<span class="calc-main">0</span>'; return; }
+        if (mode === 'base') { out.innerHTML = Object.entries(T.BASES).map(([n, b]) => `<span class="calc-row${b === base ? ' on' : ''}"><small>${n}</small>${b === 2 ? T.binGroups(T.toBase(v, 2)) : T.toBase(v, b)}</span>`).join(''); return; }
+        const g = T.engNum(v);
+        out.innerHTML = `<span class="calc-main">${T.fmtNum(v)}</span>${g.e ? `<span class="calc-row"><small>ENG</small>${g.text}${g.prefix ? ` (${g.prefix})` : ''}</span>` : ''}`;
+      };
+      const live = () => { try { show(run(cin.value)); } catch (e) { out.innerHTML = `<span class="calc-main">${cin.value ? '…' : '0'}</span>`; } };
+      const equals = () => {
+        try {
+          const v = run(cin.value); if (v === null) return;
+          if (mode === 'base') bans = v; else ans = v;
+          $('#c-hist', box).insertAdjacentHTML('afterbegin', `<li><span>${esc(cin.value)}</span> = <b>${mode === 'base' ? T.toBase(v, base) : T.fmtNum(v)}</b></li>`);
+          while ($('#c-hist', box).children.length > 6) $('#c-hist', box).lastElementChild.remove();
+          show(v); fresh = true; cin.select();
+        } catch (e) { out.innerHTML = `<span class="calc-err">${esc(e.message)}</span>`; out.classList.add('bad'); }
+      };
+      const put = (x) => {
+        if (fresh) cin.value = /^\s?(and|or|xor|xnor)|^[×÷+−^²⁻]/.test(x) ? 'Ans' : ''; // wie am Gerät: Operator nach „=“ setzt Ans davor
+        fresh = false;
+        const a = cin.selectionStart ?? cin.value.length, b = cin.selectionEnd ?? a;
+        cin.value = cin.value.slice(0, a) + x + cin.value.slice(b); cin.focus(); cin.setSelectionRange(a + x.length, a + x.length); live();
+      };
+      const enable = () => $$('[data-v]', box).forEach((b) => { if (mode === 'base' && /^[0-9A-F]$/.test(b.dataset.v)) b.disabled = parseInt(b.dataset.v, 16) >= base; });
+      cin.oninput = () => { fresh = false; live(); };
+      cin.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); equals(); } else if (ev.key === 'Escape') { cin.value = ''; live(); } };
+      $$('[data-v]', box).forEach((b) => b.onclick = () => {
+        const v = b.dataset.v;
+        if (b.title) $('#c-casio', box).textContent = b.title;
+        if (v === 'eq') equals();
+        else if (v === 'clear') { cin.value = ''; fresh = false; live(); cin.focus(); }
+        else if (v === 'back') { fresh = false; const a = cin.selectionStart ?? cin.value.length; if (a > 0) { cin.value = cin.value.slice(0, a - 1) + cin.value.slice(a); cin.focus(); cin.setSelectionRange(a - 1, a - 1); live(); } }
+        else put(v);
+      });
+      $$('[data-mode]', box).forEach((b) => b.onclick = () => { mode = b.dataset.mode; const s = store.get('ap2.settings', {}); s.calcMode = mode; store.set('ap2.settings', s); draw(); $('#c-in', box).focus(); });
+      // Zahlensystem wechseln: wie FORMAT am Gerät wird das aktuelle Ergebnis umgerechnet
+      $$('[data-base]', box).forEach((b) => b.onclick = () => {
+        let v = null; try { v = T.baseCalc(cin.value, base, bans); } catch (e) { /* unfertige Eingabe bleibt stehen */ }
+        base = +b.dataset.base; const keep = v === null ? cin.value : T.toBase(v, base); draw(); $('#c-in', box).value = keep; $('#c-in', box).dispatchEvent(new Event('input'));
+        $('#c-casio', box).textContent = b.title;
+      });
+      enable(); live();
+    };
+    draw();
+  }
+
+  // Karopapier für Randnotizen: Striche als Punktlisten, damit Größe und Hell/Dunkel neu gezeichnet werden können
+  function drawPad(box) {
+    const cv = $('canvas', box), strokes = []; let tool = 'pen', cur = null;
+    const pen = (s) => {
+      const g = cv.getContext('2d'), d = cv.width / (cv.clientWidth || 1);
+      g.setTransform(d, 0, 0, d, 0, 0); g.lineCap = g.lineJoin = 'round'; g.strokeStyle = getComputedStyle(cv).color;
+      g.lineWidth = s.erase ? 20 : 2; g.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'; return g;
+    };
+    const line = (s, from) => { const g = pen(s), p = s.pts; g.beginPath(); g.moveTo(...p[Math.max(0, from - 1)]); for (let k = from; k < p.length; k++) g.lineTo(...p[k]); if (p.length === 1) g.lineTo(p[0][0] + 0.1, p[0][1]); g.stroke(); };
+    const paint = () => { if (!cv.isConnected) return; const d = window.devicePixelRatio || 1; cv.width = Math.round(cv.clientWidth * d); cv.height = Math.round(cv.clientHeight * d); strokes.forEach((s) => line(s, 0)); };
+    const at = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+    cv.onpointerdown = (ev) => { cv.setPointerCapture(ev.pointerId); cur = { erase: tool === 'erase' || ev.button === 5, pts: [at(ev)] }; strokes.push(cur); line(cur, 0); };
+    cv.onpointermove = (ev) => { if (!cur) return; cur.pts.push(at(ev)); line(cur, cur.pts.length - 1); };
+    cv.onpointerup = cv.onpointercancel = () => { cur = null; };
+    $$('[data-pad]', box).forEach((b) => b.onclick = () => {
+      const a = b.dataset.pad;
+      if (a === 'undo') { strokes.pop(); paint(); } else if (a === 'clear') { strokes.length = 0; paint(); }
+      else { tool = a; $$('[data-pad="pen"], [data-pad="erase"]', box).forEach((x) => x.setAttribute('aria-pressed', x === b)); }
+    });
+    new ResizeObserver(paint).observe(cv);
+    // Farbe folgt dem Thema: bei Wechsel neu zeichnen, solange die Seite offen ist
+    const mo = new MutationObserver(() => cv.isConnected ? paint() : mo.disconnect()); mo.observe(document.documentElement, { attributes: true });
+    const mq = matchMedia('(prefers-color-scheme: dark)'); const f = () => cv.isConnected ? paint() : mq.removeEventListener('change', f); mq.addEventListener('change', f);
   }
 
   // ---------- Bewertung nach Kriterien (aus dem Bewertungshinweis) ----------

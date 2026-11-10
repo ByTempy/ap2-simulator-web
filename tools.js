@@ -8,9 +8,15 @@
   const ip = (n) => [24, 16, 8, 0].map((s) => (n >>> s) & 255).join('.');
   const bin = (n) => [24, 16, 8, 0].map((s) => ((n >>> s) & 255).toString(2).padStart(8, '0')).join('.');
 
-  // Jede Aufgabe: text, fields [{label, unit, value, tol (relativ) | exact (Text)}], steps (Lösungsweg)
+  // Jede Aufgabe: text, fields [{label, unit, value, tol (relativ) | exact (Text)}], steps (Lösungsweg); hints je Typ: Vorgehen ohne Zahlen
   const DRILLS = {
-    subnet: { name: 'Subnetting IPv4', part: 'Teil1', make(rng, fixed) {
+    subnet: { name: 'Subnetting IPv4', part: 'Teil1', hints: [
+      'Die Zahl hinter dem Schrägstrich sagt, wie viele Bits der Maske von links 1 sind. Acht Einsen in einem Oktett ergeben 255.',
+      'Nur das Oktett, in dem die Maske weder 255 noch 0 ist, muss man genau rechnen. Blockgröße = 256 − Maskenwert in diesem Oktett.',
+      'Netzadresse: das größte Vielfache der Blockgröße, das nicht über dem Adresswert liegt. Broadcast: nächste Netzadresse − 1.',
+      'Nutzbare Hosts = 2^(32 − Präfix) − 2, weil Netz- und Broadcastadresse wegfallen.',
+      'Am fx-991DE CW: HOME, Basis-N. Mit FORMAT auf Binär stellen, dann Adress-Oktett and Masken-Oktett rechnen (and unter CATALOG, Logikoperatoren).'],
+    make(rng, fixed) {
       const p = fixed ? fixed.prefix : int(rng, 20, 29);
       const a = fixed ? fixed.ip : ((pick(rng, [10, 172, 192]) << 24) | (int(rng, 0, 255) << 16) | (int(rng, 0, 255) << 8) | int(rng, 1, 254)) >>> 0;
       const mask = (0xFFFFFFFF << (32 - p)) >>> 0; const net = (a & mask) >>> 0; const bc = (net | ~mask) >>> 0; const hosts = 2 ** (32 - p) - 2;
@@ -18,63 +24,105 @@
         fields: [{ label: 'Subnetzmaske', exact: ip(mask) }, { label: 'Netzadresse', exact: ip(net) }, { label: 'Broadcastadresse', exact: ip(bc) }, { label: 'Nutzbare Hosts', value: hosts, tol: 0 }],
         steps: [`/${p} heißt ${p} Einsen in der Maske: ${bin(mask)} = ${ip(mask)}.`, `Netzadresse = Adresse UND Maske: ${bin(a)} UND Maske = ${ip(net)}.`, `Broadcast = Netzadresse mit allen ${32 - p} Hostbits auf 1 = ${ip(bc)}.`, `Hosts = 2^${32 - p} − 2 = ${hosts} (Netz- und Broadcastadresse fallen weg).`] };
     } },
-    ohm: { name: 'Strom und Widerstand eines Verbrauchers', part: 'Teil2', make(rng) {
+    ohm: { name: 'Strom und Widerstand eines Verbrauchers', part: 'Teil2', hints: [
+      'Gegeben sind Spannung U und Leistung P, gesucht Strom I und Widerstand R.',
+      'Leistungsformel P = U · I nach I umstellen: I = P / U.',
+      'Ohmsches Gesetz R = U / I, oder ohne Umweg R = U² / P.'],
+    make(rng) {
       const U = pick(rng, [230, 230, 24, 12, 48]); const P = U >= 230 ? pick(rng, [60, 150, 460, 690, 920, 1150, 2300]) : pick(rng, [6, 12, 24, 36, 48, 60]);
       const I = P / U; const R = U * U / P;
       return { text: `Ein ohmscher Verbraucher nimmt an ${U} V eine Leistung von ${P} W auf. Berechnen Sie Stromstärke und Widerstand.`,
         fields: [{ label: 'Strom I', unit: 'A', value: I, tol: 0.01 }, { label: 'Widerstand R', unit: 'Ω', value: R, tol: 0.01 }],
         steps: [`P = U · I, also I = P / U = ${P} W / ${U} V = ${de(I, 3)} A.`, `R = U / I = U² / P = ${U}² / ${P} = ${de(R, 2)} Ω.`] };
     } },
-    leitung: { name: 'Leitungswiderstand und Spannungsfall', part: 'Teil2', make(rng) {
+    leitung: { name: 'Leitungswiderstand und Spannungsfall', part: 'Teil2', hints: [
+      'Der Strom fließt hin und zurück: Die Leitungslänge zählt doppelt.',
+      'R_L = 2 · l / (κ · A), mit l in m, A in mm² und κ in m/(Ω·mm²). κ für Kupfer steht im Belegsatz oder Tabellenbuch (56).',
+      'ΔU = I · R_L, in Prozent Δu = ΔU / U · 100 %.',
+      'Kleine Werte am fx-991DE CW mit FORMAT, ENG Notation anzeigen: Dann steht der Exponent in Dreierschritten da (×10⁻³ = milli).'],
+    make(rng) {
       const l = pick(rng, [12, 18, 25, 30, 35, 40, 50]); const A = pick(rng, [1.5, 2.5, 4]); const I = pick(rng, [10, 13, 16, 20]); const k = 56;
       const R = 2 * l / (k * A); const dU = I * R; const pct = dU / 230 * 100;
       return { text: `Ein Wechselstromkreis (230 V, cos φ = 1) wird über eine ${l} m lange Kupferleitung mit ${de(A, 1)} mm² versorgt (κ = 56 m/(Ω·mm²)). Es fließen ${I} A. Berechnen Sie Leitungswiderstand (Hin- und Rückleiter), Spannungsfall und Spannungsfall in Prozent.`,
         fields: [{ label: 'Leitungswiderstand R_L', unit: 'Ω', value: R, tol: 0.015 }, { label: 'Spannungsfall ΔU', unit: 'V', value: dU, tol: 0.015 }, { label: 'Spannungsfall', unit: '%', value: pct, tol: 0.02 }],
         steps: [`R_L = 2 · l / (κ · A) = 2 · ${l} m / (56 · ${de(A, 1)} mm²) = ${de(R, 3)} Ω (Faktor 2 für Hin- und Rückleiter).`, `ΔU = I · R_L = ${I} A · ${de(R, 3)} Ω = ${de(dU, 2)} V.`, `Δu = ΔU / U · 100 % = ${de(dU, 2)} V / 230 V · 100 % = ${de(pct, 2)} %. Üblich sind höchstens 3 % (DIN VDE 0100-520, Empfehlung).`] };
     } },
-    drehstrom: { name: 'Leistung im Drehstromnetz', part: 'Teil2', make(rng) {
+    drehstrom: { name: 'Leistung im Drehstromnetz', part: 'Teil2', hints: [
+      'Im Drehstromnetz ist U die Spannung zwischen zwei Außenleitern (400 V). Dazu kommt der Verkettungsfaktor √3.',
+      'Scheinleistung S = √3 · U · I.',
+      'Wirkleistung P = S · cos φ. Watt durch 1000 ergibt Kilowatt.',
+      'Am fx-991DE CW hat √ eine eigene Taste: √3 × 400 × I direkt eintippen.'],
+    make(rng) {
       const I = pick(rng, [10, 16, 20, 25, 32]); const cos = pick(rng, [0.8, 0.85, 0.9, 0.95, 1]);
       const S = Math.sqrt(3) * 400 * I; const P = S * cos;
       return { text: `Ein Drehstromverbraucher am 400-V-Netz nimmt je Außenleiter ${I} A auf, cos φ = ${de(cos, 2)}. Berechnen Sie Scheinleistung und Wirkleistung.`,
         fields: [{ label: 'Scheinleistung S', unit: 'kVA', value: S / 1000, tol: 0.01 }, { label: 'Wirkleistung P', unit: 'kW', value: P / 1000, tol: 0.01 }],
         steps: [`S = √3 · U · I = 1,732 · 400 V · ${I} A = ${de(S / 1000, 2)} kVA.`, `P = S · cos φ = ${de(S / 1000, 2)} kVA · ${de(cos, 2)} = ${de(P / 1000, 2)} kW.`] };
     } },
-    usv: { name: 'USV-Überbrückungszeit', part: 'Teil2', make(rng) {
+    usv: { name: 'USV-Überbrückungszeit', part: 'Teil2', hints: [
+      'Energie eines Akkus: E = U · Q, Volt mal Amperestunden ergibt Wattstunden. Alle Akkus zusammenzählen.',
+      'Der Wechselrichter verliert einen Teil: nutzbare Energie = E · η (Prozent durch 100).',
+      'Zeit t = nutzbare Energie / Leistung ergibt Stunden, mal 60 ergibt Minuten.'],
+    make(rng) {
       const n = pick(rng, [2, 4, 6, 8]); const Ah = pick(rng, [7, 9, 12, 18]); const W = pick(rng, [300, 450, 600, 800, 1200]); const eta = pick(rng, [0.85, 0.9, 0.95]);
       const E = n * 12 * Ah; const t = E * eta / W * 60;
       return { text: `Eine USV hat ${n} Akkus mit je 12 V und ${Ah} Ah. Die angeschlossene Last beträgt ${W} W, der Wechselrichter hat einen Wirkungsgrad von ${de(eta * 100, 0)} %. Berechnen Sie die gespeicherte Energie und die Überbrückungszeit (Akkus vollständig nutzbar).`,
         fields: [{ label: 'Gespeicherte Energie', unit: 'Wh', value: E, tol: 0.005 }, { label: 'Überbrückungszeit', unit: 'min', value: t, tol: 0.02 }],
         steps: [`E = Anzahl · U · Q = ${n} · 12 V · ${Ah} Ah = ${E} Wh.`, `Nutzbare Energie = E · η = ${E} Wh · ${de(eta, 2)} = ${de(E * eta, 1)} Wh.`, `t = ${de(E * eta, 1)} Wh / ${W} W = ${de(E * eta / W, 3)} h = ${de(t, 1)} min.`] };
     } },
-    energie: { name: 'Energiekosten', part: 'Teil2', make(rng) {
+    energie: { name: 'Energiekosten', part: 'Teil2', hints: [
+      'Elektrische Arbeit W = P · t: Leistung mal Betriebsstunden im Jahr (Stunden pro Tag mal Tage).',
+      'Wattstunden durch 1000 ergibt Kilowattstunden.',
+      'Kosten = Energie in kWh · Preis. Cent durch 100 ergibt Euro.'],
+    make(rng) {
       const P = pick(rng, [35, 65, 120, 250, 400]); const h = pick(rng, [8, 10, 24]); const d = pick(rng, [220, 250, 365]); const ct = pick(rng, [28, 32, 35, 40]);
       const kWh = P * h * d / 1000; const eur = kWh * ct / 100;
       return { text: `Ein Gerät mit ${P} W läuft ${h} Stunden am Tag an ${d} Tagen im Jahr. Eine Kilowattstunde kostet ${ct} Cent. Berechnen Sie Energiebedarf und Kosten pro Jahr.`,
         fields: [{ label: 'Energiebedarf', unit: 'kWh', value: kWh, tol: 0.005 }, { label: 'Kosten', unit: '€', value: eur, tol: 0.005 }],
         steps: [`W = P · t = ${P} W · ${h} h · ${d} = ${de(P * h * d, 0)} Wh = ${de(kWh, 1)} kWh.`, `Kosten = ${de(kWh, 1)} kWh · ${de(ct / 100, 2)} €/kWh = ${de(eur, 2)} €.`] };
     } },
-    transfer: { name: 'Übertragungsdauer', part: 'Teil1', make(rng) {
+    transfer: { name: 'Übertragungsdauer', part: 'Teil1', hints: [
+      'Datenmenge und Datenrate in dieselbe Einheit bringen, am einfachsten in Bit.',
+      'GiB in Byte: mal 1024³. Byte in Bit: mal 8. Mbit/s in bit/s: mal 10⁶.',
+      'Dauer t = Datenmenge / Datenrate.',
+      'Am fx-991DE CW: 1024³ mit der x^■-Taste, 10⁶ mit der ×10^x-Taste eingeben.'],
+    make(rng) {
       const GiB = pick(rng, [2, 4, 8, 20, 50]); const rate = pick(rng, [50, 100, 250, 500, 1000]);
       const bits = GiB * 1024 ** 3 * 8; const s = bits / (rate * 1e6);
       return { text: `Eine Datei mit ${GiB} GiB (1 GiB = 1024³ Byte) wird mit ${rate} Mbit/s (1 Mbit = 10⁶ bit) übertragen. Wie lange dauert die Übertragung ohne Protokoll-Overhead?`,
         fields: [{ label: 'Dauer', unit: 's', value: s, tol: 0.01 }],
         steps: [`Datenmenge in Bit = ${GiB} · 1024³ · 8 = ${de(bits, 0)} bit.`, `t = ${de(bits, 0)} bit / (${rate} · 10⁶ bit/s) = ${de(s, 1)} s (${de(s / 60, 1)} min).`] };
     } },
-    zahlen: { name: 'Zahlensysteme umrechnen', part: 'Teil1', make(rng) {
+    zahlen: { name: 'Zahlensysteme umrechnen', part: 'Teil1', hints: [
+      'Stellenwerte einer 8-Bit-Dualzahl: 128 64 32 16 8 4 2 1. Von links den größten passenden Wert abziehen und dort eine 1 setzen.',
+      'Hexadezimal: die Dualzahl in zwei Gruppen zu 4 Bit teilen. Jede Gruppe ist eine Hex-Ziffer, 10 bis 15 sind A bis F.',
+      'Hex nach dezimal: erste Ziffer · 16 + zweite Ziffer.',
+      'Am fx-991DE CW: HOME, Basis-N. Zahl eingeben, mit FORMAT Hexadezimal oder Binär wählen. A bis C liegen auf SHIFT 4 bis 6, D bis F auf SHIFT 1 bis 3.'],
+    make(rng) {
       const v = int(rng, 17, 255); const b = v.toString(2).padStart(8, '0'); const h = v.toString(16).toUpperCase();
       const steps = [`Stellenwerte 128 64 32 16 8 4 2 1: ${v} = ${b.split('').map((d, i) => d === '1' ? 2 ** (7 - i) : 0).filter(Boolean).join(' + ')} → ${b.slice(0, 4)} ${b.slice(4)}.`, `Hexadezimal je 4 Bit (Nibble): ${b.slice(0, 4)} = ${parseInt(b.slice(0, 4), 2).toString(16).toUpperCase()}, ${b.slice(4)} = ${parseInt(b.slice(4), 2).toString(16).toUpperCase()} → ${h}.`];
       return rng() < 0.5
         ? { text: `Wandeln Sie die Dezimalzahl ${v} in eine 8-stellige Dualzahl und in eine Hexadezimalzahl um.`, fields: [{ label: 'Dual (8 Bit)', exact: b }, { label: 'Hexadezimal', exact: h }], steps }
         : { text: `Wandeln Sie die Hexadezimalzahl ${h} in eine Dezimalzahl und eine 8-stellige Dualzahl um.`, fields: [{ label: 'Dezimal', value: v, tol: 0 }, { label: 'Dual (8 Bit)', exact: b }], steps: [`${h} = ${h.split('').map((c, i, a) => `${parseInt(c, 16)} · 16^${a.length - 1 - i}`).join(' + ')} = ${v}.`, ...steps] };
     } },
-    einheiten: { name: 'Speichereinheiten (SI und IEC)', part: 'Teil1', make(rng) {
+    einheiten: { name: 'Speichereinheiten (SI und IEC)', part: 'Teil1', hints: [
+      'SI-Vorsätze (k, M, G, T) stehen für Potenzen von 1000, IEC-Vorsätze (Ki, Mi, Gi, Ti) für Potenzen von 1024.',
+      'M = 1000², G = 1000³, T = 1000⁴. Mi = 1024², Gi = 1024³, Ti = 1024⁴.',
+      'Erst in Byte umrechnen, dann durch die Potenz der anderen Basis teilen.',
+      'Am fx-991DE CW: Potenzen mit der x^■-Taste, also 1000 x^■ 3 oder 1024 x^■ 3.'],
+    make(rng) {
       const k = pick(rng, [['MB', 'MiB', 2], ['GB', 'GiB', 3], ['TB', 'TiB', 4]]); const x = pick(rng, [3, 8, 16, 120, 256, 500]);
       const toIec = rng() < 0.5; const r = toIec ? x * 1000 ** k[2] / 1024 ** k[2] : x * 1024 ** k[2] / 1000 ** k[2];
       return { text: toIec ? `Ein Hersteller gibt ${x} ${k[0]} an. Wie viele ${k[1]} zeigt ein Betriebssystem an, das mit Faktor 1024 rechnet?` : `Eine Datei ist ${x} ${k[1]} groß. Wie viele ${k[0]} (Faktor 1000) sind das?`,
         fields: [{ label: toIec ? k[1] : k[0], value: r, tol: 0.005 }],
         steps: [toIec ? `${x} ${k[0]} = ${x} · 1000^${k[2]} Byte; geteilt durch 1024^${k[2]} ergibt ${de(r, 2)} ${k[1]}.` : `${x} ${k[1]} = ${x} · 1024^${k[2]} Byte; geteilt durch 1000^${k[2]} ergibt ${de(r, 2)} ${k[0]}.`, 'SI (k, M, G, T) rechnet mit 1000, IEC (Ki, Mi, Gi, Ti) mit 1024. Ein kleines „i“ ändert das Ergebnis.'] };
     } },
-    gatter: { name: 'Logikgatter', part: 'Teil1', make(rng) {
+    gatter: { name: 'Logikgatter', part: 'Teil1', hints: [
+      'Schritt für Schritt: zuerst X aus A und B, dann Y aus X und C.',
+      'AND: nur 1 und 1 ergibt 1. OR: mindestens eine 1. XOR: genau eine 1.',
+      'NAND und NOR: erst AND oder OR bilden, dann das Ergebnis umkehren.',
+      'Zum Prüfen am fx-991DE CW: Basis-N auf Binär, dann and, or, xor oder xnor aus CATALOG, Logikoperatoren. Vorsicht: Not kippt alle 32 Bit.'],
+    make(rng) {
       const G = { AND: (a, b) => a & b, OR: (a, b) => a | b, NAND: (a, b) => 1 - (a & b), NOR: (a, b) => 1 - (a | b), XOR: (a, b) => a ^ b };
       const g1 = pick(rng, Object.keys(G)), g2 = pick(rng, Object.keys(G)); const A = int(rng, 0, 1), B = int(rng, 0, 1), C = int(rng, 0, 1);
       const x = G[g1](A, B), y = G[g2](x, C);
@@ -82,7 +130,10 @@
         fields: [{ label: 'X', value: x, tol: 0 }, { label: 'Y', value: y, tol: 0 }],
         steps: [`X = ${A} ${g1} ${B} = ${x}.`, `Y = ${x} ${g2} ${C} = ${y}.`, 'AND: nur 1 und 1 ergibt 1. OR: mindestens eine 1. XOR: genau eine 1. NAND und NOR sind das Gegenteil von AND und OR.'] };
     } },
-    raid: { name: 'RAID-Nettokapazität', part: 'Teil1', make(rng) {
+    raid: { name: 'RAID-Nettokapazität', part: 'Teil1', hints: [
+      'Frage dich, wie viel Kapazität für Spiegelung oder Parität verloren geht.',
+      'RAID 0: nichts. RAID 1: Spiegel, eine Platte nutzbar. RAID 5: eine Platte Parität. RAID 6: zwei Platten Parität. RAID 10: die Hälfte.'],
+    make(rng) {
       const level = pick(rng, [0, 1, 5, 6, 10]); const n = level === 1 ? 2 : level === 10 ? pick(rng, [4, 6, 8]) : level === 6 ? pick(rng, [4, 5, 6, 8]) : pick(rng, [3, 4, 5, 6]); const s = pick(rng, [2, 4, 8, 12, 16]);
       const net = { 0: n * s, 1: s, 5: (n - 1) * s, 6: (n - 2) * s, 10: n / 2 * s }[level];
       const why = { 0: 'RAID 0 verteilt nur, es gibt keine Redundanz: alle Platten zählen.', 1: 'RAID 1 spiegelt: nutzbar ist eine Platte.', 5: 'RAID 5 braucht eine Platte für Parität: (n − 1) · Größe.', 6: 'RAID 6 braucht zwei Platten für Parität: (n − 2) · Größe.', 10: 'RAID 10 spiegelt Paare: n / 2 · Größe.' }[level];
@@ -90,6 +141,106 @@
         fields: [{ label: 'Nutzbare Kapazität', unit: 'TB', value: net, tol: 0 }], steps: [why, `${n} Platten · ${s} TB ergeben netto ${net} TB.`] };
     } },
   };
+
+  // Taschenrechner nach dem Vorbild des fx-991DE CW: eigener Parser statt eval, Winkel in Grad, Ergebnis auf 12 Stellen gerundet
+  const RAD = Math.PI / 180;
+  const FN = { sin: (x) => Math.sin(x * RAD), cos: (x) => Math.cos(x * RAD), tan: (x) => Math.tan(x * RAD), asin: (x) => Math.asin(x) / RAD, acos: (x) => Math.acos(x) / RAD, atan: (x) => Math.atan(x) / RAD,
+    ln: Math.log, log: (a, b) => b === undefined ? Math.log10(a) : Math.log(b) / Math.log(a), root: (n, x) => x === undefined ? Math.sqrt(n) : x < 0 && n % 2 ? -((-x) ** (1 / n)) : x ** (1 / n) };
+  const autoClose = (t) => t + ')'.repeat(Math.max(0, (t.match(/\(/g) || []).length - (t.match(/\)/g) || []).length)); // offene Klammern schließen wie am Taschenrechner
+  function calc(src, ans = 0) {
+    const t0 = String(src).toLowerCase().replace(/[×·*]/g, '*').replace(/[÷:/]/g, '/').replace(/[−–]/g, '-').replace(/,/g, '.').replace(/\s+/g, '')
+      .replace(/(sin|cos|tan)⁻¹/g, 'a$1').replace(/ⁿ√/g, 'root').replace(/sqrt/g, '√').replace(/pi/g, 'π').replace(/⁻¹/g, '^(-1)').replace(/²/g, '^2').replace(/³/g, '^3');
+    if (!t0) return null;
+    const t = autoClose(t0);
+    let i = 0;
+    const fail = () => { throw new Error(i < t.length ? `Unerwartetes Zeichen „${t[i]}“` : 'Ausdruck unvollständig'); };
+    const args = () => { // nach einem Funktionsnamen: (a), (a;b) oder ein einzelner Wert wie in ln2
+      if (t[i] !== '(') return [unary()];
+      i++; const a = [expr()]; if (t[i] === ';') { i++; a.push(expr()); } if (t[i] !== ')') fail(); i++; return a;
+    };
+    const atom = () => {
+      if (t[i] === '(') { i++; const v = expr(); if (t[i] !== ')') fail(); i++; return v; }
+      if (t[i] === '√') { i++; return Math.sqrt(unary()); }
+      if (t[i] === 'π') { i++; return Math.PI; }
+      const w = /^[a-z]+/.exec(t.slice(i));
+      if (w) {
+        if (w[0] === 'e') { i++; return Math.E; }
+        if (w[0] === 'ans') { i += 3; return ans; }
+        if (!FN[w[0]]) fail();
+        i += w[0].length; return FN[w[0]](...args());
+      }
+      const m = /^(\d+\.?\d*|\.\d+)/.exec(t.slice(i)); if (!m) fail(); i += m[0].length; return +m[0];
+    };
+    const pow = () => { const b = atom(); if (t[i] === '^') { i++; return b ** unary(); } return b; };
+    const unary = () => t[i] === '-' ? (i++, -unary()) : t[i] === '+' ? (i++, unary()) : pow();
+    const term = () => {
+      let v = unary();
+      for (;;) {
+        if (t[i] === '*' || t[i] === '/') { const o = t[i++]; const r = unary(); v = o === '*' ? v * r : v / r; }
+        else if (t[i] && /[(√πa-z]/.test(t[i])) v *= unary(); // 2π, 2(3+1), 2√3, 3sin30
+        else return v;
+      }
+    };
+    const expr = () => { let v = term(); while (t[i] === '+' || t[i] === '-') { const o = t[i++]; const r = term(); v = o === '+' ? v + r : v - r; } return v; };
+    const v = expr(); if (i < t.length) fail();
+    if (!Number.isFinite(v)) throw new Error('Kein endliches Ergebnis (Division durch 0?)');
+    return +v.toPrecision(12);
+  }
+  const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+  const sup = (n) => String(n).replace(/./g, (c) => SUP[c]);
+  const deN = (x) => x.toLocaleString('de-DE', { maximumFractionDigits: 9 });
+  // Anzeige mit höchstens 10 Stellen wie am Gerät, sehr große oder kleine Werte mit ×10ⁿ
+  function fmtNum(v) {
+    if (v === 0) return '0';
+    const a = Math.abs(v);
+    if (a >= 1e10 || a < 1e-4) { const [m, e] = v.toExponential(9).split('e'); return `${deN(+m)} ×10${sup(+e)}`; }
+    return deN(+v.toPrecision(10));
+  }
+  // Ingenieurschreibweise (FORMAT, ENG Notation): Exponent in Dreierschritten, dazu der Vorsatz (m, µ, k …)
+  const PREFIX = { '-12': 'p', '-9': 'n', '-6': 'µ', '-3': 'm', 0: '', 3: 'k', 6: 'M', 9: 'G', 12: 'T' };
+  function engNum(v) {
+    if (v === 0) return { text: '0', e: 0, prefix: '' };
+    let e = Math.floor(Math.log10(Math.abs(v)) / 3) * 3; let m = +(v / 10 ** e).toPrecision(10);
+    if (Math.abs(m) >= 1000) { m /= 1000; e += 3; }
+    return { text: `${deN(m)} ×10${sup(e)}`, e, prefix: PREFIX[e] ?? '' };
+  }
+
+  // Basis-N wie am fx-991DE CW: ganze Zahlen mit 32 Bit, negative Werte im Zweierkomplement; Vorrang Neg/Not, × ÷, + −, and, dann or/xor/xnor
+  const BASES = { DEC: 10, HEX: 16, BIN: 2, OCT: 8 };
+  const BASE_NAME = { 10: 'Dezimal', 16: 'Hexadezimal', 2: 'Binär', 8: 'Oktal' };
+  const DIGITS = { 10: /^[0-9]+$/, 16: /^[0-9a-f]+$/, 2: /^[01]+$/, 8: /^[0-7]+$/ };
+  function baseCalc(src, base, ans = 0) {
+    const t0 = String(src).toLowerCase().replace(/[×·*]/g, '*').replace(/[÷:/]/g, '/').replace(/[−–]/g, '-');
+    if (!t0.trim()) return null;
+    const t = autoClose(t0); const tok = []; const re = /\s*(xnor|xor|and|or|not|neg|ans|[0-9a-f]+|[-+*/()])/y; let m;
+    for (let p = 0; p < t.length; p = re.lastIndex) {
+      re.lastIndex = p; m = re.exec(t);
+      if (!m) { if (t.slice(p).trim()) throw new Error(`Unerwartetes Zeichen „${t.slice(p).trim()[0]}“`); break; }
+      tok.push(m[1]);
+    }
+    let i = 0;
+    const R = (v) => { if (!(v >= -2147483648 && v <= 2147483647)) throw new Error('Außerhalb von 32 Bit (am Gerät Math ERROR)'); return v; };
+    const atom = () => {
+      const x = tok[i++];
+      if (x === undefined) throw new Error('Ausdruck unvollständig');
+      if (x === '(') { const v = lor(); if (tok[i++] !== ')') throw new Error('Klammer fehlt'); return v; }
+      if (x === 'ans') return ans;
+      if (!DIGITS[base].test(x)) throw new Error(`„${x.toUpperCase()}“ ist keine ${BASE_NAME[base]}zahl`);
+      const v = parseInt(x, base);
+      if (base === 10) return R(v);
+      if (v > 0xFFFFFFFF) throw new Error('Außerhalb von 32 Bit (am Gerät Math ERROR)');
+      return v | 0;
+    };
+    const unary = () => { const x = tok[i]; if (x === 'neg' || x === '-') { i++; return R(-unary()); } if (x === 'not') { i++; return ~unary(); } if (x === '+') { i++; return unary(); } return atom(); };
+    const mul = () => { let v = unary(); while (tok[i] === '*' || tok[i] === '/') { const o = tok[i++]; const r = unary(); if (o === '/' && r === 0) throw new Error('Division durch 0'); v = R(o === '*' ? v * r : Math.trunc(v / r)); } return v; };
+    const add = () => { let v = mul(); while (tok[i] === '+' || tok[i] === '-') { const o = tok[i++]; const r = mul(); v = R(o === '+' ? v + r : v - r); } return v; };
+    const land = () => { let v = add(); while (tok[i] === 'and') { i++; v &= add(); } return v; };
+    const lor = () => { let v = land(); while (['or', 'xor', 'xnor'].includes(tok[i])) { const o = tok[i++]; const r = land(); v = o === 'or' ? v | r : o === 'xor' ? v ^ r : ~(v ^ r); } return v; };
+    const v = lor(); if (i < tok.length) throw new Error(`Unerwartet: „${tok[i]}“`);
+    return v;
+  }
+  const toBase = (v, b) => b === 10 ? String(v) : (v >>> 0).toString(b).toUpperCase();
+  const binGroups = (s) => s.padStart(Math.ceil(s.length / 4) * 4, '0').replace(/(.{4})(?=.)/g, '$1 ');
 
   function checkField(f, input) {
     if (f.exact !== undefined) return String(input || '').trim().replace(/\s/g, '').toUpperCase() === f.exact.toUpperCase();
@@ -295,6 +446,14 @@
   assert(mo.ops.map((x) => x.op).join() === 'ermitteln,vergleichen' && (mo.html.match(/<mark/g) || []).length === 2, 'Operatoren');
   assert(markOps('Geben Sie die Werte an. Es ist gegeben: 5 V. Benennen Sie das Bauteil.').ops.map((x) => x.op).join() === 'angeben,benennen', 'Operatoren trennbar');
   const zr = () => { let s = 7; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; };
+  const near = (a, b) => Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(b));
+  assert(near(calc('2*25/(56*1,5)'), 50 / 84) && calc('-2^2') === -4 && calc('2^3^2') === 512 && calc('2(3+1)') === 8 && near(calc('2π'), 2 * Math.PI) && near(calc('√3 · 400 · 16'), Math.sqrt(3) * 6400) && calc('10 − 4 − 3') === 3 && calc('12:4·3') === 9 && calc('√(9)+3²') === 12 && calc('√(9') === 3, 'Rechner');
+  ['alert(1)', '2+', '2)', '1/0', '2..3'].forEach((x) => { let ok = false; try { calc(x); } catch (e) { ok = true; } assert(ok, 'Rechner lehnt ab: ' + x); });
+  assert(calc('sin(30)') === 0.5 && calc('sin⁻¹(0,5)') === 30 && calc('cos(60') === 0.5 && calc('log(1000)') === 3 && calc('log(2;16)') === 4 && calc('ln(e)') === 1 && calc('ⁿ√(3;27)') === 3 && calc('10⁻¹') === 0.1 && calc('1,23×10^3') === 1230 && calc('Ans×2', 21) === 42 && calc('0,1+0,2') === 0.3, 'Rechner Funktionen');
+  assert(fmtNum(1e-7) === '1 ×10⁻⁷' && fmtNum(1234.5) === '1.234,5' && engNum(0.0005952).text === '595,2 ×10⁻⁶' && engNum(0.0005952).prefix === 'µ' && engNum(4700).prefix === 'k', 'Rechner Anzeige');
+  assert(baseCalc('15×37', 10) === 555 && toBase(555, 16) === '22B' && baseCalc('1010 and 1100', 2) === 8 && toBase(baseCalc('not(1010)', 2), 2) === '11111111111111111111111111110101' && baseCalc('FFFFFFFF', 16) === -1 && baseCalc('7FFFFFFF', 16) === 2147483647 && baseCalc('1010 xor 0110', 2) === 12 && baseCalc('neg(1)', 16) === -1 && binGroups('101') === '0101', 'Basis-N');
+  ['2147483647+1', '12', '1/0', 'G'].forEach((x) => { let ok = false; try { baseCalc(x, x === '12' ? 2 : 10); } catch (e) { ok = true; } assert(ok, 'Basis-N lehnt ab: ' + x); });
+  assert(Object.values(DRILLS).every((d) => d.hints && d.hints.length >= 2), 'Tipps je Aufgabentyp');
   ['zahlen', 'einheiten', 'gatter'].forEach((k) => { const t = DRILLS[k].make(zr()); assert(t.fields.every((f) => checkField(f, f.exact ?? String(f.value).replace('.', ','))), 'Rechentrainer ' + k); });
   const crit = (grading, points) => (criteria({ answer_type: 'text', grading, points }) || []).map((c) => `${c.label}=${c.points}`).join('|');
   assert(crit('6 Punkte: je 2 Punkte für IP-Adresse, Subnetzmaske und Standardgateway', 6) === 'IP-Adresse=2|Subnetzmaske=2|Standardgateway=2', 'Kriterien je für');
@@ -309,5 +468,5 @@
   assert(crit('2 Punkte: je 1 Punkt', 2) === 'Nennung 1=1|Nennung 2=1' && crit('3 Punkte (je richtigem Eintrag 1 Punkt)', 3) === 'Eintrag 1=1|Eintrag 2=1|Eintrag 3=1', 'Kriterien ohne Einheit');
   assert(crit('4 Punkte (Grund 2 Punkte, Beschreibung 2 Punkte)', 4) === 'Grund=2|Beschreibung=2', 'Kriterien in Klammern');
 
-  window.AP2Tools = { DRILLS, checkField, num, de, AREAS, assess, decimalGrade, gradeWord, criteria, DOC_CHECKLIST, DOC_FORM, ANTRAG, TALK_OUTLINE, FG_QUESTIONS, markOps };
+  window.AP2Tools = { DRILLS, calc, fmtNum, engNum, BASES, BASE_NAME, baseCalc, toBase, binGroups, checkField, num, de, AREAS, assess, decimalGrade, gradeWord, criteria, DOC_CHECKLIST, DOC_FORM, ANTRAG, TALK_OUTLINE, FG_QUESTIONS, markOps };
 })();

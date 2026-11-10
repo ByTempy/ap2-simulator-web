@@ -512,3 +512,40 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
   #print-pages .pp:last-child { break-after: auto; }
   #print-pages img { max-width: 100%; max-height: 100%; object-fit: contain; }
 }
+
+/* ---------- Rechentrainer: Tipps, Taschenrechner (nach dem Vorbild fx-991DE CW), Karopapier ---------- */
+.hints { margin: var(--space-md) 0 0; padding: var(--space-sm) var(--space-md) var(--space-sm) calc(var(--space-md) + 1.2em); background: var(--color-well); border-top: var(--rule-bar) solid var(--color-rule-2); max-width: 78ch; }
+.hints:empty { display: none; }
+.hints li + li { margin-top: var(--space-xs); }
+.btn.calc-toggle, .calc { display: none; }
+@media (min-width: 64rem) { /* nur wenn neben der Aufgabe genug Platz ist */
+  .btn.calc-toggle { display: inline-flex; }
+  .drill-wrap.with-calc { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: var(--space-lg); align-items: start; }
+  .calc:not([hidden]) { display: block; position: sticky; top: calc(var(--nav-h) + var(--space-md)); max-height: calc(100vh - var(--nav-h) - var(--space-xl)); overflow-y: auto; padding: var(--space-md); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-card); background: var(--color-paper); }
+}
+.calc .seg { margin-bottom: var(--space-sm); }
+.calc .seg .btn { flex: 1; justify-content: center; }
+.calc-out { display: block; margin-top: var(--space-xs); padding: var(--space-xs) var(--space-sm); min-height: 2.6em; text-align: right; background: var(--color-well); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.calc-main { display: block; font: 500 var(--text-xl)/1.4 var(--font-outlier); }
+.calc-row { display: flex; justify-content: space-between; gap: var(--space-sm); font: 400 var(--text-sm)/1.5 var(--font-outlier); color: var(--color-ink-2); }
+.calc-row small { font: 500 var(--text-xs)/1.5 var(--font-body); color: var(--color-muted); }
+.calc-row.on { font-size: var(--text-md); color: var(--color-ink); font-weight: 500; }
+.calc-out.bad, .calc-err { font: 400 var(--text-sm)/1.4 var(--font-body); color: var(--color-error); text-align: left; }
+.calc-casio { margin-top: var(--space-xs); min-height: 2.8em; font-size: var(--text-xs); line-height: 1.4; color: var(--color-muted); }
+.calc-keys { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-2xs); margin-top: var(--space-xs); }
+.calc-keys .btn { justify-content: center; padding-inline: 0; min-width: 0; font-variant-numeric: tabular-nums; }
+.calc-keys .btn.fn { font-size: var(--text-xs); }
+.calc-keys .btn.eq { grid-column: span 3; }
+.calc-keys .btn:disabled { opacity: .35; }
+.calc-hist { list-style: none; margin: var(--space-sm) 0 0; padding: 0; font-size: var(--text-sm); color: var(--color-muted); }
+.calc-hist li { display: flex; justify-content: flex-end; gap: var(--space-2xs); overflow-wrap: anywhere; }
+.calc-hist b { color: var(--color-ink); font-weight: 500; }
+.calc-more { margin-top: var(--space-sm); font-size: var(--text-sm); }
+.calc-more dl { margin: 0; }
+.calc-more dt { font-weight: 500; margin-top: var(--space-xs); }
+.calc-more dd { margin: 0; color: var(--color-ink-2); }
+.pad { margin-top: var(--space-lg); }
+.pad-bar { display: flex; flex-wrap: wrap; gap: var(--space-2xs); margin-bottom: var(--space-xs); }
+.pad canvas { display: block; width: 100%; height: 24rem; touch-action: none; cursor: crosshair; color: var(--color-ink); background-color: var(--color-paper); background-image: linear-gradient(var(--color-rule) 1px, transparent 1px), linear-gradient(90deg, var(--color-rule) 1px, transparent 1px); background-size: 5mm 5mm; border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-card); }
+@media (max-width: 40rem) { .pad canvas { height: 18rem; } }
+@media print { .calc, .calc-toggle, .pad, #r-pad-btn { display: none !important; } }
