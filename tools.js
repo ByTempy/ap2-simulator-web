@@ -82,23 +82,26 @@
   const WORD = ['', 'sehr gut', 'gut', 'befriedigend', 'ausreichend', 'mangelhaft', 'ungenügend'];
   const gradeWord = (p) => WORD[p >= 92 ? 1 : p >= 81 ? 2 : p >= 67 ? 3 : p >= 50 ? 4 : p >= 30 ? 5 : 6];
 
-  // Gewichte nach § 15 Abs. 1; Projekt = § 11 (Dokumentation und Fachgespräch je zur Hälfte)
+  // Gewichte nach § 15 Abs. 1. Projekt (§ 11, 50 %): Dokumentation 30 %, Fachgespräch 20 % auf Wunsch des Nutzers;
+  // § 11 Abs. 4 ITSEAusbV sieht je 50 % des Bereichs vor (25/25). Beide Werte nur hier ändern.
   const AREAS = [
     { id: 'ap1', label: 'Teil 1 der Abschlussprüfung', note: 'Einrichten eines IT-gestützten Arbeitsplatzes, schriftlich 90 Minuten', w: 20 },
-    { id: 'doc', label: 'Projektarbeit mit Dokumentation', note: 'Erstellen, Ändern oder Erweitern von IT-Systemen (halbe Gewichtung des Bereichs)', w: 25 },
-    { id: 'talk', label: 'Präsentation und Fachgespräch', note: 'Zweite Hälfte desselben Bereichs, höchstens 30 Minuten', w: 25 },
+    { id: 'doc', label: 'Projektarbeit mit Dokumentation', note: 'Erstellen, Ändern oder Erweitern von IT-Systemen', w: 30 },
+    { id: 'talk', label: 'Präsentation und Fachgespräch', note: 'Gehört zum selben Bereich wie die Projektarbeit, höchstens 30 Minuten', w: 20 },
     { id: 't1', label: 'Installation und Service', note: 'Schriftlich 90 Minuten', w: 10, kind: 'Teil1', oral: true },
     { id: 't2', label: 'Anbindung an die Stromversorgung', note: 'Schriftlich 90 Minuten, muss mindestens ausreichend sein', w: 10, kind: 'Teil2', oral: true },
     { id: 'wiso', label: 'Wirtschafts- und Sozialkunde', note: 'Schriftlich 60 Minuten', w: 10, kind: 'WiSo', oral: true },
   ];
   // Prüfungsbereiche von Teil 2 (Projekt zählt als ein Bereich)
-  const t2Areas = (v) => [(v.doc + v.talk) / 2, v.t1, v.t2, v.wiso];
+  const W = Object.fromEntries(AREAS.map((a) => [a.id, a.w]));
+  const proj = (v) => (v.doc * W.doc + v.talk * W.talk) / (W.doc + W.talk);
+  const t2Areas = (v) => [proj(v), v.t1, v.t2, v.wiso];
   const total = (v) => AREAS.reduce((a, x) => a + v[x.id] * x.w / 100, 0);
   // shortcut: Ergebnisse werden auf ganze Punkte gerundet verglichen; manche IHKs runden Bereichsergebnisse anders.
   const RULES = [
     { id: 'gesamt', label: 'Gesamtergebnis aus Teil 1 und Teil 2 mindestens 50 Punkte', ok: (v) => Math.round(total(v)) >= 50 },
     { id: 'strom', label: 'Anbindung an die Stromversorgung mindestens 50 Punkte', ok: (v) => Math.round(v.t2) >= 50 },
-    { id: 'zwei', label: 'Mindestens zwei weitere Bereiche von Teil 2 mit 50 Punkten', ok: (v) => [(v.doc + v.talk) / 2, v.t1, v.wiso].filter((x) => Math.round(x) >= 50).length >= 2 },
+    { id: 'zwei', label: 'Mindestens zwei weitere Bereiche von Teil 2 mit 50 Punkten', ok: (v) => [proj(v), v.t1, v.wiso].filter((x) => Math.round(x) >= 50).length >= 2 },
     { id: 'keine6', label: 'Kein Bereich von Teil 2 unter 30 Punkten', ok: (v) => t2Areas(v).every((x) => Math.round(x) >= 30) },
   ];
   const fill = (vals, x) => Object.fromEntries(AREAS.map((a) => [a.id, vals[a.id] ?? x]));

@@ -574,7 +574,7 @@
         <section aria-labelledby="g-out-h"><h2 id="g-out-h" class="visually-hidden">Ergebnis</h2><div id="g-out" aria-live="polite"></div></section>
       </div>
       <section class="section"><h2>So wird gerechnet</h2><div class="prose small">
-        <p>Grundlage ist die Ausbildungsverordnung IT-System-Elektroniker von 2020, Paragraph 15. Teil 1 zählt 20 %, das Projekt 50 % (Dokumentation und Fachgespräch je zur Hälfte), die drei schriftlichen Bereiche von Teil 2 je 10 %.</p>
+        <p>Grundlage ist die Ausbildungsverordnung IT-System-Elektroniker von 2020, Paragraph 15. Teil 1 zählt 20 %, das Projekt 50 %, die drei schriftlichen Bereiche von Teil 2 je 10 %. Innerhalb des Projekts rechnet der Rechner mit 30 % für die Dokumentation und 20 % für Präsentation und Fachgespräch. Die Verordnung selbst (Paragraph 11 Absatz 4) gewichtet beide Teile gleich, also je 25 %.</p>
         <p>Bestanden ist, wer im Gesamtergebnis und in der Stromversorgung mindestens 50 Punkte hat, in mindestens zwei weiteren Bereichen von Teil 2 ebenfalls 50 Punkte erreicht und in keinem Bereich von Teil 2 unter 30 Punkten liegt. Teil 1 zählt nur über das Gesamtergebnis.</p>
         <p>Fehlt nur wenig, kann eine mündliche Ergänzungsprüfung in einem schriftlichen Bereich von Teil 2 helfen. Altes und mündliches Ergebnis zählen dann 2 zu 1. Die Dezimalnote folgt der Tabelle der IHK Oldenburg. Einzelne IHKs runden leicht anders, verbindlich ist dein Zeugnis.</p>
         <h3 class="today-sub">Grundlage</h3>
@@ -645,7 +645,7 @@
         </section>
         <section aria-labelledby="pj-s-h"><h2 id="pj-s-h" class="visually-hidden">Stand</h2>
           <dl class="dl" id="pj-stand">${standHtml()}</dl>
-          <p class="small muted" style="margin-top:var(--space-sm)">Projektarbeit mit Dokumentation und Präsentation mit Fachgespräch zählen je zur Hälfte. Präsentation und Gespräch dauern zusammen höchstens 30 Minuten, die Präsentation höchstens 15. Die Vorgaben deiner IHK zu Umfang und Form der Dokumentation gehen vor.</p>
+          <p class="small muted" style="margin-top:var(--space-sm)">Im Notenrechner zählt die Projektarbeit mit Dokumentation 30 %, Präsentation und Fachgespräch 20 % der Gesamtnote. Präsentation und Gespräch dauern zusammen höchstens 30 Minuten, die Präsentation höchstens 15. Die Vorgaben deiner IHK zu Umfang und Form der Dokumentation gehen vor.</p>
           <p class="actions" style="margin-top:var(--space-sm)"><a class="btn sm quiet" href="#/noten">Im Notenrechner eintragen</a></p>
         </section>
       </div>
