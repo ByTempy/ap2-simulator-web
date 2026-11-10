@@ -951,14 +951,13 @@
     const T = window.AP2Tools; const st = store.get('ap2.settings', {});
     app.innerHTML = `<div class="page-head"><div><h1>Rechentrainer</h1><p class="lede">Rechenaufgaben wie in den schriftlichen Bereichen, jedes Mal mit neuen Werten und mit Lösungsweg. Kommazahlen mit Komma oder Punkt, Toleranz etwa 1 %.</p></div>
         <div class="actions"><label class="field" style="width:min(100%,22rem)"><span>Aufgabentyp</span><select class="input" id="r-type"><option value="">Gemischt</option>${Object.entries(T.DRILLS).map(([k, x]) => `<option value="${k}"${st.drill === k ? ' selected' : ''}>${esc(x.name)} (${kindShort(x.part)})</option>`).join('')}</select></label>
-        <button type="button" class="btn" id="r-pad-btn" aria-controls="r-pad" aria-expanded="${!!st.pad}">Karopapier</button>
-        <button type="button" class="btn calc-toggle" id="r-calc-btn" aria-controls="r-calc" aria-expanded="${!!st.calc}">Taschenrechner</button></div></div>
-      <div class="drill-wrap${st.calc ? ' with-calc' : ''}"><div class="drill-main"><form class="sheet drill" id="r-form" novalidate></form>
-        <section class="pad" id="r-pad" aria-label="Karopapier für Notizen"${st.pad ? '' : ' hidden'}>
-          <div class="pad-bar"><button type="button" class="btn sm" data-pad="pen" aria-pressed="true">Stift</button><button type="button" class="btn sm" data-pad="erase" aria-pressed="false">Radierer</button><button type="button" class="btn sm quiet" data-pad="undo">Rückgängig</button><button type="button" class="btn sm quiet" data-pad="clear">Leeren</button></div>
+        <button type="button" class="btn calc-toggle" id="r-calc-btn" aria-controls="r-calc"${st.calcOff ? '' : ' hidden'}>Taschenrechner einblenden</button></div></div>
+      <div class="drill-wrap${st.calcOff ? '' : ' with-calc'}"><div class="drill-main"><form class="sheet drill" id="r-form" novalidate></form>
+        <section class="pad" id="r-pad" aria-label="Karopapier für Notizen">
+          <div class="pad-bar" role="toolbar" aria-label="Zeichenwerkzeuge">${[['pen', 'Stift', '<path d="M4 20l4-1L19 8l-3-3L5 16z"/><path d="M14 7l3 3"/>'], ['erase', 'Radierer', '<path d="M5 15l9-9 5 5-8 8H8z"/><path d="M10 10l5 5"/><path d="M11 19h9"/>'], ['undo', 'Rückgängig', '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>'], ['clear', 'Leeren', '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>']].map(([k, l, d]) => `<button type="button" class="btn icon-btn" data-pad="${k}" aria-label="${l}" title="${l}"${k === 'pen' || k === 'erase' ? ` aria-pressed="${k === 'pen'}"` : ''}>${icon(d)}</button>`).join('')}</div>
           <canvas id="r-canvas" role="img" aria-label="Zeichenfläche mit Karomuster"></canvas>
         </section></div>
-      <aside class="calc" id="r-calc" aria-label="Taschenrechner"${st.calc ? '' : ' hidden'}></aside></div>`;
+      <aside class="calc" id="r-calc" aria-label="Taschenrechner"${st.calcOff ? ' hidden' : ''}></aside></div>`;
     const next = () => {
       const type = $('#r-type').value || Object.keys(T.DRILLS)[Math.floor(Math.random() * Object.keys(T.DRILLS).length)];
       const task = T.DRILLS[type].make(Math.random); let counted = false;
@@ -990,14 +989,14 @@
     };
     $('#r-type').onchange = (ev) => { const s = store.get('ap2.settings', {}); s.drill = ev.target.value; store.set('ap2.settings', s); next(); };
     // Taschenrechner rechts; der Knopf ist nur bei breitem Fenster sichtbar (style.css)
-    $('#r-calc-btn').onclick = (ev) => {
-      const on = $('#r-calc').hidden; $('#r-calc').hidden = !on; $('.drill-wrap').classList.toggle('with-calc', on); ev.target.setAttribute('aria-expanded', on);
-      const s = store.get('ap2.settings', {}); s.calc = on; store.set('ap2.settings', s); if (on) $('#c-in').focus();
+    // Taschenrechner ist bei breitem Fenster da (style.css); das Icon im Rechner blendet ihn aus, der Knopf oben wieder ein
+    const showCalc = (on) => {
+      $('#r-calc').hidden = !on; $('.drill-wrap').classList.toggle('with-calc', on); $('#r-calc-btn').hidden = on;
+      const s = store.get('ap2.settings', {}); s.calcOff = !on; store.set('ap2.settings', s);
+      (on ? $('#c-in') : $('#r-calc-btn')).focus();
     };
-    $('#r-pad-btn').onclick = (ev) => {
-      const on = $('#r-pad').hidden; $('#r-pad').hidden = !on; ev.target.setAttribute('aria-expanded', on);
-      const s = store.get('ap2.settings', {}); s.pad = on; store.set('ap2.settings', s); if (on) $('#r-pad').scrollIntoView({ block: 'nearest' });
-    };
+    $('#r-calc-btn').onclick = () => showCalc(true);
+    $('#r-calc').addEventListener('click', (ev) => { if (ev.target.closest('[data-calc-close]')) showCalc(false); });
     calculator($('#r-calc'), st.calcMode === 'base' ? 'base' : 'calc');
     drawPad($('#r-pad'));
     next();
@@ -1028,7 +1027,7 @@
     const T = window.AP2Tools; let ans = 0, bans = 0, base = 10, fresh = false; // fresh: nach „=“ beginnt eine Ziffer neu, ein Operator rechnet mit Ans weiter
     const keys = (list) => list.map(([l, v, c]) => `<button type="button" class="btn${v === 'eq' ? ' primary eq' : ''}${l.length > 2 ? ' fn' : ''}" data-v="${esc(v)}"${c ? ` title="fx-991DE CW: ${esc(c)}"` : ''}>${esc(l)}</button>`).join('');
     const draw = () => {
-      box.innerHTML = `<div class="seg calc-mode" role="group" aria-label="Modus"><button type="button" class="btn sm" data-mode="calc" aria-pressed="${mode === 'calc'}">Rechnen</button><button type="button" class="btn sm" data-mode="base" aria-pressed="${mode === 'base'}" title="fx-991DE CW: HOME, Basis-N, OK">Basis-N</button></div>
+      box.innerHTML = `<div class="calc-head"><div class="seg calc-mode" role="group" aria-label="Modus"><button type="button" class="btn sm" data-mode="calc" aria-pressed="${mode === 'calc'}">Rechnen</button><button type="button" class="btn sm" data-mode="base" aria-pressed="${mode === 'base'}" title="fx-991DE CW: HOME, Basis-N, OK">Basis-N</button></div><button type="button" class="btn icon-btn" data-calc-close aria-label="Taschenrechner ausblenden" title="Taschenrechner ausblenden">${icon('<path d="M6 6l12 12M18 6L6 18"/>')}</button></div>
         ${mode === 'base' ? `<div class="seg calc-bases" role="group" aria-label="Zahlensystem der Eingabe">${Object.entries(T.BASES).map(([n, b]) => `<button type="button" class="btn sm" data-base="${b}" aria-pressed="${b === base}" title="fx-991DE CW: FORMAT, ${T.BASE_NAME[b]}">${n}</button>`).join('')}</div>` : ''}
         <label class="field"><span>${mode === 'base' ? `Eingabe ${T.BASE_NAME[base]}` : 'Rechnung'}</span><input class="input num" id="c-in" type="text" autocomplete="off" spellcheck="false" placeholder="${mode === 'base' ? 'z. B. 1010 and 1100' : 'z. B. 2 × 25 ÷ (56 × 1,5)'}"></label>
         <output class="calc-out" id="c-out" for="c-in" aria-live="polite"></output>
