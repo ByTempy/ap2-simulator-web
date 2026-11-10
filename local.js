@@ -299,7 +299,10 @@
       const four = shuffle(bk.items.filter((i) => i.points === 4), rnd), three = shuffle(bk.items.filter((i) => i.points === 3), rnd);
       if (four.length + three.length < 30) fail('WiSo-Pool enthält zu wenige Aufgaben');
       const per = {}; const chosen = [];
-      const take = (pool, n) => { let k = 0; const rest = []; for (const it of pool) { if (k >= n) { rest.push(it); continue; } const tp = (it.topics || [])[0] || ''; if ((per[tp] || 0) >= 4) { rest.push(it); continue; } per[tp] = (per[tp] || 0) + 1; chosen.push({ id: it.id, points: it.points }); k++; } for (const it of rest) { if (k >= n) break; chosen.push({ id: it.id, points: it.points }); k++; } return k; };
+      // Inhaltlich gleiche Fragen (gleiche group) höchstens einmal je Prüfung
+      const groups = new Set(); const dup = (it) => it.group && groups.has(it.group);
+      const pick = (it) => { if (it.group) groups.add(it.group); chosen.push({ id: it.id, points: it.points }); };
+      const take = (pool, n) => { let k = 0; const rest = []; for (const it of pool) { if (dup(it)) continue; if (k >= n) { rest.push(it); continue; } const tp = (it.topics || [])[0] || ''; if ((per[tp] || 0) >= 4) { rest.push(it); continue; } per[tp] = (per[tp] || 0) + 1; pick(it); k++; } for (const it of rest) { if (k >= n) break; if (dup(it)) continue; pick(it); k++; } return k; };
       const n4 = take(four, 10); take(three, 30 - n4);
       shuffle(chosen, rnd);
       let sum = chosen.reduce((a, c) => a + c.points, 0);

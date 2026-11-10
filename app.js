@@ -571,7 +571,8 @@
         <p>Grundlage ist die Ausbildungsverordnung IT-System-Elektroniker von 2020, Paragraph 15. Teil 1 zählt 20 %, das Projekt 50 % (Dokumentation und Fachgespräch je zur Hälfte), die drei schriftlichen Bereiche von Teil 2 je 10 %.</p>
         <p>Bestanden ist, wer im Gesamtergebnis und in der Stromversorgung mindestens 50 Punkte hat, in mindestens zwei weiteren Bereichen von Teil 2 ebenfalls 50 Punkte erreicht und in keinem Bereich von Teil 2 unter 30 Punkten liegt. Teil 1 zählt nur über das Gesamtergebnis.</p>
         <p>Fehlt nur wenig, kann eine mündliche Ergänzungsprüfung in einem schriftlichen Bereich von Teil 2 helfen. Altes und mündliches Ergebnis zählen dann 2 zu 1. Die Dezimalnote folgt der Tabelle der IHK Oldenburg. Einzelne IHKs runden leicht anders, verbindlich ist dein Zeugnis.</p>
-        <p><a href="https://www.gesetze-im-internet.de/itseausbv/BJNR026800020.html" target="_blank" rel="noopener">Verordnung lesen</a></p>
+        <h3 class="today-sub">Grundlage</h3>
+        <p>Verordnung über die Berufsausbildung zum IT-System-Elektroniker und zur IT-System-Elektronikerin (ITSEAusbV) vom 28. Februar 2020, Paragraph 15 (Gewichtung und Bestehen) und Paragraph 16 (mündliche Ergänzungsprüfung). <a href="https://www.gesetze-im-internet.de/itseausbv/ITSEAusbV.pdf" target="_blank" rel="noopener">Verordnung als PDF</a>, 104 KB, oder <a href="https://www.gesetze-im-internet.de/itseausbv/BJNR026800020.html" target="_blank" rel="noopener">online lesen</a> auf gesetze-im-internet.de.</p>
       </div></section>`;
     const read = () => {
       const v = {};
