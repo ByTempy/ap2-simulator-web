@@ -56,6 +56,7 @@
     if ($('#modal').hidden) lastFocus = document.activeElement;
     $('#modal-body').innerHTML = html;
     $('#modal-card').classList.toggle('wide', !!wide);
+    $('#modal-card').classList.toggle('viewer', wide === 'viewer');
     $('#modal').hidden = false;
     const f = $('#modal-body [autofocus]') || $('#modal-body button, #modal-body a, #modal-body input') || $('.modal-close');
     if (f) f.focus({ preventScroll: true });
@@ -68,31 +69,100 @@
   document.addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closeModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
 
+  // ---------- Dokumentbetrachter (wie ein PDF-Viewer): alle Seiten untereinander, Zoomleiste oben ----------
+  const ZOOM_STEPS = [25, 33, 50, 67, 75, 90, 100, 110, 125, 150, 175, 200, 300, 400];
+  const icon = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  function docViewer(host, pages, opts = {}) {
+    const st = store.get('ap2.settings', {});
+    let zoom = st.viewerZoom || 'width';
+    const n = pages.length;
+    host.innerHTML = `<div class="dv${opts.inline ? ' inline' : ''}">
+      <div class="dv-bar" role="toolbar" aria-label="Seitenansicht">
+        ${opts.title ? `<h2 class="dv-title" id="${opts.inline ? 'dv-title' : 'modal-title'}">${esc(opts.title)}</h2>` : ''}
+        <div class="dv-group">
+          <button type="button" class="btn icon-btn" data-dv="prev" aria-label="Vorherige Seite" title="Vorherige Seite">${icon('<path d="M15 18l-6-6 6-6"/>')}</button>
+          <label class="dv-pageno"><span class="visually-hidden">Seite</span><input class="input num" type="text" inputmode="numeric" value="1" aria-label="Seite, Eingabe springt" data-dv="page"><span class="small muted">/ ${n}</span></label>
+          <button type="button" class="btn icon-btn" data-dv="next" aria-label="Nächste Seite" title="Nächste Seite">${icon('<path d="M9 18l6-6-6-6"/>')}</button>
+        </div>
+        <div class="dv-group">
+          <button type="button" class="btn icon-btn" data-dv="out" aria-label="Verkleinern" title="Verkleinern (Strg und Mausrad)">${icon('<path d="M5 12h14"/>')}</button>
+          <label><span class="visually-hidden">Zoom</span><select class="input dv-zoom" data-dv="zoom"><option value="fit">Ganze Seite</option><option value="width">Seitenbreite</option>${ZOOM_STEPS.map((z) => `<option value="${z}">${z} %</option>`).join('')}</select></label>
+          <button type="button" class="btn icon-btn" data-dv="in" aria-label="Vergrößern" title="Vergrößern (Strg und Mausrad)">${icon('<path d="M12 5v14M5 12h14"/>')}</button>
+        </div>
+        ${opts.inline ? '' : '<button type="button" class="btn sm dv-close" data-close>Schließen</button>'}
+      </div>
+      <div class="dv-scroll" tabindex="0" aria-label="${esc(opts.title || 'Seiten')}">
+        <div class="dv-pages">${pages.map((p, i) => `<div class="dv-page" data-i="${i}"><img data-src="${esc(p)}" alt="Seite ${i + 1} von ${n}" draggable="false"></div>`).join('')}</div>
+      </div>
+    </div>`;
+    const sc = $('.dv-scroll', host), wrap = $('.dv-pages', host), sel = $('[data-dv="zoom"]', host), pin = $('[data-dv="page"]', host);
+    const pageEls = $$('.dv-page', host);
+    const PAD = 16, BASE = 794; // 100 % = A4-Breite bei 96 dpi wie in Acrobat
+    // aspect-ratio kommt als „827 / 1169“ zurück
+    const ratio = () => { const m = getComputedStyle(pageEls[cur()] || pageEls[0]).aspectRatio.match(/([\d.]+)\s*\/\s*([\d.]+)/); return m ? m[1] / m[2] : 0.7072; };
+    const width = () => {
+      const w = sc.clientWidth - 2 * PAD;
+      if (zoom === 'width') return Math.max(120, w);
+      if (zoom === 'fit') return Math.max(120, Math.min(w, (sc.clientHeight - 2 * PAD) * ratio()));
+      return BASE * zoom / 100;
+    };
+    const pct = () => Math.round(width() / BASE * 100);
+    const showZoom = () => {
+      const v = String(zoom); let o = [...sel.options].find((x) => x.value === v);
+      $$('option[data-custom]', sel).forEach((x) => { if (x !== o) x.remove(); });
+      if (!o) { o = new Option(`${zoom} %`, v); o.dataset.custom = '1'; sel.add(o, sel.options[2]); }
+      sel.value = v;
+    };
+    const apply = (keep = true) => {
+      const fy = keep && sc.scrollHeight ? sc.scrollTop / sc.scrollHeight : 0, fx = keep && sc.scrollWidth > sc.clientWidth ? (sc.scrollLeft + sc.clientWidth / 2) / sc.scrollWidth : 0.5;
+      wrap.style.setProperty('--pw', `${width()}px`);
+      if (keep) { sc.scrollTop = fy * sc.scrollHeight; sc.scrollLeft = fx * sc.scrollWidth - sc.clientWidth / 2; }
+      showZoom();
+    };
+    const setZoom = (z) => { zoom = z; const s2 = store.get('ap2.settings', {}); s2.viewerZoom = z; store.set('ap2.settings', s2); apply(); };
+    const step = (dir) => {
+      const p = pct(); const next = dir > 0 ? ZOOM_STEPS.find((z) => z > p) : [...ZOOM_STEPS].reverse().find((z) => z < p);
+      if (next) setZoom(next);
+    };
+    const cur = () => { const y = sc.scrollTop + sc.clientHeight * 0.3; let i = 0; pageEls.forEach((el, k) => { if (el.offsetTop <= y) i = k; }); return i; };
+    const go = (i) => { i = Math.min(n - 1, Math.max(0, i)); sc.scrollTop = pageEls[i].offsetTop - PAD; pin.value = i + 1; };
+    // Seitenbilder erst laden, wenn sie in die Nähe kommen; Seitenverhältnis aus dem Bild übernehmen (Querformat)
+    const io = new IntersectionObserver((ents) => ents.forEach((en) => {
+      if (!en.isIntersecting) return; const img = en.target; io.unobserve(img);
+      window.AP2Local.pageSrc(img.dataset.src).then((u) => { img.onload = () => { if (img.naturalWidth) { img.parentElement.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; if (zoom === 'fit') apply(); } }; img.src = u; }).catch(() => { img.alt = 'Seite konnte nicht geladen werden'; });
+    }), { root: sc, rootMargin: '1500px 0px' });
+    $$('.dv-page img', host).forEach((img) => io.observe(img));
+    let raf = 0;
+    sc.addEventListener('scroll', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { if (document.activeElement !== pin) pin.value = cur() + 1; }); });
+    sc.addEventListener('wheel', (e) => { if (!e.ctrlKey) return; e.preventDefault(); step(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+    sc.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === '+' || e.key === '=') { step(1); e.preventDefault(); }
+      else if (e.key === '-') { step(-1); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { go(cur() + 1); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft') { go(cur() - 1); e.preventDefault(); }
+      else if (e.key === 'Home') { go(0); e.preventDefault(); }
+      else if (e.key === 'End') { go(n - 1); e.preventDefault(); }
+    });
+    $('[data-dv="prev"]', host).onclick = () => go(cur() - 1);
+    $('[data-dv="next"]', host).onclick = () => go(cur() + 1);
+    $('[data-dv="in"]', host).onclick = () => step(1);
+    $('[data-dv="out"]', host).onclick = () => step(-1);
+    sel.onchange = () => setZoom(/^\d+$/.test(sel.value) ? +sel.value : sel.value);
+    pin.onchange = () => { const v = parseInt(pin.value, 10); if (v) go(v - 1); else pin.value = cur() + 1; };
+    pin.onkeydown = (e) => { if (e.key === 'Enter') pin.onchange(); };
+    // Größe des Bereichs ändert sich (Fenster, Seitenleiste): Ganze Seite und Seitenbreite neu berechnen
+    const ro = new ResizeObserver(() => { if (!document.body.contains(sc)) { ro.disconnect(); return; } if (typeof zoom === 'string') apply(); });
+    ro.observe(sc);
+    apply(false);
+    if (opts.start) requestAnimationFrame(() => go(opts.start));
+    return { go };
+  }
   function pageViewer(pages, start = 0, title = 'Originalseiten') {
     if (!pages || !pages.length) { toast('Keine Seitenbilder vorhanden', true); return; }
-    let i = Math.min(Math.max(start, 0), pages.length - 1);
-    const render = () => {
-      openModal(`<div class="pageviewer">
-        <div class="pv-nav"><h2 id="modal-title" class="visually-hidden">${esc(title)}</h2><strong>${esc(title)}</strong>
-          <button type="button" class="btn sm" id="pv-prev" ${i === 0 ? 'disabled' : ''}>Vorherige Seite</button>
-          <span class="num">${i + 1} / ${pages.length}</span>
-          <button type="button" class="btn sm" id="pv-next" ${i === pages.length - 1 ? 'disabled' : ''}>Nächste Seite</button>
-          <span class="muted small">Klick auf das Bild vergrößert, Pfeiltasten blättern</span></div>
-        <div class="scroller"><img alt="${esc(title)}, Seite ${i + 1}" width="827" height="1169"></div>
-      </div>`, true);
-      const img = $('.pageviewer img');
-      window.AP2Local.pageSrc(pages[i]).then((u) => { if (img.isConnected) img.src = u; }).catch((e) => toast(e.message, true));
-      $('#pv-prev').onclick = () => { i--; render(); };
-      $('#pv-next').onclick = () => { i++; render(); };
-      $('.pageviewer img').onclick = (ev) => ev.target.classList.toggle('zoomed');
-    };
-    render();
-    const key = (e) => {
-      if ($('#modal').hidden) { document.removeEventListener('keydown', key); return; }
-      if (e.key === 'ArrowRight' && i < pages.length - 1) { i++; render(); }
-      if (e.key === 'ArrowLeft' && i > 0) { i--; render(); }
-    };
-    document.addEventListener('keydown', key);
+    openModal('<div id="dv-host" class="dv-host"></div>', 'viewer');
+    docViewer($('#dv-host'), pages, { title, start });
+    $('#dv-host .dv-scroll').focus({ preventScroll: true });
   }
 
   async function loadExams(force) {
@@ -1333,11 +1403,10 @@
             <div class="selfgrade"><label class="field"><span>Erreicht</span><input class="input num" type="number" min="0" step="0.5" id="o-points" value="${o.points ?? ''}"></label><label class="field"><span>von</span><input class="input num" type="number" min="1" step="1" id="o-max" value="${o.max}"></label><button type="button" class="btn sm" id="o-done">Speichern</button></div>
             <p class="small muted" id="o-grade" style="margin-top:var(--space-xs)"></p></div>
         </aside>
-        <div id="o-pages" style="display:grid;gap:var(--space-md)">${pages.map((p, i) => `<figure style="margin:0"><img data-src="${esc(p)}" alt="Seite ${i + 1}" width="827" height="1169" style="width:100%;height:auto;background:var(--color-scan);outline:var(--rule-hair) solid var(--color-rule-2);outline-offset:-1px"><figcaption class="small muted">Seite ${i + 1} von ${pages.length}</figcaption></figure>`).join('')}</div>
+        <div id="o-pages" class="o-viewer"></div>
       </div>`;
     const persist = () => { try { store.put(o); $('#o-save').textContent = 'gespeichert'; } catch (e) { toast(e.message, true); } };
-    const io = new IntersectionObserver((ents) => ents.forEach((en) => { if (!en.isIntersecting) return; const img = en.target; io.unobserve(img); window.AP2Local.pageSrc(img.dataset.src).then((u) => { img.src = u; }).catch(() => { img.alt = 'Seite konnte nicht geladen werden'; }); }), { rootMargin: '800px 0px' });
-    $$('#o-pages img').forEach((img) => io.observe(img));
+    docViewer($('#o-pages'), pages, { inline: true });
     let t = null;
     $('#o-notes').oninput = () => { o.notes = $('#o-notes').value; $('#o-save').textContent = '…'; clearTimeout(t); t = setTimeout(persist, 600); };
     const showGrade = () => { if (o.points === null || o.points === undefined || !o.max) { $('#o-grade').textContent = ''; return; } const pct = o.points / o.max * 100; $('#o-grade').textContent = `${pct.toFixed(0)} %, Note ${gradeFor(pct)}`; };
