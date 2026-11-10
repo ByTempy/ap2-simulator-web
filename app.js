@@ -964,9 +964,10 @@
       f.innerHTML = `<p class="tag">${esc(T.DRILLS[type].name)}, ${esc(kindLabel(T.DRILLS[type].part))}</p>
         <p class="prose" style="margin-top:var(--space-xs)">${esc(task.text)}</p>
         <div class="drill-fields">${task.fields.map((x, i) => `<div class="field"><label for="r-f${i}">${esc(x.label)}${x.unit ? ` in ${esc(x.unit)}` : ''}</label><input class="input num" id="r-f${i}" type="text" inputmode="${x.exact ? 'text' : 'decimal'}" autocomplete="off"><span class="tag" id="r-s${i}" aria-live="polite"></span></div>`).join('')}</div>
-        <div class="actions" style="margin-top:var(--space-md)"><button type="submit" class="btn primary">Prüfen</button><button type="button" class="btn" id="r-hint">Tipp</button><button type="button" class="btn" id="r-next">Nächste Aufgabe</button></div>
+        <div class="actions" style="margin-top:var(--space-md)"><button type="submit" class="btn primary">Prüfen</button><button type="button" class="btn" id="r-hint">Tipp</button><button type="button" class="btn" id="r-formula" aria-expanded="false" aria-controls="r-formulas">Formel</button><button type="button" class="btn" id="r-next">Nächste Aufgabe</button></div>
         <ol class="hints" id="r-hints" aria-live="polite"></ol>
-        <details class="disc" id="r-steps" style="margin-top:var(--space-md)"><summary>Lösungsweg</summary><div class="disc-body prose"><ol>${task.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div></details>`;
+        <div class="hints formulas-box" id="r-formulas" hidden><p class="small muted">Formeln zum Herleiten</p><ul>${T.DRILLS[type].formulas.map((x) => `<li><span class="formula">${esc(x)}</span></li>`).join('')}</ul></div>
+        <details class="disc" id="r-steps" style="margin-top:var(--space-md)"><summary>Lösungsweg</summary><div class="disc-body prose"><ol>${task.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol><p class="why"><b>Warum?</b> ${esc(T.DRILLS[type].explain)}</p></div></details>`;
       f.onsubmit = (ev) => {
         ev.preventDefault(); let all = true;
         task.fields.forEach((x, i) => {
@@ -978,6 +979,7 @@
         if (!all) $('#r-steps').open = true;
       };
       $('#r-next').onclick = next;
+      $('#r-formula').onclick = (ev) => { const box = $('#r-formulas'); box.hidden = !box.hidden; ev.target.setAttribute('aria-expanded', !box.hidden); ev.target.textContent = box.hidden ? 'Formel' : 'Formel ausblenden'; };
       const hints = T.DRILLS[type].hints; let shown = 0;
       $('#r-hint').onclick = (ev) => {
         $('#r-hints').insertAdjacentHTML('beforeend', `<li>${esc(hints[shown++])}</li>`);

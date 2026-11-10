@@ -574,3 +574,10 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
 }
 @media print { .tools, #b-tools { display: none !important; } }
 .tools [data-calc-close] { display: none; }
+
+/* Rechentrainer: Formeln zum Herleiten und Erklärung im Lösungsweg */
+.formulas-box { list-style: none; }
+.formulas-box ul { list-style: none; margin: var(--space-2xs) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.formulas-box[hidden] { display: none; }
+.why { margin-top: var(--space-sm); padding-top: var(--space-sm); border-top: var(--rule-hair) solid var(--color-rule-2); color: var(--color-ink-2); }
+.formulas-box .formula { background: var(--color-paper); margin: 0; }

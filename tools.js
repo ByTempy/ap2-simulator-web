@@ -8,9 +8,11 @@
   const ip = (n) => [24, 16, 8, 0].map((s) => (n >>> s) & 255).join('.');
   const bin = (n) => [24, 16, 8, 0].map((s) => ((n >>> s) & 255).toString(2).padStart(8, '0')).join('.');
 
-  // Jede Aufgabe: text, fields [{label, unit, value, tol (relativ) | exact (Text)}], steps (Lösungsweg); hints je Typ: Vorgehen ohne Zahlen
+  // Jede Aufgabe: text, fields [{label, unit, value, tol (relativ) | exact (Text)}], steps (Lösungsweg); je Typ: hints (Vorgehen ohne Zahlen), formulas (zum Herleiten), explain (warum das so ist)
   const DRILLS = {
-    subnet: { name: 'Subnetting IPv4', part: 'Teil1', hints: [
+    subnet: { name: 'Subnetting IPv4', part: 'Teil1', formulas: ["Präfix = Anzahl der Einsen in der Maske von links", "Netzadresse = IP-Adresse UND Maske", "Broadcast = Netzadresse mit allen Hostbits auf 1", "Blockgröße = 256 − Maskenwert im angebrochenen Oktett", "Nutzbare Hosts = 2^(32 − Präfix) − 2"],
+      explain: "Eine IPv4-Adresse hat 32 Bit. Die Maske teilt sie in Netzteil (Einsen) und Hostteil (Nullen). Alle Adressen mit gleichem Netzteil liegen im selben Netz: Die kleinste davon (alle Hostbits 0) ist die Netzadresse, die größte (alle Hostbits 1) die Broadcastadresse. Beide kann man keinem Gerät geben, deshalb zieht man 2 ab.",
+      hints: [
       'Die Zahl hinter dem Schrägstrich sagt, wie viele Bits der Maske von links 1 sind. Acht Einsen in einem Oktett ergeben 255.',
       'Nur das Oktett, in dem die Maske weder 255 noch 0 ist, muss man genau rechnen. Blockgröße = 256 − Maskenwert in diesem Oktett.',
       'Netzadresse: das größte Vielfache der Blockgröße, das nicht über dem Adresswert liegt. Broadcast: nächste Netzadresse − 1.',
@@ -24,7 +26,9 @@
         fields: [{ label: 'Subnetzmaske', exact: ip(mask) }, { label: 'Netzadresse', exact: ip(net) }, { label: 'Broadcastadresse', exact: ip(bc) }, { label: 'Nutzbare Hosts', value: hosts, tol: 0 }],
         steps: [`/${p} heißt ${p} Einsen in der Maske: ${bin(mask)} = ${ip(mask)}.`, `Netzadresse = Adresse UND Maske: ${bin(a)} UND Maske = ${ip(net)}.`, `Broadcast = Netzadresse mit allen ${32 - p} Hostbits auf 1 = ${ip(bc)}.`, `Hosts = 2^${32 - p} − 2 = ${hosts} (Netz- und Broadcastadresse fallen weg).`] };
     } },
-    ohm: { name: 'Strom und Widerstand eines Verbrauchers', part: 'Teil2', hints: [
+    ohm: { name: 'Strom und Widerstand eines Verbrauchers', part: 'Teil2', formulas: ["P = U · I", "U = R · I", "R = U² / P", "I = P / U"],
+      explain: "Bei einem ohmschen Verbraucher hängen Spannung, Strom, Widerstand und Leistung fest zusammen. Aus zwei bekannten Größen lassen sich die anderen berechnen, indem man das ohmsche Gesetz in die Leistungsformel einsetzt.",
+      hints: [
       'Gegeben sind Spannung U und Leistung P, gesucht Strom I und Widerstand R.',
       'Leistungsformel P = U · I nach I umstellen: I = P / U.',
       'Ohmsches Gesetz R = U / I, oder ohne Umweg R = U² / P.'],
@@ -35,7 +39,9 @@
         fields: [{ label: 'Strom I', unit: 'A', value: I, tol: 0.01 }, { label: 'Widerstand R', unit: 'Ω', value: R, tol: 0.01 }],
         steps: [`P = U · I, also I = P / U = ${P} W / ${U} V = ${de(I, 3)} A.`, `R = U / I = U² / P = ${U}² / ${P} = ${de(R, 2)} Ω.`] };
     } },
-    leitung: { name: 'Leitungswiderstand und Spannungsfall', part: 'Teil2', hints: [
+    leitung: { name: 'Leitungswiderstand und Spannungsfall', part: 'Teil2', formulas: ["R_L = 2 · l / (κ · A)", "ΔU = I · R_L", "Δu = ΔU / U · 100 %"],
+      explain: "Jede Leitung hat einen Widerstand, der mit der Länge wächst und mit dem Querschnitt sinkt. Fließt Strom, fällt an ihm Spannung ab, die dem Verbraucher fehlt. Der Faktor 2 steht für Hin- und Rückleiter. Zu viel Spannungsfall führt zu Fehlfunktionen und Erwärmung; deshalb begrenzt man ihn, meist auf 3 %.",
+      hints: [
       'Der Strom fließt hin und zurück: Die Leitungslänge zählt doppelt.',
       'R_L = 2 · l / (κ · A), mit l in m, A in mm² und κ in m/(Ω·mm²). κ für Kupfer steht im Belegsatz oder Tabellenbuch (56).',
       'ΔU = I · R_L, in Prozent Δu = ΔU / U · 100 %.',
@@ -47,7 +53,9 @@
         fields: [{ label: 'Leitungswiderstand R_L', unit: 'Ω', value: R, tol: 0.015 }, { label: 'Spannungsfall ΔU', unit: 'V', value: dU, tol: 0.015 }, { label: 'Spannungsfall', unit: '%', value: pct, tol: 0.02 }],
         steps: [`R_L = 2 · l / (κ · A) = 2 · ${l} m / (56 · ${de(A, 1)} mm²) = ${de(R, 3)} Ω (Faktor 2 für Hin- und Rückleiter).`, `ΔU = I · R_L = ${I} A · ${de(R, 3)} Ω = ${de(dU, 2)} V.`, `Δu = ΔU / U · 100 % = ${de(dU, 2)} V / 230 V · 100 % = ${de(pct, 2)} %. Üblich sind höchstens 3 % (DIN VDE 0100-520, Empfehlung).`] };
     } },
-    drehstrom: { name: 'Leistung im Drehstromnetz', part: 'Teil2', hints: [
+    drehstrom: { name: 'Leistung im Drehstromnetz', part: 'Teil2', formulas: ["S = √3 · U · I", "P = S · cos φ", "Q = S · sin φ"],
+      explain: "Im Drehstromnetz liegen zwischen zwei Außenleitern 400 V, das ist √3 mal die Strangspannung von 230 V. Die Scheinleistung muss das Netz liefern; nur der Anteil cos φ davon wird als Wirkleistung tatsächlich in Arbeit umgesetzt.",
+      hints: [
       'Im Drehstromnetz ist U die Spannung zwischen zwei Außenleitern (400 V). Dazu kommt der Verkettungsfaktor √3.',
       'Scheinleistung S = √3 · U · I.',
       'Wirkleistung P = S · cos φ. Watt durch 1000 ergibt Kilowatt.',
@@ -59,7 +67,9 @@
         fields: [{ label: 'Scheinleistung S', unit: 'kVA', value: S / 1000, tol: 0.01 }, { label: 'Wirkleistung P', unit: 'kW', value: P / 1000, tol: 0.01 }],
         steps: [`S = √3 · U · I = 1,732 · 400 V · ${I} A = ${de(S / 1000, 2)} kVA.`, `P = S · cos φ = ${de(S / 1000, 2)} kVA · ${de(cos, 2)} = ${de(P / 1000, 2)} kW.`] };
     } },
-    usv: { name: 'USV-Überbrückungszeit', part: 'Teil2', hints: [
+    usv: { name: 'USV-Überbrückungszeit', part: 'Teil2', formulas: ["E = n · U · Q (in Wh)", "E_nutz = E · η", "t = E_nutz / P"],
+      explain: "Ein Akku speichert Energie: Spannung mal Kapazität in Amperestunden ergibt Wattstunden. Der Wechselrichter wandelt die Gleichspannung mit Verlusten in Wechselspannung, deshalb steht nur der Anteil η zur Verfügung. Nutzbare Energie geteilt durch die Last ergibt die Zeit.",
+      hints: [
       'Energie eines Akkus: E = U · Q, Volt mal Amperestunden ergibt Wattstunden. Alle Akkus zusammenzählen.',
       'Der Wechselrichter verliert einen Teil: nutzbare Energie = E · η (Prozent durch 100).',
       'Zeit t = nutzbare Energie / Leistung ergibt Stunden, mal 60 ergibt Minuten.'],
@@ -70,7 +80,9 @@
         fields: [{ label: 'Gespeicherte Energie', unit: 'Wh', value: E, tol: 0.005 }, { label: 'Überbrückungszeit', unit: 'min', value: t, tol: 0.02 }],
         steps: [`E = Anzahl · U · Q = ${n} · 12 V · ${Ah} Ah = ${E} Wh.`, `Nutzbare Energie = E · η = ${E} Wh · ${de(eta, 2)} = ${de(E * eta, 1)} Wh.`, `t = ${de(E * eta, 1)} Wh / ${W} W = ${de(E * eta / W, 3)} h = ${de(t, 1)} min.`] };
     } },
-    energie: { name: 'Energiekosten', part: 'Teil2', hints: [
+    energie: { name: 'Energiekosten', part: 'Teil2', formulas: ["W = P · t", "1 kWh = 1.000 Wh", "Kosten = W · Preis je kWh"],
+      explain: "Die Leistung gibt an, wie viel Energie ein Gerät pro Zeit braucht. Über die Betriebszeit summiert sich das zur elektrischen Arbeit, die der Energieversorger in Kilowattstunden abrechnet.",
+      hints: [
       'Elektrische Arbeit W = P · t: Leistung mal Betriebsstunden im Jahr (Stunden pro Tag mal Tage).',
       'Wattstunden durch 1000 ergibt Kilowattstunden.',
       'Kosten = Energie in kWh · Preis. Cent durch 100 ergibt Euro.'],
@@ -81,7 +93,9 @@
         fields: [{ label: 'Energiebedarf', unit: 'kWh', value: kWh, tol: 0.005 }, { label: 'Kosten', unit: '€', value: eur, tol: 0.005 }],
         steps: [`W = P · t = ${P} W · ${h} h · ${d} = ${de(P * h * d, 0)} Wh = ${de(kWh, 1)} kWh.`, `Kosten = ${de(kWh, 1)} kWh · ${de(ct / 100, 2)} €/kWh = ${de(eur, 2)} €.`] };
     } },
-    transfer: { name: 'Übertragungsdauer', part: 'Teil1', hints: [
+    transfer: { name: 'Übertragungsdauer', part: 'Teil1', formulas: ["t = Datenmenge / Datenrate", "1 Byte = 8 bit", "1 GiB = 1024³ Byte, 1 Mbit = 10⁶ bit"],
+      explain: "Datenraten stehen in Bit pro Sekunde, Dateigrößen meist in Byte und oft mit Binärvorsätzen (Ki, Mi, Gi). Erst wenn beide Größen in derselben Einheit stehen, ergibt die Division die Zeit.",
+      hints: [
       'Datenmenge und Datenrate in dieselbe Einheit bringen, am einfachsten in Bit.',
       'GiB in Byte: mal 1024³. Byte in Bit: mal 8. Mbit/s in bit/s: mal 10⁶.',
       'Dauer t = Datenmenge / Datenrate.',
@@ -93,7 +107,9 @@
         fields: [{ label: 'Dauer', unit: 's', value: s, tol: 0.01 }],
         steps: [`Datenmenge in Bit = ${GiB} · 1024³ · 8 = ${de(bits, 0)} bit.`, `t = ${de(bits, 0)} bit / (${rate} · 10⁶ bit/s) = ${de(s, 1)} s (${de(s / 60, 1)} min).`] };
     } },
-    zahlen: { name: 'Zahlensysteme umrechnen', part: 'Teil1', hints: [
+    zahlen: { name: 'Zahlensysteme umrechnen', part: 'Teil1', formulas: ["Stellenwerte dual: 128 64 32 16 8 4 2 1", "Dezimalwert = Σ Ziffer · Basis^Stelle", "1 Hex-Ziffer = 4 Bit (Nibble)"],
+      explain: "Alle Zahlensysteme sind Stellenwertsysteme: Jede Stelle ist eine Potenz der Basis (2, 10 oder 16). Weil 16 = 2⁴ ist, entspricht eine Hex-Ziffer genau vier Bit; deshalb lässt sich zwischen dual und hexadezimal blockweise umrechnen.",
+      hints: [
       'Stellenwerte einer 8-Bit-Dualzahl: 128 64 32 16 8 4 2 1. Von links den größten passenden Wert abziehen und dort eine 1 setzen.',
       'Hexadezimal: die Dualzahl in zwei Gruppen zu 4 Bit teilen. Jede Gruppe ist eine Hex-Ziffer, 10 bis 15 sind A bis F.',
       'Hex nach dezimal: erste Ziffer · 16 + zweite Ziffer.',
@@ -105,7 +121,9 @@
         ? { text: `Wandeln Sie die Dezimalzahl ${v} in eine 8-stellige Dualzahl und in eine Hexadezimalzahl um.`, fields: [{ label: 'Dual (8 Bit)', exact: b }, { label: 'Hexadezimal', exact: h }], steps }
         : { text: `Wandeln Sie die Hexadezimalzahl ${h} in eine Dezimalzahl und eine 8-stellige Dualzahl um.`, fields: [{ label: 'Dezimal', value: v, tol: 0 }, { label: 'Dual (8 Bit)', exact: b }], steps: [`${h} = ${h.split('').map((c, i, a) => `${parseInt(c, 16)} · 16^${a.length - 1 - i}`).join(' + ')} = ${v}.`, ...steps] };
     } },
-    einheiten: { name: 'Speichereinheiten (SI und IEC)', part: 'Teil1', hints: [
+    einheiten: { name: 'Speichereinheiten (SI und IEC)', part: 'Teil1', formulas: ["SI: k = 10³, M = 10⁶, G = 10⁹, T = 10¹²", "IEC: Ki = 2¹⁰, Mi = 2²⁰, Gi = 2³⁰, Ti = 2⁴⁰", "Wert in Byte = Zahl · Vorsatz"],
+      explain: "Festplattenhersteller rechnen mit Zehnerpotenzen (SI), Betriebssysteme oft mit Zweierpotenzen (IEC). Weil 1024 größer als 1000 ist, zeigt das Betriebssystem die kleinere Zahl an; je größer der Vorsatz, desto größer der Unterschied (bei TB und TiB etwa 9 %).",
+      hints: [
       'SI-Vorsätze (k, M, G, T) stehen für Potenzen von 1000, IEC-Vorsätze (Ki, Mi, Gi, Ti) für Potenzen von 1024.',
       'M = 1000², G = 1000³, T = 1000⁴. Mi = 1024², Gi = 1024³, Ti = 1024⁴.',
       'Erst in Byte umrechnen, dann durch die Potenz der anderen Basis teilen.',
@@ -117,7 +135,9 @@
         fields: [{ label: toIec ? k[1] : k[0], value: r, tol: 0.005 }],
         steps: [toIec ? `${x} ${k[0]} = ${x} · 1000^${k[2]} Byte; geteilt durch 1024^${k[2]} ergibt ${de(r, 2)} ${k[1]}.` : `${x} ${k[1]} = ${x} · 1024^${k[2]} Byte; geteilt durch 1000^${k[2]} ergibt ${de(r, 2)} ${k[0]}.`, 'SI (k, M, G, T) rechnet mit 1000, IEC (Ki, Mi, Gi, Ti) mit 1024. Ein kleines „i“ ändert das Ergebnis.'] };
     } },
-    gatter: { name: 'Logikgatter', part: 'Teil1', hints: [
+    gatter: { name: 'Logikgatter', part: 'Teil1', formulas: ["AND: Y = 1 nur bei A = 1 und B = 1", "OR: Y = 1, wenn mindestens ein Eingang 1 ist", "XOR: Y = 1, wenn A ≠ B", "NAND = NICHT AND, NOR = NICHT OR"],
+      explain: "Logikgatter verknüpfen Bits nach festen Regeln, den Wahrheitstabellen. In einem Schaltnetz rechnet man von den Eingängen zum Ausgang: Das Ergebnis des ersten Gatters ist der Eingang des nächsten.",
+      hints: [
       'Schritt für Schritt: zuerst X aus A und B, dann Y aus X und C.',
       'AND: nur 1 und 1 ergibt 1. OR: mindestens eine 1. XOR: genau eine 1.',
       'NAND und NOR: erst AND oder OR bilden, dann das Ergebnis umkehren.',
@@ -130,7 +150,9 @@
         fields: [{ label: 'X', value: x, tol: 0 }, { label: 'Y', value: y, tol: 0 }],
         steps: [`X = ${A} ${g1} ${B} = ${x}.`, `Y = ${x} ${g2} ${C} = ${y}.`, 'AND: nur 1 und 1 ergibt 1. OR: mindestens eine 1. XOR: genau eine 1. NAND und NOR sind das Gegenteil von AND und OR.'] };
     } },
-    raid: { name: 'RAID-Nettokapazität', part: 'Teil1', hints: [
+    raid: { name: 'RAID-Nettokapazität', part: 'Teil1', formulas: ["RAID 0: n · C", "RAID 1: C (Spiegel)", "RAID 5: (n − 1) · C", "RAID 6: (n − 2) · C", "RAID 10: n / 2 · C"],
+      explain: "Redundanz kostet Kapazität: Bei Spiegelung steht jede Information doppelt da, bei Parität geht der Platz einer (RAID 5) oder zweier Platten (RAID 6) für die Prüfdaten verloren. Dafür übersteht das System den Ausfall einer bzw. zweier Platten. RAID 0 hat keine Redundanz.",
+      hints: [
       'Frage dich, wie viel Kapazität für Spiegelung oder Parität verloren geht.',
       'RAID 0: nichts. RAID 1: Spiegel, eine Platte nutzbar. RAID 5: eine Platte Parität. RAID 6: zwei Platten Parität. RAID 10: die Hälfte.'],
     make(rng) {
@@ -140,7 +162,9 @@
       return { text: `Ein Server hat ${n} Festplatten mit je ${s} TB im RAID ${level}. Wie groß ist die nutzbare Kapazität?`,
         fields: [{ label: 'Nutzbare Kapazität', unit: 'TB', value: net, tol: 0 }], steps: [why, `${n} Platten · ${s} TB ergeben netto ${net} TB.`] };
     } },
-    verfuegbarkeit: { name: 'Verfügbarkeit und Ausfallzeit', part: 'Teil1', hints: [
+    verfuegbarkeit: { name: 'Verfügbarkeit und Ausfallzeit', part: 'Teil1', formulas: ["Ausfallzeit = Gesamtzeit · (1 − Verfügbarkeit)", "Gesamtzeit pro Jahr = 24 h · 365 = 8.760 h", "Verfügbarkeit = Betriebszeit / Gesamtzeit"],
+      explain: "Die Verfügbarkeit ist der Anteil der Zeit, in der ein System nutzbar ist. Was zu 100 % fehlt, darf es ausfallen. Schon kleine Unterschiede zählen: 99 % erlauben rund 87,6 Stunden Ausfall im Jahr, 99,99 % nur noch etwa 53 Minuten.",
+      hints: [
       'Verfügbarkeit ist der Anteil der Zeit, in der das System läuft; der Rest ist die erlaubte Ausfallzeit.',
       'Ein Jahr Dauerbetrieb hat 24 h · 365 = 8.760 h.',
       'Ausfallzeit = 8.760 h · (100 % − Verfügbarkeit). Stunden mal 60 ergibt Minuten.'],
@@ -150,7 +174,9 @@
         fields: [{ label: 'Ausfallzeit', unit: 'h', value: h, tol: 0.005 }, { label: 'Ausfallzeit', unit: 'min', value: min, tol: 0.005 }],
         steps: ['Stunden pro Jahr: 24 h · 365 = 8.760 h.', `Ausfall = 8.760 h · (100 % − ${de(p, 2)} %) = 8.760 h · ${de((100 - p) / 100, 4)} = ${de(h, 3)} h.`, `In Minuten: ${de(h, 3)} h · 60 = ${de(min, 1)} min.`] };
     } },
-    hostmaske: { name: 'Subnetz für eine Mindestzahl an Hosts', part: 'Teil1', hints: [
+    hostmaske: { name: 'Subnetz für eine Mindestzahl an Hosts', part: 'Teil1', formulas: ["2^h − 2 ≥ Anzahl Hosts (kleinstes h)", "Präfix = 32 − h", "h = log₂(Hosts + 2), aufgerundet"],
+      explain: "Jedes Hostbit verdoppelt die Zahl der Adressen im Netz. Man nimmt so wenige Hostbits wie möglich, damit keine Adressen verschwendet werden, aber genug für alle Geräte plus Netz- und Broadcastadresse.",
+      hints: [
       'Gesucht ist die kleinste Zahl Hostbits h, für die 2^h − 2 mindestens die geforderte Zahl Hosts ergibt.',
       'Netz- und Broadcastadresse sind nicht nutzbar, deshalb „− 2“.',
       'Präfix = 32 − h; die Maske hat so viele Einsen von links, wie das Präfix angibt.',
@@ -163,7 +189,9 @@
         fields: [{ label: 'Präfixlänge (ohne Schrägstrich)', value: prefix, tol: 0 }, { label: 'Subnetzmaske', exact: ip(mask) }, { label: 'Nutzbare Hosts', value: hosts, tol: 0 }],
         steps: [`Hostbits: 2^${bits - 1} − 2 = ${2 ** (bits - 1) - 2} reicht nicht, 2^${bits} − 2 = ${hosts} reicht für ${n}.`, `Präfix = 32 − ${bits} = /${prefix}.`, `Maske mit ${prefix} Einsen: ${ip(mask)}.`] };
     } },
-    uplink: { name: 'Bandbreite und Link Aggregation', part: 'Teil1', hints: [
+    uplink: { name: 'Bandbreite und Link Aggregation', part: 'Teil1', formulas: ["Bedarf = Σ (Anzahl Geräte · Datenrate je Gerät)", "Verbindungen = Bedarf / Datenrate je Verbindung, aufgerundet", "Zusätzlich = benötigt − vorhanden"],
+      explain: "Beim Dimensionieren rechnet man mit dem ungünstigsten Fall, dass alle Geräte gleichzeitig voll senden. Link Aggregation bündelt mehrere physische Leitungen zu einer logischen, ihre Datenraten addieren sich. Eine halbe Leitung gibt es nicht, deshalb wird aufgerundet.",
+      hints: [
       'Im ungünstigsten Fall senden alle Geräte gleichzeitig mit voller Geschwindigkeit: alle Datenraten addieren.',
       'Anzahl Verbindungen = Bedarf : Datenrate je Verbindung, immer aufrunden.',
       'Gefragt sind die zusätzlichen Verbindungen: die vorhandenen abziehen.'],
@@ -174,7 +202,9 @@
         fields: [{ label: 'Maximale Datenrate', unit: 'Gbit/s', value: demand, tol: 0.001 }, { label: 'Zusätzliche Verbindungen', value: extra, tol: 0 }],
         steps: [`Bedarf = ${f.aps} · ${de(f.apRate, 1)} Gbit/s + ${f.pcs} · 1 Gbit/s = ${de(demand, 1)} Gbit/s.`, `${de(demand, 1)} Gbit/s : 10 Gbit/s = ${de(demand / 10, 2)}, aufgerundet ${needed} Verbindungen.`, `Vorhanden ${f.have}, also ${extra} zusätzlich.`] };
     } },
-    ram: { name: 'Arbeitsspeicher aufrüsten', part: 'Teil1', hints: [
+    ram: { name: 'Arbeitsspeicher aufrüsten', part: 'Teil1', formulas: ["Module gesamt = Zielkapazität / Modulgröße", "Neu = gesamt − vorhanden"],
+      explain: "Bei identischen Modulen ist die Kapazität Anzahl mal Modulgröße. Schon eingebaute Module bleiben drin und zählen mit. Gesteckt wird in der Reihenfolge laut Mainboard-Handbuch, damit die Speicherkanäle gleichmäßig belegt sind.",
+      hints: [
       'Alle Module sollen gleich groß sein: Zielkapazität : Modulgröße ergibt die Gesamtzahl der Module.',
       'Die schon eingebauten Module zählen mit; kaufen muss man nur die Differenz.'],
     make(rng, fixed) {
@@ -184,7 +214,9 @@
         fields: [{ label: 'Module insgesamt', value: total, tol: 0 }, { label: 'Neu zu beschaffende Module', value: neu, tol: 0 }],
         steps: [`${f.target} GB : ${f.mod} GB = ${total} Module insgesamt.`, `${total} − ${f.haveN} vorhandene = ${neu} neue Module.`] };
     } },
-    abschalt: { name: 'Abschaltbedingung und Schleifenimpedanz', part: 'Teil2', hints: [
+    abschalt: { name: 'Abschaltbedingung und Schleifenimpedanz', part: 'Teil2', formulas: ["Z_s · I_a ≤ U₀", "Z_s,max = U₀ / I_a", "I_a = 5 · I_n (Charakteristik B), 10 · I_n (Charakteristik C)"],
+      explain: "Bei einem Körperschluss fließt der Fehlerstrom durch die Fehlerschleife: Außenleiter, Fehlerstelle, Schutzleiter und zurück zum Transformator. Ist deren Impedanz Z_s zu groß, bleibt der Strom zu klein, der LS-Schalter löst nicht schnell genug aus und am Gehäuse bleibt eine gefährliche Berührungsspannung. Die Abschaltbedingung stellt sicher, dass mindestens der Auslösestrom I_a fließt.",
+      hints: [
       'Im Fehlerfall muss der Leitungsschutzschalter innerhalb von 0,4 s abschalten; dafür muss der Fehlerstrom groß genug sein.',
       'Abschaltstrom laut Belegsatz bzw. Tabellenbuch: Charakteristik B 5 · I_n, Charakteristik C 10 · I_n.',
       'Abschaltbedingung Z_s · I_a ≤ U₀, also Z_s,max = U₀ / I_a. Dann mit dem Messwert vergleichen.'],
@@ -195,7 +227,9 @@
         fields: [{ label: 'Abschaltstrom I_a', unit: 'A', value: Ia, tol: 0 }, { label: 'Maximale Schleifenimpedanz', unit: 'Ω', value: zmax, tol: 0.01 }, { label: 'Abschaltbedingung erfüllt? (ja oder nein)', exact: ok ? 'ja' : 'nein' }],
         steps: [`Charakteristik ${f.ch}: I_a = ${factor} · I_n = ${factor} · ${f.In} A = ${Ia} A.`, `Z_s · I_a ≤ U₀, also Z_s,max = 230 V / ${Ia} A = ${de(zmax, 3)} Ω.`, `Gemessen ${de(zs, 2)} Ω ${ok ? '≤' : '>'} ${de(zmax, 3)} Ω: Abschaltbedingung ${ok ? 'erfüllt' : 'nicht erfüllt'}.`] };
     } },
-    zweihoch: { name: 'Bits und Wertebereich (2ⁿ)', part: 'Teil1', hints: [
+    zweihoch: { name: 'Bits und Wertebereich (2ⁿ)', part: 'Teil1', formulas: ["Anzahl Werte = 2ⁿ (n = Anzahl Bit)", "Bits = log₂(N), aufgerundet"],
+      explain: "Jedes Bit hat zwei Zustände. Bei n Bit multiplizieren sich die Möglichkeiten: 2 · 2 · … · 2 = 2ⁿ. Für N Werte braucht man daher so viele Bits, dass 2ⁿ mindestens N erreicht.",
+      hints: [
       'Mit n Bit lassen sich 2ⁿ verschiedene Werte darstellen.',
       'Umgekehrt: Für N Werte braucht man die kleinste Zahl n mit 2ⁿ ≥ N.',
       'Am fx-991DE CW: 2 x^■ n für 2ⁿ, log(2;N) für die Bits (aufrunden).'],
@@ -523,6 +557,7 @@
   assert(baseCalc('15×37', 10) === 555 && toBase(555, 16) === '22B' && baseCalc('1010 and 1100', 2) === 8 && toBase(baseCalc('not(1010)', 2), 2) === '11111111111111111111111111110101' && baseCalc('FFFFFFFF', 16) === -1 && baseCalc('7FFFFFFF', 16) === 2147483647 && baseCalc('1010 xor 0110', 2) === 12 && baseCalc('neg(1)', 16) === -1 && binGroups('101') === '0101', 'Basis-N');
   ['2147483647+1', '12', '1/0', 'G'].forEach((x) => { let ok = false; try { baseCalc(x, x === '12' ? 2 : 10); } catch (e) { ok = true; } assert(ok, 'Basis-N lehnt ab: ' + x); });
   assert(Object.values(DRILLS).every((d) => d.hints && d.hints.length >= 2), 'Tipps je Aufgabentyp');
+  assert(Object.values(DRILLS).every((d) => d.formulas && d.formulas.length && d.explain), 'Formeln und Erklärung je Aufgabentyp');
   const vals = (t) => t.fields.map((f) => f.exact ?? +f.value.toFixed(4)).join('|');
   assert(vals(DRILLS.verfuegbarkeit.make(Math.random, { p: 99.5 })) === '43.8|2628', 'Verfügbarkeit 99,5 % (IHK W25/26 4aa)');
   assert(vals(DRILLS.hostmaske.make(Math.random, { n: 300 })) === '23|255.255.254.0|510' && vals(DRILLS.hostmaske.make(Math.random, { n: 30 })) === '27|255.255.255.224|30', 'Hosts zu Maske (IHK W25/26 1da, 1db)');
