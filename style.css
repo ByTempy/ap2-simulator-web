@@ -553,3 +553,24 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
 .pad canvas { display: block; width: 100%; height: 24rem; touch-action: none; cursor: crosshair; color: var(--color-ink); background-color: var(--color-paper); background-image: linear-gradient(var(--color-rule) 1px, transparent 1px), linear-gradient(90deg, var(--color-rule) 1px, transparent 1px); background-size: 5mm 5mm; border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-card); }
 @media (max-width: 40rem) { .pad canvas { height: 18rem; } }
 @media print { .calc, .calc-toggle, .pad { display: none !important; } }
+
+/* ---------- Werkzeugleiste beim Bearbeiten: Rechner, Notizen, Belegsatz, Originalseite ---------- */
+.tools { min-width: 0; padding: var(--space-sm); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-card); background: var(--color-paper); }
+.tools[hidden] { display: none; }
+.tools-head { display: flex; align-items: center; gap: var(--space-2xs); margin-bottom: var(--space-sm); }
+.tools-head .seg { flex: 1; flex-wrap: nowrap; min-width: 0; }
+.tools-head .seg .btn { flex: 1 1 0; min-width: 0; justify-content: center; padding-inline: var(--space-2xs); font-size: var(--text-xs); }
+.tools-head .icon-btn { flex: none; }
+.tools .pad { margin-top: 0; }
+.tools .pad canvas { height: 26rem; }
+.tools .dv.inline { position: static; height: min(44rem, calc(100dvh - var(--nav-h) - 9rem)); min-height: 20rem; }
+.tools .dv-title { display: none; }
+.tools .attachment { max-height: 60vh; overflow: auto; }
+.orig-link { margin-top: var(--space-sm); }
+.work > .tools { grid-column: 1 / -1; }
+@media (min-width: 84rem) { /* dritte Spalte neben dem Aufgabenblatt */
+  .work.with-tools { grid-template-columns: var(--navigator-w) minmax(0, 1fr) 21rem; }
+  .work.with-tools > .tools { grid-column: auto; position: sticky; top: calc(var(--nav-h) + var(--space-md)); max-height: calc(100dvh - var(--nav-h) - var(--space-xl)); overflow-y: auto; }
+}
+@media print { .tools, #b-tools { display: none !important; } }
+.tools [data-calc-close] { display: none; }

@@ -140,6 +140,75 @@
       return { text: `Ein Server hat ${n} Festplatten mit je ${s} TB im RAID ${level}. Wie groß ist die nutzbare Kapazität?`,
         fields: [{ label: 'Nutzbare Kapazität', unit: 'TB', value: net, tol: 0 }], steps: [why, `${n} Platten · ${s} TB ergeben netto ${net} TB.`] };
     } },
+    verfuegbarkeit: { name: 'Verfügbarkeit und Ausfallzeit', part: 'Teil1', hints: [
+      'Verfügbarkeit ist der Anteil der Zeit, in der das System läuft; der Rest ist die erlaubte Ausfallzeit.',
+      'Ein Jahr Dauerbetrieb hat 24 h · 365 = 8.760 h.',
+      'Ausfallzeit = 8.760 h · (100 % − Verfügbarkeit). Stunden mal 60 ergibt Minuten.'],
+    make(rng, fixed) {
+      const p = fixed ? fixed.p : pick(rng, [99, 99.5, 99.9, 99.95, 99.99]); const h = 8760 * (100 - p) / 100; const min = h * 60;
+      return { text: `Ein Server soll rund um die Uhr laufen und eine Verfügbarkeit von ${de(p, 2)} % erreichen. Berechnen Sie die maximale Ausfallzeit pro Jahr in Stunden und in Minuten.`,
+        fields: [{ label: 'Ausfallzeit', unit: 'h', value: h, tol: 0.005 }, { label: 'Ausfallzeit', unit: 'min', value: min, tol: 0.005 }],
+        steps: ['Stunden pro Jahr: 24 h · 365 = 8.760 h.', `Ausfall = 8.760 h · (100 % − ${de(p, 2)} %) = 8.760 h · ${de((100 - p) / 100, 4)} = ${de(h, 3)} h.`, `In Minuten: ${de(h, 3)} h · 60 = ${de(min, 1)} min.`] };
+    } },
+    hostmaske: { name: 'Subnetz für eine Mindestzahl an Hosts', part: 'Teil1', hints: [
+      'Gesucht ist die kleinste Zahl Hostbits h, für die 2^h − 2 mindestens die geforderte Zahl Hosts ergibt.',
+      'Netz- und Broadcastadresse sind nicht nutzbar, deshalb „− 2“.',
+      'Präfix = 32 − h; die Maske hat so viele Einsen von links, wie das Präfix angibt.',
+      'Am fx-991DE CW: log(2;Hosts + 2) mit der Taste log■□ rechnen und auf die nächste ganze Zahl aufrunden.'],
+    make(rng, fixed) {
+      const n = fixed ? fixed.n : pick(rng, [10, 14, 25, 30, 50, 60, 100, 120, 200, 250, 300, 500, 1000, 2000]);
+      let bits = 1; while (2 ** bits - 2 < n) bits++;
+      const prefix = 32 - bits; const mask = (0xFFFFFFFF << bits) >>> 0; const hosts = 2 ** bits - 2;
+      return { text: `Ein Kunde braucht ein Netz für mindestens ${n} Geräte. Es dürfen keine IP-Adressen verschwendet werden. Bestimmen Sie Präfixlänge, Subnetzmaske und die Anzahl nutzbarer Hostadressen.`,
+        fields: [{ label: 'Präfixlänge (ohne Schrägstrich)', value: prefix, tol: 0 }, { label: 'Subnetzmaske', exact: ip(mask) }, { label: 'Nutzbare Hosts', value: hosts, tol: 0 }],
+        steps: [`Hostbits: 2^${bits - 1} − 2 = ${2 ** (bits - 1) - 2} reicht nicht, 2^${bits} − 2 = ${hosts} reicht für ${n}.`, `Präfix = 32 − ${bits} = /${prefix}.`, `Maske mit ${prefix} Einsen: ${ip(mask)}.`] };
+    } },
+    uplink: { name: 'Bandbreite und Link Aggregation', part: 'Teil1', hints: [
+      'Im ungünstigsten Fall senden alle Geräte gleichzeitig mit voller Geschwindigkeit: alle Datenraten addieren.',
+      'Anzahl Verbindungen = Bedarf : Datenrate je Verbindung, immer aufrunden.',
+      'Gefragt sind die zusätzlichen Verbindungen: die vorhandenen abziehen.'],
+    make(rng, fixed) {
+      const f = fixed || { aps: int(rng, 2, 6), apRate: pick(rng, [1, 2.5, 5]), pcs: pick(rng, [8, 10, 12, 16, 20, 24]), have: pick(rng, [1, 1, 2]) };
+      const demand = f.aps * f.apRate + f.pcs; const needed = Math.ceil(demand / 10 - 1e-9); const extra = Math.max(0, needed - f.have);
+      return { text: `An einem Etagenswitch hängen ${f.aps} Accesspoints mit je ${de(f.apRate, 1)} Gbit/s und ${f.pcs} PCs mit je 1 Gbit/s. Der Switch ist über ${f.have === 1 ? 'eine Verbindung' : f.have + ' Verbindungen'} mit je 10 Gbit/s an den Core-Switch angebunden (Link Aggregation). Berechnen Sie die maximale Datenrate, wenn alle Geräte gleichzeitig senden, und die Anzahl zusätzlich nötiger 10-Gbit/s-Verbindungen.`,
+        fields: [{ label: 'Maximale Datenrate', unit: 'Gbit/s', value: demand, tol: 0.001 }, { label: 'Zusätzliche Verbindungen', value: extra, tol: 0 }],
+        steps: [`Bedarf = ${f.aps} · ${de(f.apRate, 1)} Gbit/s + ${f.pcs} · 1 Gbit/s = ${de(demand, 1)} Gbit/s.`, `${de(demand, 1)} Gbit/s : 10 Gbit/s = ${de(demand / 10, 2)}, aufgerundet ${needed} Verbindungen.`, `Vorhanden ${f.have}, also ${extra} zusätzlich.`] };
+    } },
+    ram: { name: 'Arbeitsspeicher aufrüsten', part: 'Teil1', hints: [
+      'Alle Module sollen gleich groß sein: Zielkapazität : Modulgröße ergibt die Gesamtzahl der Module.',
+      'Die schon eingebauten Module zählen mit; kaufen muss man nur die Differenz.'],
+    make(rng, fixed) {
+      const f = fixed || (() => { const mod = pick(rng, [8, 16, 32]); const haveN = pick(rng, [1, 2]); return { mod, haveN, target: mod * pick(rng, [4, 6, 8]) }; })();
+      const total = f.target / f.mod; const neu = total - f.haveN;
+      return { text: `Ein Server hat ${f.haveN * f.mod} GB Arbeitsspeicher aus ${f.haveN === 1 ? 'einem Modul' : f.haveN + ' Modulen'} mit je ${f.mod} GB. Er soll mit identischen Modulen auf ${f.target} GB aufgerüstet werden. Wie viele Module sind dann eingebaut, und wie viele müssen neu beschafft werden?`,
+        fields: [{ label: 'Module insgesamt', value: total, tol: 0 }, { label: 'Neu zu beschaffende Module', value: neu, tol: 0 }],
+        steps: [`${f.target} GB : ${f.mod} GB = ${total} Module insgesamt.`, `${total} − ${f.haveN} vorhandene = ${neu} neue Module.`] };
+    } },
+    abschalt: { name: 'Abschaltbedingung und Schleifenimpedanz', part: 'Teil2', hints: [
+      'Im Fehlerfall muss der Leitungsschutzschalter innerhalb von 0,4 s abschalten; dafür muss der Fehlerstrom groß genug sein.',
+      'Abschaltstrom laut Belegsatz bzw. Tabellenbuch: Charakteristik B 5 · I_n, Charakteristik C 10 · I_n.',
+      'Abschaltbedingung Z_s · I_a ≤ U₀, also Z_s,max = U₀ / I_a. Dann mit dem Messwert vergleichen.'],
+    make(rng, fixed) {
+      const f = fixed || { ch: pick(rng, ['B', 'C']), In: pick(rng, [10, 13, 16, 20, 25, 32]), k: pick(rng, [0.6, 0.8, 1.2, 1.4]) };
+      const factor = f.ch === 'B' ? 5 : 10; const Ia = factor * f.In; const zmax = 230 / Ia; const zs = Math.round(zmax * f.k * 100) / 100; const ok = zs <= zmax;
+      return { text: `Ein Stromkreis im TN-S-System (U₀ = 230 V) ist mit einem Leitungsschutzschalter ${f.ch}${f.In} abgesichert. Gemessen wurde eine Schleifenimpedanz Z_s = ${de(zs, 2)} Ω. Bestimmen Sie den Abschaltstrom I_a für die Abschaltung innerhalb von 0,4 s, die höchstzulässige Schleifenimpedanz und ob die Abschaltbedingung erfüllt ist.`,
+        fields: [{ label: 'Abschaltstrom I_a', unit: 'A', value: Ia, tol: 0 }, { label: 'Maximale Schleifenimpedanz', unit: 'Ω', value: zmax, tol: 0.01 }, { label: 'Abschaltbedingung erfüllt? (ja oder nein)', exact: ok ? 'ja' : 'nein' }],
+        steps: [`Charakteristik ${f.ch}: I_a = ${factor} · I_n = ${factor} · ${f.In} A = ${Ia} A.`, `Z_s · I_a ≤ U₀, also Z_s,max = 230 V / ${Ia} A = ${de(zmax, 3)} Ω.`, `Gemessen ${de(zs, 2)} Ω ${ok ? '≤' : '>'} ${de(zmax, 3)} Ω: Abschaltbedingung ${ok ? 'erfüllt' : 'nicht erfüllt'}.`] };
+    } },
+    zweihoch: { name: 'Bits und Wertebereich (2ⁿ)', part: 'Teil1', hints: [
+      'Mit n Bit lassen sich 2ⁿ verschiedene Werte darstellen.',
+      'Umgekehrt: Für N Werte braucht man die kleinste Zahl n mit 2ⁿ ≥ N.',
+      'Am fx-991DE CW: 2 x^■ n für 2ⁿ, log(2;N) für die Bits (aufrunden).'],
+    make(rng, fixed) {
+      if ((fixed && fixed.bits) || (!fixed && rng() < 0.5)) {
+        const [what, n] = fixed ? ['VLAN-ID (VID)', fixed.bits] : pick(rng, [['VLAN-ID (VID)', 12], ['Hostanteil', 8], ['Port-Nummer', 16], ['Farbtiefe je Pixel', 24], ['Adressfeld', 20]]);
+        return { text: `Ein Feld „${what}“ ist ${n} Bit lang. Wie viele verschiedene Werte lassen sich damit darstellen?`, fields: [{ label: 'Anzahl Werte', value: 2 ** n, tol: 0 }],
+          steps: [`2^${n} = ${de(2 ** n, 0)} Werte.`, n === 12 ? 'Bei VLAN sind 0 und 4.095 reserviert; 4.094 nutzbare IDs gelten in der IHK-Lösung ebenfalls als richtig.' : 'Jedes zusätzliche Bit verdoppelt die Anzahl.'] };
+      }
+      const N = pick(rng, [5, 12, 30, 100, 200, 1000, 5000]); let n = 0; while (2 ** n < N) n++;
+      return { text: `Es sollen ${N} verschiedene Werte binär codiert werden. Wie viele Bit sind mindestens nötig?`, fields: [{ label: 'Bits', value: n, tol: 0 }],
+        steps: [`2^${n - 1} = ${2 ** (n - 1)} reicht nicht, 2^${n} = ${2 ** n} reicht für ${N}.`, `Also ${n} Bit.`] };
+    } },
   };
 
   // Taschenrechner nach dem Vorbild des fx-991DE CW: eigener Parser statt eval, Winkel in Grad, Ergebnis auf 12 Stellen gerundet
@@ -454,6 +523,14 @@
   assert(baseCalc('15×37', 10) === 555 && toBase(555, 16) === '22B' && baseCalc('1010 and 1100', 2) === 8 && toBase(baseCalc('not(1010)', 2), 2) === '11111111111111111111111111110101' && baseCalc('FFFFFFFF', 16) === -1 && baseCalc('7FFFFFFF', 16) === 2147483647 && baseCalc('1010 xor 0110', 2) === 12 && baseCalc('neg(1)', 16) === -1 && binGroups('101') === '0101', 'Basis-N');
   ['2147483647+1', '12', '1/0', 'G'].forEach((x) => { let ok = false; try { baseCalc(x, x === '12' ? 2 : 10); } catch (e) { ok = true; } assert(ok, 'Basis-N lehnt ab: ' + x); });
   assert(Object.values(DRILLS).every((d) => d.hints && d.hints.length >= 2), 'Tipps je Aufgabentyp');
+  const vals = (t) => t.fields.map((f) => f.exact ?? +f.value.toFixed(4)).join('|');
+  assert(vals(DRILLS.verfuegbarkeit.make(Math.random, { p: 99.5 })) === '43.8|2628', 'Verfügbarkeit 99,5 % (IHK W25/26 4aa)');
+  assert(vals(DRILLS.hostmaske.make(Math.random, { n: 300 })) === '23|255.255.254.0|510' && vals(DRILLS.hostmaske.make(Math.random, { n: 30 })) === '27|255.255.255.224|30', 'Hosts zu Maske (IHK W25/26 1da, 1db)');
+  assert(vals(DRILLS.uplink.make(Math.random, { aps: 3, apRate: 2.5, pcs: 10, have: 1 })) === '17.5|1', 'Link Aggregation (IHK W25/26 3ac, 3ad)');
+  assert(vals(DRILLS.ram.make(Math.random, { mod: 16, haveN: 1, target: 64 })) === '4|3', 'RAM-Module (IHK W25/26 4ca)');
+  assert(vals(DRILLS.abschalt.make(Math.random, { ch: 'B', In: 16, k: 0.8 })) === '80|2.875|ja' && vals(DRILLS.abschalt.make(Math.random, { ch: 'C', In: 16, k: 1.2 })) === '160|1.4375|nein', 'Abschaltbedingung');
+  assert(vals(DRILLS.zweihoch.make(Math.random, { bits: 12 })) === '4096', 'VLAN-IDs 2^12 (IHK W25/26 1ab)');
+  for (let k = 0; k < 40; k++) Object.values(DRILLS).forEach((d) => { const t = d.make(Math.random); assert(t.fields.every((f) => f.exact !== undefined || Number.isFinite(f.value)) && t.steps.length, 'Rechentrainer erzeugt gültige Aufgabe: ' + d.name); });
   ['zahlen', 'einheiten', 'gatter'].forEach((k) => { const t = DRILLS[k].make(zr()); assert(t.fields.every((f) => checkField(f, f.exact ?? String(f.value).replace('.', ','))), 'Rechentrainer ' + k); });
   const crit = (grading, points) => (criteria({ answer_type: 'text', grading, points }) || []).map((c) => `${c.label}=${c.points}`).join('|');
   assert(crit('6 Punkte: je 2 Punkte für IP-Adresse, Subnetzmaske und Standardgateway', 6) === 'IP-Adresse=2|Subnetzmaske=2|Standardgateway=2', 'Kriterien je für');

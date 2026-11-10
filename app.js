@@ -74,7 +74,7 @@
   const icon = (d) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
   function docViewer(host, pages, opts = {}) {
     const st = store.get('ap2.settings', {});
-    let zoom = st.viewerZoom || 'width';
+    let zoom = opts.zoom || st.viewerZoom || 'width';
     const n = pages.length;
     host.innerHTML = `<div class="dv${opts.inline ? ' inline' : ''}">
       <div class="dv-bar" role="toolbar" aria-label="Seitenansicht">
@@ -954,8 +954,7 @@
         <button type="button" class="btn calc-toggle" id="r-calc-btn" aria-controls="r-calc"${st.calcOff ? '' : ' hidden'}>Taschenrechner einblenden</button></div></div>
       <div class="drill-wrap${st.calcOff ? '' : ' with-calc'}"><div class="drill-main"><form class="sheet drill" id="r-form" novalidate></form>
         <section class="pad" id="r-pad" aria-label="Karopapier für Notizen">
-          <div class="pad-bar" role="toolbar" aria-label="Zeichenwerkzeuge">${[['pen', 'Stift', '<path d="M4 20l4-1L19 8l-3-3L5 16z"/><path d="M14 7l3 3"/>'], ['erase', 'Radierer', '<path d="M5 15l9-9 5 5-8 8H8z"/><path d="M10 10l5 5"/><path d="M11 19h9"/>'], ['undo', 'Rückgängig', '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>'], ['clear', 'Leeren', '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>']].map(([k, l, d]) => `<button type="button" class="btn icon-btn" data-pad="${k}" aria-label="${l}" title="${l}"${k === 'pen' || k === 'erase' ? ` aria-pressed="${k === 'pen'}"` : ''}>${icon(d)}</button>`).join('')}</div>
-          <canvas id="r-canvas" role="img" aria-label="Zeichenfläche mit Karomuster"></canvas>
+          ${padHtml()}
         </section></div>
       <aside class="calc" id="r-calc" aria-label="Taschenrechner"${st.calcOff ? ' hidden' : ''}></aside></div>`;
     const next = () => {
@@ -1081,6 +1080,63 @@
       enable(); live();
     };
     draw();
+  }
+
+  const padHtml = () => `<div class="pad-bar" role="toolbar" aria-label="Zeichenwerkzeuge">${[['pen', 'Stift', '<path d="M4 20l4-1L19 8l-3-3L5 16z"/><path d="M14 7l3 3"/>'], ['erase', 'Radierer', '<path d="M5 15l9-9 5 5-8 8H8z"/><path d="M10 10l5 5"/><path d="M11 19h9"/>'], ['undo', 'Rückgängig', '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>'], ['clear', 'Leeren', '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>']].map(([k, l, d]) => `<button type="button" class="btn icon-btn" data-pad="${k}" aria-label="${l}" title="${l}"${k === 'pen' || k === 'erase' ? ` aria-pressed="${k === 'pen'}"` : ''}>${icon(d)}</button>`).join('')}</div>
+    <canvas role="img" aria-label="Zeichenfläche mit Karomuster"></canvas>`;
+
+  // Werkzeugleiste beim Bearbeiten: Taschenrechner, Notizen (Karopapier), Belegsatz, Originalseite.
+  // Ein Element je Sitzung, das nach jedem Neuzeichnen wieder eingehängt wird; so bleiben Notizen und Rechnungen erhalten.
+  const TOOL_TABS = [['calc', 'Rechner'], ['pad', 'Notizen'], ['beleg', 'Belegsatz'], ['orig', 'Original']];
+  function workTools() {
+    const st = store.get('ap2.settings', {});
+    const el = document.createElement('aside'); el.className = 'tools'; el.id = 'w-tools'; el.setAttribute('aria-label', 'Werkzeuge');
+    el.innerHTML = `<div class="tools-head"><div class="seg" role="tablist" aria-label="Werkzeug">${TOOL_TABS.map(([k, l]) => `<button type="button" class="btn sm" role="tab" data-tool="${k}" aria-selected="false">${l}</button>`).join('')}</div>
+        <button type="button" class="btn icon-btn" data-tools-close aria-label="Werkzeuge ausblenden" title="Werkzeuge ausblenden">${icon('<path d="M6 6l12 12M18 6L6 18"/>')}</button></div>
+      <div class="tools-panel" data-panel="calc" hidden></div>
+      <section class="pad tools-panel" data-panel="pad" hidden>${padHtml()}</section>
+      <div class="tools-panel" data-panel="beleg" hidden></div>
+      <div class="tools-panel" data-panel="orig" hidden></div>`;
+    calculator($('[data-panel="calc"]', el), st.calcMode === 'base' ? 'base' : 'calc');
+    drawPad($('[data-panel="pad"]', el));
+    const wide = matchMedia('(min-width: 64rem)'); // Rechner nur bei breitem Fenster, wie im Rechentrainer
+    let part = null, item = null, tab = st.toolsTab || 'calc', shown = { beleg: null, orig: null }, off = !!st.toolsOff;
+    const has = (k) => k === 'calc' ? wide.matches : k === 'pad' ? true : k === 'beleg' ? !!(part && (part.attachments || []).some((a) => (a.pages && a.pages.length) || a.text)) : !!(part && part.page_images && part.page_images.length);
+    const save = () => { const s = store.get('ap2.settings', {}); s.toolsTab = tab; s.toolsOff = off; store.set('ap2.settings', s); };
+    const show = (k, page) => {
+      if (!has(k)) k = TOOL_TABS.map((t) => t[0]).find(has);
+      tab = k;
+      $$('[data-tool]', el).forEach((b) => { b.hidden = !has(b.dataset.tool); b.setAttribute('aria-selected', b.dataset.tool === k); b.classList.toggle('primary', b.dataset.tool === k); });
+      $$('[data-panel]', el).forEach((p) => { p.hidden = p.dataset.panel !== k; });
+      if (k === 'orig') {
+        const want = page ?? Math.max(0, (item && item.page ? item.page : 1) - 1);
+        const key = `${part.id}:${want}`;
+        if (shown.orig !== key) { shown.orig = key; docViewer($('[data-panel="orig"]', el), part.page_images, { inline: true, zoom: 'width', start: want, printTitle: part.title }); }
+      }
+      if (k === 'beleg' && shown.beleg !== part.id) {
+        shown.beleg = part.id; const box = $('[data-panel="beleg"]', el); const atts = (part.attachments || []).filter((a) => (a.pages && a.pages.length) || a.text);
+        const one = (i) => { const a = atts[i]; const host = $('.beleg-body', box); if (a.pages && a.pages.length) docViewer(host, a.pages, { inline: true, zoom: 'width', printTitle: a.title || 'Belegsatz' }); else host.innerHTML = `<pre class="attachment">${esc(a.text)}</pre>`; };
+        box.innerHTML = `${atts.length > 1 ? `<label class="field"><span>Anlage</span><select class="input" id="t-beleg">${atts.map((a, i) => `<option value="${i}">${esc(a.title || 'Belegsatz')}</option>`).join('')}</select></label>` : ''}<div class="beleg-body"></div>`;
+        if (atts.length > 1) $('#t-beleg', box).onchange = (ev) => one(+ev.target.value);
+        one(0);
+      }
+      save();
+    };
+    const apply = () => { const work = $('.work'); if (!work) return; el.hidden = off; work.classList.toggle('with-tools', !off); const b = $('#b-tools'); if (b) b.hidden = !off; };
+    $$('[data-tool]', el).forEach((b) => b.onclick = () => show(b.dataset.tool));
+    $('[data-tools-close]', el).onclick = () => { off = true; save(); apply(); const b = $('#b-tools'); if (b) b.focus(); };
+    wide.addEventListener('change', () => { if (el.isConnected) show(tab); });
+    return {
+      // nach jedem Neuzeichnen der Arbeitsansicht aufrufen
+      mount(p, it) {
+        if (!part || part.id !== p.id) { shown = { beleg: null, orig: null }; }
+        part = p; item = it;
+        $('.work').appendChild(el);
+        const b = $('#b-tools'); if (b) b.onclick = () => { off = false; save(); apply(); show(tab); };
+        $$('[data-orig]', app).forEach((x) => x.onclick = () => { off = false; apply(); show('orig', +x.dataset.orig); });
+        apply(); show(tab);
+      },
+    };
   }
 
   // Karopapier für Randnotizen: Striche als Punktlisten, damit Größe und Hell/Dunkel neu gezeichnet werden können
@@ -1234,7 +1290,7 @@
         <div class="task-head"><h2 id="task-h">${part.kind === 'WiSo' ? `Aufgabe ${task.number}` : `${task.number}. Aufgabe${task.title ? `: ${esc(task.title)}` : ''}`}</h2><span class="num">${task.points} Punkte</span></div>
         ${task.intro && part.kind !== 'WiSo' ? `<div class="task-intro">${nl(task.intro)}</div>` : ''}
         <div class="item-head"><p class="item-text">${item.label ? `<span class="item-label">${esc(item.label)}</span>` : ''}${nl(item.text)}</p><span class="item-points-inline">${ptsLabel(item.points)}</span></div>
-        ${figure}
+        ${figure}${item.page && !item.needs_figure && part.page_images && part.page_images.length ? `<p class="orig-link"><button type="button" class="btn sm quiet" data-orig="${item.page - 1}">Originalseite ${item.page} ansehen</button></p>` : ''}
         ${inner}
       </div>
       <aside class="rand" aria-label="Korrekturrand"><span>Korrekturrand</span><span class="pts">${fmtPts(item.points)}<small>${+item.points === 1 ? 'Punkt' : 'Punkte'}</small></span><span class="num">${idx + 1} / ${total}</span></aside>
@@ -1250,6 +1306,7 @@
     const stKey = `learn-pos-${sid}`;
     let pos = JSON.parse(sessionStorage.getItem(stKey) || 'null') || { part: view.session.part_order[0], item: null };
     if (!view.exam.parts.find((p) => p.id === pos.part)) pos.part = view.session.part_order[0];
+    const tools = workTools();
 
     const renderLearn = (focusSheet) => {
       const part = view.exam.parts.find((p) => p.id === pos.part);
@@ -1264,7 +1321,7 @@
       const isText = item.answer_type === 'text' || item.answer_type === 'table' || item.answer_type === 'sketch';
       const where = `${kindShort(part.kind)}, ${part.kind === 'WiSo' ? 'Aufgabe ' + task.number : task.number + ' ' + (item.label || '')}`;
       app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Lernmodus</span><h1>${esc(view.exam.title)}</h1></div>
-          <div class="actions">${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a></div></div>
+          <div class="actions">${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button></div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
         <div>
           ${sheetHtml(part, task, item, idx, items.length, `
@@ -1416,11 +1473,7 @@
         }
       };
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
-      if (!item.needs_figure && item.figure_pages && item.figure_pages.length && part.page_images && part.page_images.length) {
-        const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn sm quiet'; btn.textContent = `Originalseite ${item.figure_pages[0]}`;
-        btn.onclick = () => pageViewer(part.page_images, item.figure_pages[0] - 1, 'Originalseite');
-        $('.tool-row').insertBefore(btn, $('#save-state'));
-      }
+      tools.mount(part, item);
     };
     renderLearn(false);
   }
@@ -1434,6 +1487,7 @@
     const order = view.session.part_order;
     const stKey = `exam-pos-${sid}`;
     let pos = JSON.parse(sessionStorage.getItem(stKey) || 'null') || { item: null };
+    const tools = workTools();
 
     const currentPartId = () => order.find((pid) => !(view.session.parts.find((s) => s.part_id === pid) || {}).finished_at) || null;
 
@@ -1504,7 +1558,7 @@
       const answered = items.filter((x) => !answerIsEmpty(view.session.answers[answerKey(part.id, x.item.id)])).length;
       const where = `${part.kind === 'WiSo' ? 'Aufgabe ' + task.number : task.number + ' ' + (item.label || '')}`;
       app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Prüfung, Teil ${pi + 1} von ${order.length}</span><h1>${esc(part.title)}</h1></div>
-          <div class="actions"><span class="small muted"><span class="num">${answered} / ${items.length}</span> beantwortet</span><button type="button" class="btn danger" id="b-finish">Teil abgeben</button></div></div>
+          <div class="actions"><span class="small muted"><span class="num">${answered} / ${items.length}</span> beantwortet</span><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button><button type="button" class="btn danger" id="b-finish">Teil abgeben</button></div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
         <div>${sheetHtml(part, task, item, idx, items.length, `
           <div class="answer" id="answer-area">${renderAnswerInput(item, a, false)}</div>
@@ -1535,6 +1589,7 @@
       $('#b-next').onclick = async () => { await saveNow(); pos.item = items[idx + 1].item.id; render(true); };
       $('#b-finish').onclick = async () => { await saveNow(); finishPart(partId, false); };
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
+      tools.mount(part, item);
     };
     render(false);
   }
