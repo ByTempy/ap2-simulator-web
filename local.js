@@ -52,7 +52,11 @@
     B.encrypted = true; B.keyInfo = info;
     const stored = localStorage.getItem(LS.key);
     if (stored) {
-      try { await unlockWithRaw(b64(stored)); return { needsPassword: false }; } catch (e) { localStorage.removeItem(LS.key); }
+      // Schlüssel nur verwerfen, wenn er nicht mehr passt (neues Passwort); bei Lade- oder Netzfehlern behalten
+      try { await unlockWithRaw(b64(stored)); return { needsPassword: false }; } catch (e) {
+        if (e && e.name === 'OperationError') localStorage.removeItem(LS.key);
+        else throw new Error('Die Prüfungsdaten konnten gerade nicht geladen werden. Bitte die Seite neu laden');
+      }
     }
     return { needsPassword: true };
   }
