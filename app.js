@@ -341,7 +341,9 @@
     else if (rv.next) todo.push(`<li><span>Nichts fällig. Die nächste Wiederholung ist am ${new Date(rv.next).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })} dran.</span><span></span></li>`);
     if (weak) todo.push(`<li><span>Schwächstes Thema: ${esc(weak.topic)}, bisher ${Math.round(weak.ratio * 100)} % der Punkte</span><button type="button" class="btn sm" data-train="${esc(weak.topic)}">Thema üben</button></li>`);
     if (simDays === null || simDays >= 7) todo.push(`<li><span>${simDays === null ? 'Noch keine Prüfungssimulation abgeschlossen' : `Letzte Prüfungssimulation vor ${simDays} Tagen`}</span><a class="btn sm" href="#/exams">Prüfung simulieren</a></li>`);
-    todo.push('<li><span>Fünf Rechenaufgaben zu Subnetting, Spannungsfall und USV</span><a class="btn sm" href="#/rechnen">Rechentrainer</a></li>');
+    const drillDue = window.AP2Tools.drillDue(store.get('ap2.drill', {}), Date.now());
+    todo.push(drillDue.length ? `<li><span>Im Rechentrainer ${drillDue.length === 1 ? 'ist ein Aufgabentyp' : `sind ${drillDue.length} Aufgabentypen`} zur Wiederholung fällig: ${esc(drillDue.map((k) => window.AP2Tools.DRILLS[k].name).join(', '))}</span><a class="btn sm" href="#/rechnen" data-drill-due>Wiederholen</a></li>`
+      : '<li><span>Fünf Rechenaufgaben zu Subnetting, Spannungsfall und USV</span><a class="btn sm" href="#/rechnen">Rechentrainer</a></li>');
     if (sessions.length && (!lastBackup || Date.now() - Date.parse(lastBackup) > 14 * 864e5)) todo.push(`<li><span>${lastBackup ? `Letzte Sicherung am ${fmtDate(lastBackup)}` : 'Dein Fortschritt ist noch nicht gesichert'}</span><a class="btn sm" href="#/stats/daten">Sichern</a></li>`);
     const ready = prog.readiness.filter((r) => r.points !== null);
     return `<section class="sheet today" aria-labelledby="today-h">
@@ -359,6 +361,7 @@
     $('#h-date').onchange = (ev) => { const st = store.get('ap2.settings', {}); st.examDate = ev.target.value; store.set('ap2.settings', st); home(); };
     $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
     $$('[data-review]', app).forEach((b) => b.onclick = trainReview);
+    $$('[data-drill-due]', app).forEach((b) => b.onclick = () => { const s = store.get('ap2.settings', {}); s.drill = 'due'; store.set('ap2.settings', s); });
   }
   async function trainReview() {
     try {
@@ -955,9 +958,9 @@
   }
   async function drillView() {
     setNav('drill');
-    const T = window.AP2Tools; const st = store.get('ap2.settings', {});
+    const T = window.AP2Tools; const st = store.get('ap2.settings', {}); const due = T.drillDue(store.get('ap2.drill', {}), Date.now());
     app.innerHTML = `<div class="page-head"><div><h1>Rechentrainer</h1><p class="lede">Rechenaufgaben wie in den schriftlichen Bereichen, jedes Mal mit neuen Werten und mit Lösungsweg. Kommazahlen mit Komma oder Punkt, Toleranz etwa 1 %.</p></div>
-        <div class="actions"><label class="field" style="width:min(100%,22rem)"><span>Aufgabentyp</span><select class="input" id="r-type"><option value="">Gemischt</option>${Object.entries(T.DRILLS).map(([k, x]) => `<option value="${k}"${st.drill === k ? ' selected' : ''}>${esc(x.name)} (${kindShort(x.part)})</option>`).join('')}</select></label>
+        <div class="actions"><label class="field" style="width:min(100%,22rem)"><span>Aufgabentyp</span><select class="input" id="r-type"><option value="">Gemischt</option>${due.length || st.drill === 'due' ? `<option value="due"${st.drill === 'due' ? ' selected' : ''}>Fällige Wiederholungen (${due.length})</option>` : ''}${Object.entries(T.DRILLS).map(([k, x]) => `<option value="${k}"${st.drill === k ? ' selected' : ''}>${esc(x.name)} (${kindShort(x.part)})</option>`).join('')}</select></label>
         <button type="button" class="btn calc-toggle" id="r-calc-btn" aria-controls="r-calc"${st.calcOff ? '' : ' hidden'}>Taschenrechner einblenden</button></div></div>
       <div class="drill-wrap${st.calcOff ? '' : ' with-calc'}"><div class="drill-main"><form class="sheet drill" id="r-form" novalidate></form>
         <section class="pad" id="r-pad" aria-label="Karopapier für Notizen">
@@ -965,7 +968,9 @@
         </section></div>
       <aside class="calc" id="r-calc" aria-label="Taschenrechner"${st.calcOff ? ' hidden' : ''}></aside></div>`;
     const next = () => {
-      const type = $('#r-type').value || Object.keys(T.DRILLS)[Math.floor(Math.random() * Object.keys(T.DRILLS).length)];
+      const sel = $('#r-type').value, pool = sel === 'due' ? T.drillDue(store.get('ap2.drill', {}), Date.now()) : [];
+      const keys = pool.length ? pool : Object.keys(T.DRILLS);
+      const type = sel && sel !== 'due' ? sel : keys[Math.floor(Math.random() * keys.length)];
       const task = T.DRILLS[type].make(Math.random); let counted = false;
       const f = $('#r-form');
       const lv = T.DRILLS[type].level, lvName = ['Leicht', 'Mittel', 'Schwer'][lv - 1];
@@ -984,7 +989,7 @@
           s.className = `tag ${ok ? 'ok' : 'bad'}`; s.textContent = ok ? 'richtig' : `richtig wäre ${x.exact ?? T.de(x.value, 3)}${x.unit && !x.exact ? ' ' + x.unit : ''}`;
           $(`#r-f${i}`).toggleAttribute('aria-invalid', !ok);
         });
-        if (!counted) { counted = true; const d = store.get('ap2.drill', {}); const e = d[type] || (d[type] = { n: 0, ok: 0 }); e.n++; if (all) e.ok++; store.set('ap2.drill', d); }
+        if (!counted) { counted = true; const d = store.get('ap2.drill', {}); const e = d[type] || (d[type] = { n: 0, ok: 0 }); e.n++; if (all) e.ok++; T.drillReview(e, all, Date.now()); store.set('ap2.drill', d); }
         if (!all) $('#r-steps').open = true;
       };
       $('#r-next').onclick = next;
@@ -1151,8 +1156,9 @@
   }
 
   // Karopapier für Randnotizen: Striche als Punktlisten, damit Größe und Hell/Dunkel neu gezeichnet werden können
-  function drawPad(box) {
-    const cv = $('canvas', box), strokes = []; let tool = 'pen', cur = null;
+  // strokes und onChange nur bei Skizzen-Antworten: dort wird die Zeichnung mit der Antwort gespeichert (box.strokes)
+  function drawPad(box, strokes = [], onChange = () => {}) {
+    const cv = $('canvas', box); let tool = 'pen', cur = null; box.strokes = strokes;
     const pen = (s) => {
       const g = cv.getContext('2d'), d = cv.width / (cv.clientWidth || 1);
       g.setTransform(d, 0, 0, d, 0, 0); g.lineCap = g.lineJoin = 'round'; g.strokeStyle = getComputedStyle(cv).color;
@@ -1160,13 +1166,14 @@
     };
     const line = (s, from) => { const g = pen(s), p = s.pts; g.beginPath(); g.moveTo(...p[Math.max(0, from - 1)]); for (let k = from; k < p.length; k++) g.lineTo(...p[k]); if (p.length === 1) g.lineTo(p[0][0] + 0.1, p[0][1]); g.stroke(); };
     const paint = () => { if (!cv.isConnected) return; const d = window.devicePixelRatio || 1; cv.width = Math.round(cv.clientWidth * d); cv.height = Math.round(cv.clientHeight * d); strokes.forEach((s) => line(s, 0)); };
-    const at = (ev) => { const r = cv.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+    // shortcut: Punkte in CSS-Pixeln, auf einem deutlich schmaleren Gerät wird die Skizze rechts abgeschnitten; bei Bedarf relativ zur Breite speichern
+    const at = (ev) => { const r = cv.getBoundingClientRect(); return [Math.round(ev.clientX - r.left), Math.round(ev.clientY - r.top)]; };
     cv.onpointerdown = (ev) => { cv.setPointerCapture(ev.pointerId); cur = { erase: tool === 'erase' || ev.button === 5, pts: [at(ev)] }; strokes.push(cur); line(cur, 0); };
     cv.onpointermove = (ev) => { if (!cur) return; cur.pts.push(at(ev)); line(cur, cur.pts.length - 1); };
-    cv.onpointerup = cv.onpointercancel = () => { cur = null; };
+    cv.onpointerup = cv.onpointercancel = () => { if (cur) onChange(); cur = null; };
     $$('[data-pad]', box).forEach((b) => b.onclick = () => {
       const a = b.dataset.pad;
-      if (a === 'undo') { strokes.pop(); paint(); } else if (a === 'clear') { strokes.length = 0; paint(); }
+      if (a === 'undo') { strokes.pop(); paint(); onChange(); } else if (a === 'clear') { strokes.length = 0; paint(); onChange(); }
       else { tool = a; $$('[data-pad="pen"], [data-pad="erase"]', box).forEach((x) => x.setAttribute('aria-pressed', x === b)); }
     });
     new ResizeObserver(paint).observe(cv);
@@ -1194,7 +1201,7 @@
     return view.session.answers[answerKey(partId, itemId)] || { text: '', value: '', selected: [], cells: [], self_points: null, hints_used: 0, flagged: false };
   }
   function answerIsEmpty(a) {
-    return !a || (!(a.text || '').trim() && !(a.value || '').trim() && !(a.selected || []).length && !(a.cells || []).some((r) => r.some((c) => (c || '').trim())));
+    return !a || (!(a.text || '').trim() && !(a.value || '').trim() && !(a.selected || []).length && !(a.sketch || []).length && !(a.cells || []).some((r) => r.some((c) => (c || '').trim())));
   }
 
   function renderAnswerInput(item, a, readonly) {
@@ -1217,7 +1224,7 @@
         ${tab.rows.map((r, ri) => `<tr>${r.map((c, ci) => (c || '').trim() ? `<td>${nl(c)}</td>` : `<td><input type="text" class="input ans-cell" aria-label="${esc(tab.columns[ci] || 'Zelle')}, Zeile ${ri + 1}" data-r="${ri}" data-c="${ci}" value="${esc((cells[ri] || [])[ci] || '')}" ${ro}></td>`).join('')}</tr>`).join('')}</tbody></table></div>
         <label class="field"><span>Ergänzungen oder Begründung (optional)</span><textarea class="input ans-text" style="min-height:4.5rem" ${ro}>${esc(a.text)}</textarea></label>`;
     } else if (t === 'sketch') {
-      html += `<label class="field"><span>Skizze in Worten beschreiben</span><textarea class="input ans-text" ${ro}>${esc(a.text)}</textarea></label><p class="small muted">Zeichnen geht am besten auf dem ausgedruckten Bogen. Beschreibe die Skizze hier, damit du sie bewerten kannst.</p>`;
+      html += `${ro ? '' : `<section class="pad ans-pad" aria-label="Zeichenfläche für die Skizze">${padHtml()}</section>`}<label class="field"><span>Stichworte zur Skizze (für den Stichwort-Check)</span><textarea class="input ans-text" ${ro}>${esc(a.text)}</textarea></label><p class="small muted">Zeichne auf dem Karopapier, die Zeichnung wird mit der Antwort gespeichert. Die Stichworte nennen, was die Skizze zeigt, zum Beispiel Bauteile und Verbindungen.</p>`;
     } else {
       html += `<label class="field"><span>Deine Antwort</span><textarea class="input ans-text" placeholder="Stichworte genügen, wenn keine ganzen Sätze gefordert sind" ${ro}>${esc(a.text)}</textarea></label>`;
     }
@@ -1232,6 +1239,8 @@
     if (v) a.value = v.value;
     const tx = container.querySelector('.ans-text');
     if (tx) a.text = tx.value;
+    const pad = container.querySelector('.ans-pad');
+    if (pad) a.sketch = pad.strokes;
     if (t === 'table' && item.table) {
       a.cells = item.table.rows.map((r, ri) => r.map((c, ci) => {
         const inp = container.querySelector(`.ans-cell[data-r="${ri}"][data-c="${ci}"]`);
@@ -1367,6 +1376,7 @@
       // Antworten speichern (verzögert)
       let saveTimer = null;
       const area = $('#answer-area');
+      if (item.answer_type === 'sketch' && $('.ans-pad', area)) drawPad($('.ans-pad', area), getAnswer(view, part.id, item.id).sketch || [], () => area.dispatchEvent(new Event('change')));
       const save = async () => {
         const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id));
         view.session.answers[answerKey(part.id, item.id)] = ans;
@@ -1581,6 +1591,7 @@
       $$('[data-part]', app).forEach((b) => { if (b.dataset.part !== partId) b.disabled = true; });
       startTimer(partId);
       const area = $('#answer-area');
+      if (item.answer_type === 'sketch' && $('.ans-pad', area)) drawPad($('.ans-pad', area), getAnswer(view, part.id, item.id).sketch || [], () => area.dispatchEvent(new Event('change')));
       let saveTimer = null;
       const saveNow = async () => {
         const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id));

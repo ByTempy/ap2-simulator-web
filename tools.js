@@ -535,6 +535,18 @@
     return out.map((x) => ({ label: x.label.replace(/^\w/, (c) => c.toUpperCase()), points: x.points }));
   }
 
+  // Wiederholung im Rechentrainer: falsch gelöste Typen kommen sofort, dann nach 1, 3, 7 und 14 Tagen wieder (wie bei den Prüfungsaufgaben)
+  const REVIEW_DAYS = [0, 1, 3, 7, 14];
+  function drillReview(e, ok, now) {
+    if (!ok) { e.box = 0; e.due = now; }
+    else if (e.due !== undefined && e.due <= now) {
+      e.box++;
+      if (e.box < REVIEW_DAYS.length) e.due = now + REVIEW_DAYS[e.box] * 864e5; else { delete e.box; delete e.due; }
+    }
+    return e;
+  }
+  const drillDue = (d, now) => Object.keys(DRILLS).filter((k) => d[k] && d[k].due !== undefined && d[k].due <= now);
+
   // Selbsttest (Fehler landen in der Konsole)
   const assert = (c, m) => { if (!c) console.error('Selbsttest tools.js fehlgeschlagen:', m); };
   const sn = DRILLS.subnet.make(Math.random, { ip: ((192 << 24) | (168 << 16) | (50 << 8) | 17) >>> 0, prefix: 26 });
@@ -579,7 +591,10 @@
   assert(crit('2 Punkte', 2) === '' && crit('1 Punkt Faserdämpfung, 1 Punkt Stecker', 3) === '', 'Kriterien nur bei passender Summe');
   assert(crit('3 Punkte, je Nennung 1 Punkt', 3) === 'Nennung 1=1|Nennung 2=1|Nennung 3=1' && crit('4 Punkte (je 1 Punkt pro Ursache)', 4).split('|').length === 4, 'Kriterien nach Komma und in Klammern');
   assert(crit('2 Punkte: je 1 Punkt', 2) === 'Nennung 1=1|Nennung 2=1' && crit('3 Punkte (je richtigem Eintrag 1 Punkt)', 3) === 'Eintrag 1=1|Eintrag 2=1|Eintrag 3=1', 'Kriterien ohne Einheit');
+  const rv = drillReview({}, true, 0); drillReview(rv, false, 0); assert(rv.box === 0 && drillDue({ ohm: rv }, 0).join() === 'ohm', 'Wiederholung: Fehler fällig');
+  drillReview(rv, true, 0); drillReview(rv, true, 1); assert(rv.box === 1 && rv.due === 864e5 && !drillDue({ ohm: rv }, 1).length, 'Wiederholung: Stufe 1, vorher nicht weiter');
+  [1, 4, 11, 25].forEach((d) => drillReview(rv, true, d * 864e5)); assert(rv.box === undefined && rv.due === undefined, 'Wiederholung: gemeistert');
   assert(crit('4 Punkte (Grund 2 Punkte, Beschreibung 2 Punkte)', 4) === 'Grund=2|Beschreibung=2', 'Kriterien in Klammern');
 
-  window.AP2Tools = { DRILLS, calc, fmtNum, engNum, BASES, BASE_NAME, baseCalc, toBase, binGroups, checkField, num, de, AREAS, assess, decimalGrade, gradeWord, criteria, DOC_CHECKLIST, DOC_FORM, ANTRAG, TALK_OUTLINE, FG_QUESTIONS, markOps };
+  window.AP2Tools = { DRILLS, calc, fmtNum, engNum, BASES, BASE_NAME, baseCalc, toBase, binGroups, checkField, drillReview, drillDue, num, de, AREAS, assess, decimalGrade, gradeWord, criteria, DOC_CHECKLIST, DOC_FORM, ANTRAG, TALK_OUTLINE, FG_QUESTIONS, markOps };
 })();
