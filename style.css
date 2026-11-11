@@ -645,3 +645,7 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .ai-msg.assistant { max-width: 100%; }
 .ai-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xs); align-items: end; }
 .ai-quick { flex-wrap: wrap; }
+/* Stiftmodus: Felder nur als Umrandung, Finger scrollt (touch-action), Stift schreibt */
+.mark-page.pen { touch-action: pan-x pan-y pinch-zoom; cursor: crosshair; }
+.mark-page.pen .zone { pointer-events: none; }
+.mark-page.pen .mark-field.zone { outline: var(--rule-hair) dashed var(--color-pen); }

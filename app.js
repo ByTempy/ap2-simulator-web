@@ -1385,12 +1385,13 @@
   // damit alles bei jeder Breite an derselben Stelle steht. own = { boxes: [{ x, y, t, n }], strokes: [{ erase, pts, n }] } wird
   // verändert; others sind die Einträge anderer Teilaufgaben auf derselben Seite und werden nur angezeigt.
   // fields = [{ area, value }] sind die Eingabefelder der Teilaufgabe (Zellen, Antwortlinien); others = [{ marks, fields }]
-  function markPage(host, src, own, others, onChange, fields = []) {
-    host.innerHTML = `${padBar([['text', 'Text schreiben', '<path d="M5 7V5h14v2"/><path d="M12 5v14"/><path d="M9 19h6"/>']], 'Auf der Seite ausfüllen')}
-      <div class="mark-page"><img alt="Originalseite der Aufgabe" draggable="false"><canvas aria-hidden="true"></canvas><canvas aria-hidden="true"></canvas></div>
-      <p class="small muted">${fields.length ? 'In die umrandeten Felder klicken und die Antwort schreiben. Mit „Text schreiben“ geht es zusätzlich an jeder anderen Stelle der Seite.' : '„Text schreiben“ wählen, in die Seite klicken, zum Beispiel auf eine Antwortlinie, und tippen. Leere Felder verschwinden wieder.'}</p>`;
+  // pen = { target(x, y) -> { strokes, changed }, all() -> [strokes ...] }: Stiftmodus, jeder Strich gehört zum Feld, in dem er beginnt
+  function markPage(host, src, own, others, onChange, fields = [], pen = null) {
+    host.innerHTML = `${padBar(pen ? [] : [['text', 'Text schreiben', '<path d="M5 7V5h14v2"/><path d="M12 5v14"/><path d="M9 19h6"/>']], 'Auf der Seite ausfüllen')}
+      <div class="mark-page${pen ? ' pen' : ''}"><img alt="Originalseite der Aufgabe" draggable="false"><canvas aria-hidden="true"></canvas><canvas aria-hidden="true"></canvas></div>
+      <p class="small muted">${pen ? 'Mit dem Stift direkt in die Felder schreiben, mit dem Finger scrollen. Die Handschrift wird bei der Auswertung gelesen.' : fields.length ? 'In die umrandeten Felder klicken und die Antwort schreiben. Mit „Text schreiben“ geht es zusätzlich an jeder anderen Stelle der Seite.' : '„Text schreiben“ wählen, in die Seite klicken, zum Beispiel auf eine Antwortlinie, und tippen. Leere Felder verschwinden wieder.'}</p>`;
     const page = $('.mark-page', host), img = $('img', page), [cvO, cv] = $$('canvas', page);
-    let tool = 'text', cur = null;
+    let tool = pen ? 'pen' : 'text', cur = null, curTarget = null;
     const line = (c, s, from) => {
       const g = c.getContext('2d'), w = c.width, h = c.height, p = s.pts;
       g.lineCap = g.lineJoin = 'round'; g.strokeStyle = getComputedStyle(page).color; g.lineWidth = w * (s.erase ? 0.022 : 0.0022);
@@ -1415,11 +1416,13 @@
       if (!page.isConnected) return;
       page.style.setProperty('--u', `${page.clientWidth / 100}px`); page.style.setProperty('--ph', `${page.clientHeight}px`);
       [cvO, cv].forEach((c) => { c.width = page.clientWidth * (window.devicePixelRatio || 1); c.height = page.clientHeight * (window.devicePixelRatio || 1); });
-      others.forEach((o) => ((o.marks || {}).strokes || []).forEach((s) => line(cvO, s, 0))); own.strokes.forEach((s) => line(cv, s, 0));
+      others.forEach((o) => ((o.marks || {}).strokes || []).forEach((s) => line(cvO, s, 0)));
+      (pen ? pen.all() : [own.strokes]).forEach((list) => list.forEach((s) => line(cv, s, 0)));
     };
     others.forEach((o) => ((o.marks || {}).boxes || []).forEach((b) => box(b, true))); own.boxes.forEach((b) => box(b));
     // Antwortlinien (lh): Zeilenhöhe = Linienabstand, damit die Schrift auf den gedruckten Linien steht; Zellen: eine Zeile mittig
     const fieldEl = (f, ro) => {
+      if (pen && !ro) ro = true;  // Stiftmodus: Felder nur als Umrandung, geschrieben wird darüber
       if (f.area.tick) {  // Ankreuzfeld: Klick setzt oder entfernt das Kreuz
         const el = document.createElement(ro ? 'div' : 'button');
         el.className = `mark-tick${ro ? ' ro' : ''}`;
@@ -1431,13 +1434,15 @@
           el.onclick = () => { f.value = f.value ? '' : 'X'; show(); (f.onChange || onChange)(); };
           if (f.other) el.classList.add('other');
         }
-        show(); page.append(el); return el;
+        if (pen) el.classList.add('zone'); else show();  // im Stiftmodus zeigt die Tinte das Kreuz
+        page.append(el); return el;
       }
       const el = document.createElement(ro ? 'div' : 'textarea');
+      if (pen) el.classList.add('zone');
       el.className = `mark-field${ro ? ' ro' : ''}${f.area.lh ? ' lined' : ''}`;
       Object.assign(el.style, { left: `${f.area.x * 100}%`, top: `${f.area.y * 100}%`, width: `${f.area.w * 100}%`, height: `${f.area.h * 100}%` });
       el.style.setProperty('--lh', f.area.lh || Math.min(f.area.h, 0.03));
-      if (ro) el.textContent = f.value || '';
+      if (ro) el.textContent = pen ? '' : f.value || '';
       else {
         el.value = f.value || ''; el.spellcheck = false; el.setAttribute('aria-label', f.other ? `Antwortfeld zu ${f.other}` : 'Antwortfeld dieser Teilaufgabe');
         if (f.other) { el.classList.add('other'); el.title = `Gehört zu ${f.other}`; }
@@ -1447,13 +1452,22 @@
     };
     others.forEach((o) => (o.fields || []).forEach((f) => { if (f.value) fieldEl(f, true); }));
     const els = fields.map((f) => fieldEl(f)), mine = els.filter((e, i) => !fields[i].other);
+    if (pen) {
+      // Finger scrollt, Stift schreibt: Safari meldet den Apple Pencil als „stylus“, nur dann wird das Scrollen verhindert
+      page.addEventListener('touchstart', (ev) => { if ([...ev.touches].some((t) => t.touchType === 'stylus')) ev.preventDefault(); }, { passive: false });
+      page.addEventListener('touchmove', (ev) => { if ([...ev.touches].some((t) => t.touchType === 'stylus')) ev.preventDefault(); }, { passive: false });
+    }
     const at = (ev) => { const r = page.getBoundingClientRect(); return [+((ev.clientX - r.left) / r.width).toFixed(4), +((ev.clientY - r.top) / r.height).toFixed(4)]; };
     page.onpointerdown = (ev) => {
+      if (pen && ev.pointerType === 'touch') return;  // Finger: scrollen
       if (tool === 'text') {
         ev.preventDefault(); const [x, y] = at(ev);
         const b = { x, y: Math.max(0, y - 0.012), t: '', n: Date.now() }; own.boxes.push(b); box(b).focus(); return;
       }
-      page.setPointerCapture(ev.pointerId); cur = { erase: tool === 'erase' || ev.button === 5, pts: [at(ev)], n: Date.now() }; own.strokes.push(cur); line(cv, cur, 0);
+      const p0 = at(ev);
+      curTarget = pen ? pen.target(p0[0], p0[1]) : { strokes: own.strokes, changed: onChange };
+      try { page.setPointerCapture(ev.pointerId); } catch (e) { /* ohne Capture weiterzeichnen */ }
+      cur = { erase: tool === 'erase' || ev.button === 5, pts: [p0], n: Date.now() }; curTarget.strokes.push(cur); line(cv, cur, 0);
     };
     page.onpointermove = (ev) => {
       if (!cur) return;
@@ -1461,10 +1475,16 @@
       if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.0015) return;  // dichter als 1,5 ‰ der Seite bringt nichts, kostet aber Speicher
       cur.pts.push(p); line(cv, cur, cur.pts.length - 1);
     };
-    page.onpointerup = page.onpointercancel = () => { if (cur) onChange(); cur = null; };
+    page.onpointerup = page.onpointercancel = () => { if (cur) { if (curTarget.ratio) curTarget.ratio(page.clientHeight / page.clientWidth); curTarget.changed(); } cur = null; };
     $$('[data-pad]', host).forEach((b) => b.onclick = () => {
       const a = b.dataset.pad;
       if (a === 'undo' || a === 'clear') {
+        if (pen) {
+          // Stift: Rückgängig nimmt den letzten Strich auf der Seite, Leeren alle Striche der gewählten Teilaufgabe
+          if (a === 'clear') own.strokes.length = 0;
+          else { const lists = pen.all(); let best = null; lists.forEach((l) => { const s = l[l.length - 1]; if (s && (!best || s.n > best[1].n)) best = [l, s]; }); if (best) { best[0].pop(); const t = pen.target(...best[1].pts[0]); if (t) t.changed(); } }
+          paint(); onChange(); return;
+        }
         if (a === 'clear') { own.boxes.length = 0; own.strokes.length = 0; }
         else { const lb = own.boxes[own.boxes.length - 1], ls = own.strokes[own.strokes.length - 1]; if (lb && (!ls || lb.n > ls.n)) own.boxes.pop(); else own.strokes.pop(); }
         $$('textarea.mark-text', page).forEach((t) => t.remove()); own.boxes.forEach((x) => box(x)); paint(); onChange();
@@ -1484,15 +1504,31 @@
   const fieldValues = (item, a) => (item.fields || []).map((f, i) => (a.fields || [])[i] ?? (f.tick ? ((a.selected || []).includes(f.key) ? 'X' : '') : i === 0 && !a.fields && !a.marks ? (a.text || '') : ''));
   // Alle Felder der Seite sind beschreibbar; jedes gehört zu seiner Teilaufgabe. Text und Stift gehören zur gewählten Teilaufgabe.
   // collect(prev) liefert die Antwort der gewählten Teilaufgabe, others() die geänderten Antworten der übrigen auf dieser Seite.
+  const penMode = () => { const m = store.get('ap2.settings', {}).inputMode; return m ? m === 'pen' : matchMedia('(pointer: coarse)').matches; };
+  // Antwort aus Feldern, Kreuzen und Einträgen bilden (gemeinsam für Tastatur, Stift und Handschrift-Erkennung)
+  function answerFrom(it, all, marks, prev) {
+    // Kreuze zählen mit ihrer Bedeutung (Antwortmöglichkeit oder „Zeile: Spalte“), damit Stichworte und Lösung greifen
+    const text = [...all.map((f) => f.area.tick ? (f.value ? f.text || '' : '') : (f.value || '').trim()), ...((marks || {}).boxes || []).map((b) => b.t.trim()), (marks && marks.free) || ''].filter(Boolean).join('\n');
+    const ans = Object.assign({}, prev, { text });
+    if (marks) ans.marks = marks;
+    if (all.length) ans.fields = all.map((f) => f.value || '');
+    const keys = all.filter((f) => f.area.tick && f.area.key && f.value).map((f) => f.area.key);
+    if (all.some((f) => f.area.tick && f.area.key)) { ans.selected = keys; ans.value = keys.join(', '); return ans; }
+    const t = it.answer_type;
+    // shortcut: Ergebnis einer Rechenaufgabe = letzte Zahl im Geschriebenen; ein eigenes Ergebnisfeld wäre genauer
+    if (t === 'number') { const m = text.match(/-?\d+(?:[.,]\d+)*/g); ans.value = m ? m[m.length - 1] : ''; }
+    if (['choice', 'multi_choice', 'assignment', 'order'].includes(t)) { ans.value = text; ans.selected = []; }
+    return ans;
+  }
   function origAnswer(host, part, item, items, getA, onChange) {
-    const pg = origPage(item);
+    const pg = origPage(item), pen = penMode();
     const groups = items.filter((x) => x.item.id === item.id || (x.item.fields || []).some((f) => f.page === pg)).map((x) => {
       const it = x.item, a = getA(it.id), vals = fieldValues(it, a);
       const optText = (k) => ((it.options || []).find((o) => o.key === k) || {}).text;
-      return { it, a, dirty: false, all: (it.fields || []).map((f, i) => ({ area: f, value: vals[i], text: f.key ? optText(f.key) : f.label })) };
+      return { it, a, dirty: false, marks: JSON.parse(JSON.stringify(a.marks || { boxes: [], strokes: [] })), all: (it.fields || []).map((f, i) => ({ area: f, value: vals[i], text: f.key ? optText(f.key) : f.label })) };
     });
     const me = groups.find((g) => g.it.id === item.id);
-    const own = JSON.parse(JSON.stringify(me.a.marks || { boxes: [], strokes: [] }));
+    const own = me.marks;
     const fields = [];
     groups.forEach((g) => g.all.filter((f) => f.area.page === pg).forEach((f) => {
       if (g !== me) f.other = `Teilaufgabe ${g.it.label || g.it.id}`;
@@ -1500,24 +1536,83 @@
       fields.push(f);
     }));
     const others = items.filter((x) => x.item.id !== item.id && origPage(x.item) === pg).map((x) => ({ marks: getA(x.item.id).marks }));
-    const el = markPage(host, part.page_images[pg - 1], own, others, () => { me.dirty = true; onChange(); }, fields);
-    const build = (g, prev, marks) => {
-      // Kreuze zählen mit ihrer Bedeutung (Antwortmöglichkeit oder „Zeile: Spalte“), damit Stichworte und Lösung greifen
-      const text = [...g.all.map((f) => f.area.tick ? (f.value ? f.text || '' : '') : (f.value || '').trim()), ...((marks || {}).boxes || []).map((b) => b.t.trim())].filter(Boolean).join('\n');
-      const ans = Object.assign({}, prev, { text });
-      if (marks) ans.marks = marks;
-      if (g.all.length) ans.fields = g.all.map((f) => f.value || '');
-      const keys = g.all.filter((f) => f.area.tick && f.area.key && f.value).map((f) => f.area.key);
-      if (g.all.some((f) => f.area.tick && f.area.key)) { ans.selected = keys; ans.value = keys.join(', '); return ans; }
-      const t = g.it.answer_type;
-      // shortcut: Ergebnis einer Rechenaufgabe = letzte Zahl im Geschriebenen; ein eigenes Ergebnisfeld wäre genauer
-      if (t === 'number') { const m = text.match(/-?\d+(?:[.,]\d+)*/g); ans.value = m ? m[m.length - 1] : ''; }
-      if (['choice', 'multi_choice', 'assignment', 'order'].includes(t)) { ans.value = text; ans.selected = []; }
-      return ans;
-    };
-    const collect = (prev) => (me.dirty ? build(me, prev, own) : prev);
-    const changed = () => groups.filter((g) => g !== me && g.dirty).map((g) => { g.dirty = false; return [g.it.id, build(g, getA(g.it.id), g.a.marks)]; });
+    const inside = (f, x, y) => x >= f.area.x && x <= f.area.x + f.area.w && y >= f.area.y && y <= f.area.y + f.area.h;
+    const penCfg = pen ? {
+      target: (x, y) => { const f = fields.find((ff) => inside(ff, x, y)); const g = f ? groups.find((gg) => gg.all.includes(f)) : me; return { strokes: g.marks.strokes, changed: () => { g.dirty = true; onChange(); }, ratio: (r) => { g.marks.ar = +r.toFixed(4); } }; },
+      all: () => groups.map((g) => g.marks.strokes),
+    } : null;
+    const el = markPage(host, part.page_images[pg - 1], own, pen ? others : others, () => { me.dirty = true; onChange(); }, fields, penCfg);
+    const build = (g, prev) => answerFrom(g.it, g.all, g.marks, prev);
+    const collect = (prev) => (me.dirty ? build(me, prev) : prev);
+    const changed = () => groups.filter((g) => g !== me && g.dirty).map((g) => { g.dirty = false; return [g.it.id, build(g, getA(g.it.id))]; });
     return { collect, others: changed, field: el };
+  }
+
+  // ---------- Handschrift lesen (Stiftmodus) ----------
+  // Kreuze: Anteil Tinte im Kästchen. Text: Ausschnitt je Feld als Bild an eine KI mit Bilderkennung (Puter, Konto des Lernenden).
+  const strokeBox = (s) => { const xs = s.pts.map((p) => p[0]), ys = s.pts.map((p) => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+  function inkImage(strokes, r, W = 1400, ratio = 1.414) {
+    // r in Seitenanteilen; Seite W Pixel breit, Höhe aus dem Seitenformat
+    const H = W * ratio, pad = 0.004, x0 = Math.max(0, r[0] - pad), y0 = Math.max(0, r[1] - pad), x1 = r[2] + pad, y1 = r[3] + pad;
+    const c = document.createElement('canvas'); c.width = Math.max(8, Math.round((x1 - x0) * W)); c.height = Math.max(8, Math.round((y1 - y0) * H));
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.lineCap = g.lineJoin = 'round';
+    strokes.forEach((s) => {
+      g.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'; g.strokeStyle = '#000'; g.lineWidth = W * (s.erase ? 0.022 : 0.0026);
+      g.beginPath(); s.pts.forEach((p, i) => { const X = (p[0] - x0) * W, Y = (p[1] - y0) * H; if (i) g.lineTo(X, Y); else g.moveTo(X, Y); }); if (s.pts.length === 1) g.lineTo((s.pts[0][0] - x0) * W + 1, (s.pts[0][1] - y0) * H);
+      g.stroke();
+    });
+    g.globalCompositeOperation = 'destination-over'; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    return c;
+  }
+  const inkShare = (c) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] < 128) n++; return n / (d.length / 4); };
+  async function readInk(canvas) {
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+    const r = await window.puter.ai.chat('Auf dem Bild steht eine handschriftliche Antwort aus einer IHK-Prüfung (IT-Berufe). Gib den geschriebenen Text genau so wieder, wie er dasteht, mit Zeilenumbrüchen, ohne zu korrigieren oder zu erklären. Zahlen, Einheiten und Abkürzungen genau übernehmen. Steht nichts Lesbares da, antworte mit einem leeren Text.', new File([blob], 'antwort.png', { type: 'image/png' }));
+    const c = r && r.message ? r.message.content : r;
+    return (Array.isArray(c) ? c.map((x) => x.text || '').join('') : String(c || '')).trim();
+  }
+  async function puterReady(interactive) {
+    if (!window.puter) await new Promise((ok, fail) => { const sc = document.createElement('script'); sc.src = AI_PUTER; sc.onload = ok; sc.onerror = () => fail(new Error('Puter ist nicht erreichbar')); document.head.append(sc); });
+    if (!window.puter.auth.isSignedIn() && interactive) await window.puter.auth.signIn();
+    return window.puter.auth.isSignedIn();
+  }
+  // Liest die Striche einer Antwort neu, wenn sie sich seit dem letzten Lesen geändert haben; gibt die neue Antwort zurück oder null
+  async function penRead(it, a) {
+    const strokes = ((a && a.marks) || {}).strokes || [];
+    const stamp = strokes.length ? `${strokes.length}:${strokes[strokes.length - 1].n}` : '';
+    if (!stamp || a.ink === stamp) return null;
+    const ok = await puterReady(false).catch(() => false);
+    const vals = fieldValues(it, a), fs = it.fields || [];
+    const optText = (k) => ((it.options || []).find((o) => o.key === k) || {}).text;
+    const all = fs.map((f, i) => ({ area: f, value: vals[i], text: f.key ? optText(f.key) : f.label }));
+    const used = new Set(), ar = a.marks.ar || 1.414;  // Seitenverhältnis Höhe/Breite, quer gescannte Seiten < 1
+    for (const f of all) {
+      const mine = strokes.filter((s) => { const b = strokeBox(s), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2; return cx >= f.area.x && cx <= f.area.x + f.area.w && cy >= f.area.y && cy <= f.area.y + f.area.h; });
+      if (!mine.length) continue;
+      mine.forEach((s) => used.add(s));
+      const r = [f.area.x, f.area.y, f.area.x + f.area.w, f.area.y + f.area.h];
+      if (f.area.tick) { f.value = inkShare(inkImage(mine, r, 600, ar)) > 0.04 ? 'X' : ''; continue; }
+      if (ok) f.value = await readInk(inkImage(mine, r, 1400, ar));
+    }
+    const rest = strokes.filter((s) => !used.has(s) && !s.erase);
+    const marks = Object.assign({}, a.marks);
+    if (rest.length && ok) { const bs = rest.map(strokeBox); marks.free = await readInk(inkImage(rest, [Math.min(...bs.map((b) => b[0])), Math.min(...bs.map((b) => b[1])), Math.max(...bs.map((b) => b[2])), Math.max(...bs.map((b) => b[3]))], 1400, ar)); }
+    const ans = answerFrom(it, all, marks, a);
+    if (ok || !all.some((f) => !f.area.tick)) ans.ink = stamp;  // ohne Anmeldung nur Kreuze gelesen: beim nächsten Mal Text nachholen
+    return ans;
+  }
+  // alle Antworten eines Teils lesen und speichern (vor der Abgabe oder dem Stichwort-Check)
+  async function penReadAll(sid, view, part, onlyItem) {
+    const list = flatItems(part).map((x) => x.item).filter((it) => !onlyItem || it.id === onlyItem);
+    let n = 0, done = 0;
+    for (const it of list) {
+      const a = view.session.answers[answerKey(part.id, it.id)];
+      if (!a || !a.marks || !(a.marks.strokes || []).length) continue;
+      n++; toast(`Handschrift wird gelesen (${n})`);
+      try { const ans = await penRead(it, a); if (ans) { view.session.answers[answerKey(part.id, it.id)] = ans; await post(`/api/sessions/${sid}/answer`, { part: part.id, item: it.id, answer: ans }); done++; } }
+      catch (e) { toast(`Handschrift konnte nicht gelesen werden: ${e.message}`, true); }
+    }
+    return done;
   }
 
   // ---------- Bewertung nach Kriterien (aus dem Bewertungshinweis) ----------
@@ -1655,6 +1750,17 @@
     </article>`;
   }
 
+  // Eingabe umschalten; beim Wechsel auf Stift im selben Klick bei Puter anmelden (sonst blockiert der Browser das Fenster)
+  async function togglePen(saveFn, rerender) {
+    await saveFn();
+    const s = store.get('ap2.settings', {}), pen = !penMode(); s.inputMode = pen ? 'pen' : 'keys'; store.set('ap2.settings', s);
+    rerender();
+    if (pen) {
+      try { if (window.puter && !window.puter.auth.isSignedIn()) await window.puter.auth.signIn(); else if (!window.puter) { const ok = await puterReady(false); if (!ok) toast('Zum Lesen der Handschrift einmal bei Puter anmelden: im KI-Tab oder hier erneut auf „Eingabe“ tippen.'); } }
+      catch (e) { toast('Ohne Puter-Anmeldung werden nur Kreuze ausgewertet, keine Handschrift.', true); }
+    }
+  }
+
   // ---------- Lernmodus ----------
   async function learnView(sid) {
     setNav('exams');
@@ -1684,7 +1790,7 @@
       const canOrig = !!(origPage(item) && part.page_images && part.page_images[origPage(item) - 1]);
       const onOrig = canOrig && !store.get('ap2.settings', {}).learnText;
       app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Lernmodus</span><h1>${esc(view.exam.title)}</h1></div>
-          <div class="actions">${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button></div></div>
+          <div class="actions">${onOrig ? `<button type="button" class="btn sm" id="b-input" aria-pressed="${penMode()}">Eingabe: ${penMode() ? 'Stift' : 'Tastatur'}</button>` : ''}${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button></div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
         <div>
           ${sheetHtml(part, task, item, idx, items.length, `
@@ -1780,6 +1886,7 @@
       $('#b-check').onclick = async () => {
         await save();
         $('#b-check').disabled = true;
+        if (onOrig && penMode()) await penReadAll(sid, view, part, item.id);
         try {
           const r = await post(`/api/sessions/${sid}/check`, { part: part.id, item: item.id });
           const c = r.check;
@@ -1846,6 +1953,7 @@
       };
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
       if ($('#b-view')) $('#b-view').onclick = async () => { await save(); const s = store.get('ap2.settings', {}); s.learnText = onOrig; store.set('ap2.settings', s); renderLearn(true); };
+      if ($('#b-input')) $('#b-input').onclick = () => togglePen(save, () => renderLearn(true));
       tools.mount(part, item, collect);
       // erst jetzt: die Seite steht. Mit Antwortfeld dorthin, sonst auf derselben Seite die Stelle behalten
       if (focusSheet && orig && orig.field) orig.field.scrollIntoView({ block: 'center' });
@@ -1891,6 +1999,9 @@
       if (!auto && !confirm('Diesen Prüfungsteil abgeben? Danach lassen sich die Antworten nicht mehr ändern.')) return;
       try {
         stopTimer();
+        // Handschrift vor der Abgabe lesen, solange die Antworten noch geändert werden dürfen
+        const pp = view.exam.parts.find((p) => p.id === partId);
+        if (pp && Object.values(view.session.answers).some((a) => a && a.marks && (a.marks.strokes || []).length)) await penReadAll(sid, view, pp);
         view = await post(`/api/sessions/${sid}/finish-part`, { part: partId });
         state.view = view;
         pos = { item: null };
@@ -1936,7 +2047,7 @@
       const canOrig = !!(origPage(item) && part.page_images && part.page_images[origPage(item) - 1]);
       const onOrig = canOrig && !store.get('ap2.settings', {}).examText;
       app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Prüfung, Teil ${pi + 1} von ${order.length}</span><h1>${esc(part.title)}</h1></div>
-          <div class="actions"><span class="small muted"><span class="num">${answered} / ${items.length}</span> beantwortet</span>${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}<button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button><button type="button" class="btn danger" id="b-finish">Teil abgeben</button></div></div>
+          <div class="actions"><span class="small muted"><span class="num">${answered} / ${items.length}</span> beantwortet</span>${onOrig ? `<button type="button" class="btn sm" id="b-input" aria-pressed="${penMode()}">Eingabe: ${penMode() ? 'Stift' : 'Tastatur'}</button>` : ''}${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}<button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button><button type="button" class="btn danger" id="b-finish">Teil abgeben</button></div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
         <div>${sheetHtml(part, task, item, idx, items.length, `
           <div class="answer${onOrig ? ' mark-host' : ''}" id="answer-area">${onOrig ? '' : renderAnswerInput(item, a, false)}</div>
@@ -1973,6 +2084,7 @@
       $('#b-finish').onclick = async () => { await saveNow(); finishPart(partId, false); };
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
       if ($('#b-view')) $('#b-view').onclick = async () => { await saveNow(); const s = store.get('ap2.settings', {}); s.examText = onOrig; store.set('ap2.settings', s); render(true); };
+      if ($('#b-input')) $('#b-input').onclick = () => togglePen(saveNow, () => render(true));
       tools.mount(part, item);
       if (focusSheet && orig && orig.field) orig.field.scrollIntoView({ block: 'center' });
     };
