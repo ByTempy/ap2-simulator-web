@@ -18,19 +18,20 @@
   const fmtPts = (p) => (p === undefined || p === null) ? '–' : (Number.isInteger(+p) ? String(p) : String(+p).replace('.', ','));
   const ptsLabel = (p) => `${fmtPts(p)} ${+p === 1 ? 'Punkt' : 'Punkte'}`;
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '';
-  const kindLabel = (k) => ({ Teil1: 'Teil 1: Installation und Service', Teil2: 'Teil 2: Stromversorgung', WiSo: 'Teil 3: Wirtschafts- und Sozialkunde' }[k] || k);
-  const kindShort = (k) => ({ Teil1: 'Teil 1', Teil2: 'Teil 2', WiSo: 'WiSo' }[k] || k);
-  const seasonLabel = (e) => e.season === 'Winter' ? `Winter ${e.year}/${String(e.year + 1).slice(2)}` : `${e.season} ${e.year}`;
+  const kindLabel = (k) => ({ Teil1: 'Teil 1: Installation und Service', Teil2: 'Teil 2: Stromversorgung', WiSo: 'Teil 3: Wirtschafts- und Sozialkunde', AP1: 'AP1: Einrichten eines IT-gestützten Arbeitsplatzes' }[k] || k);
+  const kindShort = (k) => ({ Teil1: 'Teil 1', Teil2: 'Teil 2', WiSo: 'WiSo', AP1: 'AP1' }[k] || k);
+  const seasonLabel = (e) => e.season === 'Winter' ? `Winter ${e.year}/${String(e.year + 1).slice(2)}` : e.season === 'Beispiel' ? `Beispielaufgaben ${e.year}` : `${e.season} ${e.year}`;
   const gradeFor = (pct) => pct >= 92 ? 1 : pct >= 81 ? 2 : pct >= 67 ? 3 : pct >= 50 ? 4 : pct >= 30 ? 5 : 6;
   const examKind = (e) => e.id.startsWith('thema-') ? 'topic' : e.origin === 'generated' ? 'gen' : e.parts.length === 1 && e.parts[0].kind === 'WiSo' ? 'wiso' : 'real';
   // Originalprüfungen: notes sind Transkriptionsnotizen; angezeigt werden nur Termin und fehlende Teile
   const examNote = (e) => {
     if (examKind(e) !== 'real') return e.notes || '';
+    if (e.parts.some((p) => p.kind === 'AP1')) return 'Beispielaufgaben zu Teil 1 der Abschlussprüfung (AP1) für alle IT-Berufe, Institut für Bildungsanalysen Baden-Württemberg, mit Lösungsvorschlägen.';
     const date = ((e.notes || '').match(/^Prüfungstermin [^(]*\([^)]*\)\./) || [''])[0];
     const missing = [['Teil1', 'Teil 1 (Installation und Service)'], ['Teil2', 'Teil 2 (Stromversorgung)']].filter(([k]) => !e.parts.some((p) => p.kind === k)).map(([, l]) => l);
     return [date, missing.length ? `${missing.join(' und ')} liegt für diesen Termin nicht als Aufgabensatz vor.` : ''].filter(Boolean).join(' ');
   };
-  const examName = (e) => examKind(e) === 'real' ? `Abschlussprüfung ${seasonLabel(e)}` : examKind(e) === 'wiso' ? `WiSo ${seasonLabel(e)}` : e.title;
+  const examName = (e) => examKind(e) === 'real' && e.season === 'Beispiel' ? 'AP1 Beispielaufgaben (Baden-Württemberg)' : examKind(e) === 'real' ? `Abschlussprüfung ${seasonLabel(e)}` : examKind(e) === 'wiso' ? `WiSo ${seasonLabel(e)}` : e.title;
   const sessionHref = (s) => `#/${s.finished ? 'result' : (s.mode === 'exam' ? 'exam' : 'learn')}/${s.id}`;
   // Früher Server-PDF, jetzt Druckansicht im Browser („Drucken“ → „Als PDF speichern“)
   const pdfLink = (href, label) => {
