@@ -247,6 +247,7 @@
     [/^#\/stats(?:\/(verlauf|daten))?$/, statsView],
     [/^#\/noten$/, gradesView],
     [/^#\/rechnen$/, drillView],
+    [/^#\/fragen$/, quizView],
     [/^#\/projekt$/, projectView],
     [/^#\/archive(?:\/([a-z0-9-]+))?$/, archiveView],
     [/^#\/learn\/([^/]+)$/, learnView],
@@ -949,6 +950,36 @@
     };
     $('#fg-mode').onchange = show;
     allList(); show();
+  }
+
+  // ---------- Fachfragen (S.h.I.T. von Gerd Schiefer, data/fachfragen.json) ----------
+  async function quizView() {
+    setNav('quiz');
+    const ff = await api('/api/fachfragen'); const cats = ff.categories;
+    let on = new Set(store.get('ap2.settings', {}).ffCats || cats);
+    const count = (i) => ff.questions.filter((q) => q.cats.includes(i)).length;
+    app.innerHTML = `<div class="page-head"><div><h1>Fachfragen</h1><p class="lede">${ff.questions.length} Fragen wie im Fachgespräch und in den schriftlichen Teilen. Erst selbst antworten, dann die Lösung aufdecken.</p></div></div>
+      <div class="sheet fg-card" id="ff-card"></div>
+      <details class="disc" style="margin-top:var(--space-lg)"><summary>Kategorien</summary><div class="disc-body">
+        <div class="actions"><button type="button" class="btn sm" data-ff-all="0">Keine</button><button type="button" class="btn sm" data-ff-all="1">Alle</button></div>
+        <div class="ff-cats">${cats.map((c, i) => !count(i) ? '' : `<label class="check"><input type="checkbox" data-ff="${i}"${on.has(c) ? ' checked' : ''}><span>${esc(c)} <span class="small muted">${count(i)}</span></span></label>`).join('')}</div></div></details>
+      ${ff.source ? `<p class="small muted" style="margin-top:var(--space-lg)">Fragen und Antworten aus <a href="${esc(ff.source.url)}" target="_blank" rel="noopener">S.h.I.T.</a> von ${esc(ff.source.author)}, abgerufen am ${esc(ff.source.date)}. Die Verwendung ist laut Autor frei.</p>` : ''}`;
+    let cur = null;
+    const show = () => {
+      const pool = ff.questions.filter((q) => q.cats.some((i) => on.has(cats[i]))); const card = $('#ff-card');
+      if (!pool.length) { card.innerHTML = '<p class="empty">Keine Kategorie gewählt. Wähle unter „Kategorien“ mindestens eine aus.</p>'; return; }
+      const rest = pool.length > 1 ? pool.filter((q) => q !== cur) : pool; cur = rest[Math.floor(Math.random() * rest.length)];
+      card.innerHTML = `<p class="tag">${esc(cur.cats.map((i) => cats[i]).join(', '))}</p><p class="fg-q">${nl(cur.q)}</p>
+        <div class="actions"><button type="button" class="btn primary" id="ff-show" aria-expanded="false" aria-controls="ff-a">Lösung zeigen</button><button type="button" class="btn" id="ff-next">Neue Frage</button></div>
+        <div class="ff-answer prose" id="ff-a" hidden><p>${nl(cur.a)}</p></div>
+        <p class="small muted" style="margin-top:var(--space-md)">Frage ${pool.indexOf(cur) + 1} von ${pool.length} in deiner Auswahl</p>`;
+      $('#ff-show').onclick = (ev) => { const a = $('#ff-a'); a.hidden = !a.hidden; ev.target.setAttribute('aria-expanded', !a.hidden); ev.target.textContent = a.hidden ? 'Lösung zeigen' : 'Lösung ausblenden'; };
+      $('#ff-next').onclick = show;
+    };
+    const saveCats = () => { const s = store.get('ap2.settings', {}); s.ffCats = [...on]; store.set('ap2.settings', s); show(); };
+    $$('[data-ff]', app).forEach((c) => c.onchange = () => { const n = cats[c.dataset.ff]; if (c.checked) on.add(n); else on.delete(n); saveCats(); });
+    $$('[data-ff-all]', app).forEach((b) => b.onclick = () => { const all = b.dataset.ffAll === '1'; on = new Set(all ? cats : []); $$('[data-ff]', app).forEach((c) => { c.checked = all; }); saveCats(); });
+    show();
   }
 
   // ---------- Rechentrainer ----------
@@ -1726,11 +1757,11 @@
     app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Alle Originalprüfungen als Seiten zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
         <div class="actions" style="align-items:end">
           <label class="field" style="width:min(100%,20rem)"><span>Beruf</span><select class="input" id="a-beruf">${[...main, ...others].filter((b) => counts[b]).map((b) => `<option value="${BERUF_SLUG(b)}" ${b === beruf ? 'selected' : ''}>${esc(b)} (${counts[b]})</option>`).join('')}</select></label>
-          <label class="field" style="width:min(100%,12rem)"><span>Termin filtern</span><input class="input" type="search" id="a-search" autocomplete="off" placeholder="2019"></label>
+          <label class="field" style="width:min(100%,12rem)"><span>Termin filtern</span><input class="input" type="search" id="a-search" autocomplete="off" placeholder="2019 oder AP1"></label>
         </div></div>
       ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
       ${list.some((d) => bookNote(d)) ? '<div class="note warn"><h3>Bis Winter 2012/13 war ein Fachbuch erlaubt</h3><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></div>' : ''}
-      <section class="section" id="a-list">${keys.map((k) => { const [, termin, ordnung] = k.split('|'); return `<details class="disc" data-term="${esc(termin.toLowerCase())}"><summary>${esc(termin)}<span class="tag">${ordnung === 'AO1997' ? 'alte Ordnung' : 'Ordnung 2020'}, ${terms[k].length} ${terms[k].length === 1 ? 'Dokument' : 'Dokumente'}</span></summary><div class="disc-body"><table class="t stack"><thead><tr><th>Teil</th><th>Dokument</th><th class="num">Seiten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${terms[k].map(docRow).join('')}</tbody></table></div></details>`; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</section>
+      <section class="section" id="a-list">${keys.map((k) => { const [, termin, ordnung] = k.split('|'); const ap = [...new Set(terms[k].map((d) => d.pruefung))].filter((x) => x === 'AP1' || x === 'AP2'); return `<details class="disc" data-term="${esc(`${termin} ${ap.join(' ')}`.toLowerCase())}"><summary>${esc(termin)}${ap.map((x) => `<span class="tag chip${x === 'AP2' ? ' accent' : ''}">${x}</span>`).join('')}<span class="tag">${ordnung === 'AO1997' ? 'alte Ordnung' : 'Ordnung 2020'}, ${terms[k].length} ${terms[k].length === 1 ? 'Dokument' : 'Dokumente'}</span></summary><div class="disc-body"><table class="t stack"><thead><tr><th>Teil</th><th>Dokument</th><th class="num">Seiten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${terms[k].map(docRow).join('')}</tbody></table></div></details>`; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</section>
       <p class="empty" id="a-none" hidden>Kein Termin passt zum Filter.</p>`;
     $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
     const byId = Object.fromEntries(docs.map((d) => [d.id, d]));

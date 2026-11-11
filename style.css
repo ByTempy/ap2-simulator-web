@@ -589,3 +589,10 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
 .level-bars i { width: 5px; height: 11px; border: 1px solid currentColor; box-sizing: border-box; }
 .level-bars i.on { background: currentColor; }
 .drill-top .tag { white-space: normal; min-width: 0; }
+
+/* Fachfragen */
+.ff-cats { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 0 var(--space-md); margin-top: var(--space-sm); }
+.ff-answer { margin-top: var(--space-md); padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--color-rule); max-width: 70ch; }
+
+/* Prüfungsart als Marke am Termin (Archiv) */
+.tag.chip { padding: 1px var(--space-2xs); border: var(--rule-hair) solid currentColor; border-radius: var(--radius-card); }

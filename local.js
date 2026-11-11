@@ -493,6 +493,7 @@
     if (p === '/api/bank/summary') return B.data.banks.map((b) => { const c = {}; b.blocks.forEach((x) => { c[x.cluster] = (c[x.cluster] || 0) + 1; }); b.items.forEach((x) => { const k = (x.topics || [])[0] || ''; c[k] = (c[k] || 0) + 1; }); return { kind: b.kind, blocks: b.blocks.length, items: b.items.length, clusters: Object.entries(c).sort() }; });
     if (p === '/api/topics') return B.data.topics;
     if (p === '/api/wiki') return B.data.wiki || [];
+    if (p === '/api/fachfragen') return B.data.fachfragen || { categories: [], questions: [] };
     if (p === '/api/topic-counts') { const c = {}; B.data.exams.forEach((e) => e.parts.forEach((pp) => pp.tasks.forEach((t) => t.items.forEach((i) => (i.topics || []).forEach((tp) => { c[tp] = (c[tp] || 0) + 1; }))))); return Object.entries(c).map(([topic, items]) => ({ topic, items })).sort((a, b) => a.topic.localeCompare(b.topic)); }
     if (p === '/api/topic-exam') return summarize(topicExam(body || {}));
     if (p === '/api/topic-analysis') return topicAnalysis();
