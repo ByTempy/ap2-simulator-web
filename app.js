@@ -1139,9 +1139,22 @@
   const TOOL_TABS = [['calc', 'Rechner'], ['pad', 'Notizen'], ['beleg', 'Belegsatz'], ['orig', 'Original'], ['ki', 'KI']];
 
   // ---------- KI-Lernpartner im Browser (WebLLM, WebGPU): kein Schlüssel, nach dem ersten Laden offline, nichts verlässt das Gerät ----------
+  // Mit Grafikkarte (WebGPU) über WebLLM, sonst nur mit dem Prozessor über wllama (llama.cpp als WebAssembly, läuft auch in Firefox)
   const AI_LIB = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.84/+esm';
-  const AI_MODELS = [['Qwen2.5-1.5B-Instruct-q4f16_1-MLC', 'Klein, schnell (etwa 1,6 GB)'], ['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Mittel, besser (etwa 2,5 GB)'], ['Qwen2.5-7B-Instruct-q4f16_1-MLC', 'Groß, am besten (etwa 5 GB, starke Grafikkarte)']];
-  const ai = { engine: null, model: null, loading: null, chats: new Map() };
+  const AI_CPU_LIB = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/esm/index.js';
+  const AI_CPU_WASM = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/esm/wasm/wllama.wasm';
+  const AI_MODELS = [
+    { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', gpu: true, label: 'Grafikkarte: klein, schnell (etwa 1,6 GB)' },
+    { id: 'Qwen2.5-3B-Instruct-q4f16_1-MLC', gpu: true, label: 'Grafikkarte: mittel, besser (etwa 2,5 GB)' },
+    { id: 'Qwen2.5-7B-Instruct-q4f16_1-MLC', gpu: true, label: 'Grafikkarte: groß, am besten (etwa 5 GB)' },
+    { id: 'cpu-0.5b', repo: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', file: 'qwen2.5-0.5b-instruct-q4_k_m.gguf', label: 'Nur Prozessor: klein, flott (etwa 0,5 GB)' },
+    { id: 'cpu-1.5b', repo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', file: 'qwen2.5-1.5b-instruct-q4_k_m.gguf', label: 'Nur Prozessor: besser, langsamer (etwa 1,1 GB)' },
+  ];
+  const ai = { engine: null, model: null, loading: null, gpu: undefined, chats: new Map() };
+  // einheitlich: Antwort als Folge von Textstücken
+  const aiStream = (msgs) => ai.engine.wllama
+    ? ai.engine.wllama.createChatCompletion({ messages: msgs, stream: true, temperature: 0.4, max_tokens: 500 })
+    : ai.engine.chat.completions.create({ messages: msgs, stream: true, temperature: 0.4, max_tokens: 600 });
   const aiPrompt = (item, ans) => [
     'Du bist ein geduldiger Lernpartner für die IHK-Abschlussprüfung der IT-System-Elektroniker/-innen. Antworte immer auf Deutsch, kurz, klar und fachlich korrekt.',
     'Stütze dich auf die offizielle Lösung unten. Wenn du etwas nicht sicher weißt, sag das, statt zu raten. Verrate die Lösung nicht ungefragt, wenn der Lernende noch übt: gib dann Hinweise und stelle Rückfragen.',
@@ -1154,14 +1167,15 @@
     ['Abfragen', 'Stell mir eine Verständnisfrage zum Thema dieser Aufgabe und warte auf meine Antwort.']];
   function aiPanel(box, getCtx) {
     const st = store.get('ap2.settings', {});
-    if (!navigator.gpu) {
-      box.innerHTML = '<p class="small">Die KI läuft direkt im Browser und braucht WebGPU. Dieser Browser unterstützt das nicht. Am besten geht es mit einem aktuellen Chrome oder Edge am PC.</p>';
-      return () => {};
-    }
+    if (ai.gpu === undefined) { ai.gpu = null; (navigator.gpu ? navigator.gpu.requestAdapter().catch(() => null) : Promise.resolve(null)).then((a) => { ai.gpu = !!a; render(); }); }
     const render = () => {
       if (!ai.engine) {
+        if (ai.gpu === null) { box.innerHTML = '<p class="small muted">Prüfe, was dieses Gerät kann …</p>'; return; }
+        const models = AI_MODELS.filter((m) => ai.gpu || !m.gpu);
+        const pick = models.find((m) => m.id === st.aiModel) ? st.aiModel : models[0].id;
         box.innerHTML = `<p class="small">Lernpartner, der die Aufgabe und die offizielle Lösung kennt. Er läuft komplett auf deinem Gerät, ohne Konto und ohne Schlüssel. Beim ersten Mal wird das Modell einmalig geladen und danach im Browser gespeichert.</p>
-          <label class="field" style="margin-top:var(--space-sm)"><span>Modell</span><select class="input" id="ai-model">${AI_MODELS.map(([id, l]) => `<option value="${id}"${(st.aiModel || AI_MODELS[0][0]) === id ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+          ${ai.gpu ? '' : '<p class="small">Hier gibt es keine nutzbare Grafikkarte (WebGPU). Die KI läuft deshalb nur mit dem Prozessor: das geht in jedem aktuellen Browser, antwortet aber langsamer, oft ein paar Wörter pro Sekunde.</p>'}
+          <label class="field" style="margin-top:var(--space-sm)"><span>Modell</span><select class="input" id="ai-model">${models.map((m) => `<option value="${m.id}"${pick === m.id ? ' selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
           <div class="actions" style="margin-top:var(--space-sm)"><button type="button" class="btn primary" id="ai-load"${ai.loading ? ' disabled' : ''}>KI laden</button></div>
           <p class="small muted" id="ai-progress" role="status">${ai.loading ? 'Wird geladen …' : ''}</p>
           <p class="small muted">Kleine Modelle können sich irren. Im Zweifel gilt die offizielle Lösung.</p>`;
@@ -1173,7 +1187,7 @@
       box.innerHTML = `<div class="ai-log" id="ai-log" aria-live="polite">${log.length ? log.map((m) => `<div class="ai-msg ${m.role}"><span class="small muted">${m.role === 'user' ? 'Du' : 'KI'}</span><p>${nl(m.content)}</p></div>`).join('') : '<p class="small muted">Frag etwas zu dieser Teilaufgabe oder nutze einen Knopf.</p>'}</div>
         <div class="actions ai-quick">${AI_ACTIONS.map(([l], i) => `<button type="button" class="btn sm" data-ai="${i}">${l}</button>`).join('')}</div>
         <form id="ai-form" class="ai-form"><label class="visually-hidden" for="ai-in">Nachricht an die KI</label><textarea class="input" id="ai-in" rows="2" placeholder="Deine Frage oder Antwort"></textarea><button type="submit" class="btn primary sm">Senden</button></form>
-        <p class="small muted">${esc((AI_MODELS.find((m) => m[0] === ai.model) || [, ai.model])[1])}, läuft lokal. <button type="button" class="btn sm quiet" id="ai-reset">Gespräch neu</button></p>`;
+        <p class="small muted">${esc((AI_MODELS.find((m) => m.id === ai.model) || { label: ai.model }).label)}, läuft lokal. <button type="button" class="btn sm quiet" id="ai-reset">Gespräch neu</button></p>`;
       const lg = $('#ai-log', box); lg.scrollTop = lg.scrollHeight;
       $$('[data-ai]', box).forEach((b) => b.onclick = () => ask(AI_ACTIONS[+b.dataset.ai][1]));
       $('#ai-form', box).onsubmit = (ev) => { ev.preventDefault(); const t = $('#ai-in', box).value.trim(); if (t) ask(t); };
@@ -1182,10 +1196,19 @@
     };
     const load = async () => {
       const model = $('#ai-model', box).value; const s = store.get('ap2.settings', {}); s.aiModel = model; store.set('ap2.settings', s);
+      const m = AI_MODELS.find((x) => x.id === model);
       ai.loading = true; render();
+      const say = (t) => { const p = $('#ai-progress', box); if (p) p.textContent = t; };
       try {
-        const webllm = await import(AI_LIB);
-        ai.engine = await webllm.CreateMLCEngine(model, { initProgressCallback: (r) => { const p = $('#ai-progress', box); if (p) p.textContent = r.text; } });
+        if (m.gpu) {
+          const webllm = await import(AI_LIB);
+          ai.engine = await webllm.CreateMLCEngine(model, { initProgressCallback: (r) => say(r.text) });
+        } else {
+          const { Wllama } = await import(AI_CPU_LIB);
+          const w = new Wllama({ default: AI_CPU_WASM });
+          await w.loadModelFromHF({ repo: m.repo, file: m.file }, { n_ctx: 4096, progressCallback: ({ loaded, total }) => say(`Lade Modell: ${Math.round(loaded / 1e6)} von ${Math.round(total / 1e6)} MB`) });
+          ai.engine = { wllama: w };
+        }
         ai.model = model;
       } catch (e) { ai.engine = null; toast(`KI konnte nicht geladen werden: ${e.message}`, true); }
       ai.loading = null; render();
@@ -1199,7 +1222,7 @@
       const out = $$('.ai-msg.assistant p', box).pop();
       try {
         const msgs = [{ role: 'system', content: aiPrompt(item, answer()) }, ...log.slice(-10, -1).map((m) => ({ role: m.role, content: m.content }))];
-        const chunks = await ai.engine.chat.completions.create({ messages: msgs, stream: true, temperature: 0.4, max_tokens: 600 });
+        const chunks = await aiStream(msgs);
         for await (const c of chunks) { reply.content += (c.choices[0] && c.choices[0].delta && c.choices[0].delta.content) || ''; if (out && out.isConnected) { out.innerHTML = nl(reply.content); const lg = $('#ai-log', box); if (lg) lg.scrollTop = lg.scrollHeight; } }
       } catch (e) { reply.content = `Fehler: ${e.message}`; }
       busy = false; render();
