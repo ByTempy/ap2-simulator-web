@@ -1264,7 +1264,8 @@
         if (!ro) {
           el.type = 'button'; el.setAttribute('aria-label', `Ankreuzen: ${f.text || f.area.label || f.area.key}`);
           el.onpointerdown = (ev) => ev.stopPropagation();
-          el.onclick = () => { f.value = f.value ? '' : 'X'; show(); onChange(); };
+          el.onclick = () => { f.value = f.value ? '' : 'X'; show(); (f.onChange || onChange)(); };
+          if (f.other) el.classList.add('other');
         }
         show(); page.append(el); return el;
       }
@@ -1273,11 +1274,15 @@
       Object.assign(el.style, { left: `${f.area.x * 100}%`, top: `${f.area.y * 100}%`, width: `${f.area.w * 100}%`, height: `${f.area.h * 100}%` });
       el.style.setProperty('--lh', f.area.lh || Math.min(f.area.h, 0.03));
       if (ro) el.textContent = f.value || '';
-      else { el.value = f.value || ''; el.spellcheck = false; el.setAttribute('aria-label', 'Antwortfeld dieser Teilaufgabe'); el.oninput = () => { f.value = el.value; onChange(); }; el.onpointerdown = (ev) => ev.stopPropagation(); }
+      else {
+        el.value = f.value || ''; el.spellcheck = false; el.setAttribute('aria-label', f.other ? `Antwortfeld zu ${f.other}` : 'Antwortfeld dieser Teilaufgabe');
+        if (f.other) { el.classList.add('other'); el.title = `Gehört zu ${f.other}`; }
+        el.oninput = () => { f.value = el.value; (f.onChange || onChange)(); }; el.onpointerdown = (ev) => ev.stopPropagation();
+      }
       page.append(el); return el;
     };
     others.forEach((o) => (o.fields || []).forEach((f) => { if (f.value) fieldEl(f, true); }));
-    const mine = fields.map((f) => fieldEl(f));
+    const els = fields.map((f) => fieldEl(f)), mine = els.filter((e, i) => !fields[i].other);
     const at = (ev) => { const r = page.getBoundingClientRect(); return [+((ev.clientX - r.left) / r.width).toFixed(4), +((ev.clientY - r.top) / r.height).toFixed(4)]; };
     page.onpointerdown = (ev) => {
       if (tool === 'text') {
@@ -1308,30 +1313,42 @@
   const origPage = (item) => (item.fields && item.fields.length && item.fields[0].page) || item.page;
   // Feldinhalte einer Antwort; eine Antwort aus der Textfassung landet im ersten Feld
   const fieldValues = (item, a) => (item.fields || []).map((f, i) => (a.fields || [])[i] ?? (f.tick ? ((a.selected || []).includes(f.key) ? 'X' : '') : i === 0 && !a.fields && !a.marks ? (a.text || '') : ''));
+  // Alle Felder der Seite sind beschreibbar; jedes gehört zu seiner Teilaufgabe. Text und Stift gehören zur gewählten Teilaufgabe.
+  // collect(prev) liefert die Antwort der gewählten Teilaufgabe, others() die geänderten Antworten der übrigen auf dieser Seite.
   function origAnswer(host, part, item, items, getA, onChange) {
-    const a = getA(item.id), pg = origPage(item);
-    const own = JSON.parse(JSON.stringify(a.marks || { boxes: [], strokes: [] }));
-    const vals = fieldValues(item, a);
-    const optText = (k) => ((item.options || []).find((o) => o.key === k) || {}).text;
-    const all = (item.fields || []).map((f, i) => ({ area: f, value: vals[i], text: f.key ? optText(f.key) : f.label })), fields = all.filter((f) => f.area.page === pg);
-    const others = items.filter((x) => x.item.id !== item.id && origPage(x.item) === pg).map((x) => { const o = getA(x.item.id), v = o.fields || []; return { marks: o.marks, fields: (x.item.fields || []).map((f, i) => ({ area: f, value: v[i] })).filter((f) => f.area.page === pg) }; });
-    let dirty = false;
-    const el = markPage(host, part.page_images[pg - 1], own, others, () => { dirty = true; onChange(); }, fields);
-    const collect = (prev) => {
-      if (!dirty) return prev;
+    const pg = origPage(item);
+    const groups = items.filter((x) => x.item.id === item.id || (x.item.fields || []).some((f) => f.page === pg)).map((x) => {
+      const it = x.item, a = getA(it.id), vals = fieldValues(it, a);
+      const optText = (k) => ((it.options || []).find((o) => o.key === k) || {}).text;
+      return { it, a, dirty: false, all: (it.fields || []).map((f, i) => ({ area: f, value: vals[i], text: f.key ? optText(f.key) : f.label })) };
+    });
+    const me = groups.find((g) => g.it.id === item.id);
+    const own = JSON.parse(JSON.stringify(me.a.marks || { boxes: [], strokes: [] }));
+    const fields = [];
+    groups.forEach((g) => g.all.filter((f) => f.area.page === pg).forEach((f) => {
+      if (g !== me) f.other = `Teilaufgabe ${g.it.label || g.it.id}`;
+      f.onChange = () => { g.dirty = true; onChange(); };
+      fields.push(f);
+    }));
+    const others = items.filter((x) => x.item.id !== item.id && origPage(x.item) === pg).map((x) => ({ marks: getA(x.item.id).marks }));
+    const el = markPage(host, part.page_images[pg - 1], own, others, () => { me.dirty = true; onChange(); }, fields);
+    const build = (g, prev, marks) => {
       // Kreuze zählen mit ihrer Bedeutung (Antwortmöglichkeit oder „Zeile: Spalte“), damit Stichworte und Lösung greifen
-      const text = [...all.map((f) => f.area.tick ? (f.value ? f.text || '' : '') : (f.value || '').trim()), ...own.boxes.map((b) => b.t.trim())].filter(Boolean).join('\n');
-      const ans = Object.assign({}, prev, { marks: own, text });
-      if (all.length) ans.fields = all.map((f) => f.value || '');
-      const keys = all.filter((f) => f.area.tick && f.area.key && f.value).map((f) => f.area.key);
-      if (all.some((f) => f.area.tick && f.area.key)) { ans.selected = keys; ans.value = keys.join(', '); return ans; }
-      const t = item.answer_type;
+      const text = [...g.all.map((f) => f.area.tick ? (f.value ? f.text || '' : '') : (f.value || '').trim()), ...((marks || {}).boxes || []).map((b) => b.t.trim())].filter(Boolean).join('\n');
+      const ans = Object.assign({}, prev, { text });
+      if (marks) ans.marks = marks;
+      if (g.all.length) ans.fields = g.all.map((f) => f.value || '');
+      const keys = g.all.filter((f) => f.area.tick && f.area.key && f.value).map((f) => f.area.key);
+      if (g.all.some((f) => f.area.tick && f.area.key)) { ans.selected = keys; ans.value = keys.join(', '); return ans; }
+      const t = g.it.answer_type;
       // shortcut: Ergebnis einer Rechenaufgabe = letzte Zahl im Geschriebenen; ein eigenes Ergebnisfeld wäre genauer
       if (t === 'number') { const m = text.match(/-?\d+(?:[.,]\d+)*/g); ans.value = m ? m[m.length - 1] : ''; }
       if (['choice', 'multi_choice', 'assignment', 'order'].includes(t)) { ans.value = text; ans.selected = []; }
       return ans;
     };
-    return { collect, field: el };
+    const collect = (prev) => (me.dirty ? build(me, prev, own) : prev);
+    const changed = () => groups.filter((g) => g !== me && g.dirty).map((g) => { g.dirty = false; return [g.it.id, build(g, getA(g.it.id), g.a.marks)]; });
+    return { collect, others: changed, field: el };
   }
 
   // ---------- Bewertung nach Kriterien (aus dem Bewertungshinweis) ----------
@@ -1543,8 +1560,11 @@
         const ans = collect();
         view.session.answers[answerKey(part.id, item.id)] = ans;
         setSave('speichert …');
-        try { await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans }); setSave('gespeichert'); }
-        catch (e) { setSave('Nicht gespeichert: ' + e.message); }
+        try {
+          await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans });
+          for (const [iid, oa] of orig ? orig.others() : []) { view.session.answers[answerKey(part.id, iid)] = oa; await post(`/api/sessions/${sid}/answer`, { part: part.id, item: iid, answer: oa }); }
+          setSave('gespeichert');
+        } catch (e) { setSave('Nicht gespeichert: ' + e.message); }
       };
       area.addEventListener('input', () => { clearTimeout(saveTimer); setSave('…'); saveTimer = setTimeout(save, 600); });
       area.addEventListener('change', () => { clearTimeout(saveTimer); saveTimer = setTimeout(save, 100); });
@@ -1765,10 +1785,12 @@
       const collect = () => { const prev = getAnswer(view, part.id, item.id); return orig ? orig.collect(prev) : collectAnswer(area, item, prev); };
       const saveNow = async () => {
         const ans = collect();
-        if (JSON.stringify(ans) === JSON.stringify(view.session.answers[answerKey(part.id, item.id)] || null) && answerIsEmpty(ans)) return;
+        const more = orig ? orig.others() : [];
+        if (!more.length && JSON.stringify(ans) === JSON.stringify(view.session.answers[answerKey(part.id, item.id)] || null) && answerIsEmpty(ans)) return;
         view.session.answers[answerKey(part.id, item.id)] = ans;
         setSave('speichert …');
         try {
+          for (const [iid, oa] of more) { view.session.answers[answerKey(part.id, iid)] = oa; await post(`/api/sessions/${sid}/answer`, { part: part.id, item: iid, answer: oa }); }
           const r = await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans });
           setSave('gespeichert');
           if (r.remaining !== null && r.remaining !== undefined) { view.remaining[part.id] = r.remaining; startTimer(partId); }

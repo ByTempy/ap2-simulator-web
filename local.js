@@ -204,7 +204,7 @@
       if ((item.keywords || []).length) {
         res.keyword_ratio = hits / item.keywords.length;
         res.suggested_points = Math.round(res.keyword_ratio * item.points * 2) / 2;
-        res.message = `${hits} von ${item.keywords.length} Stichworten gefunden, Vorschlag: ${de(res.suggested_points)} von ${de(item.points)} Punkten (bitte selbst prüfen)`;
+        res.message = `${hits} von ${item.keywords.length} Stichworten gefunden, ${de(res.suggested_points)} von ${de(item.points)} Punkten`;
       } else res.message = 'Bitte mit der Musterlösung vergleichen und selbst bewerten.';
     }
     return res;

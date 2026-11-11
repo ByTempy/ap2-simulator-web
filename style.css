@@ -626,3 +626,5 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .mark-tick { position: absolute; z-index: 1; margin: 0; padding: 0; border: 0; border-radius: 2px; background: transparent; color: var(--color-pen); font: 600 min(calc(var(--u, 8px) * 2.2), 90%)/1 var(--font-body); display: grid; place-items: center; cursor: pointer; outline: var(--rule-hair) dashed var(--color-pen); outline-offset: 1px; }
 .mark-tick:focus-visible { outline-style: solid; outline-width: var(--rule-bar); }
 .mark-tick.ro { outline: 0; pointer-events: none; }
+/* Felder anderer Teilaufgaben auf derselben Seite: beschreibbar, Umrandung zurückhaltender */
+.mark-field.other, .mark-tick.other { outline-color: var(--color-print-rule); }
