@@ -343,7 +343,7 @@
     const itse = exams.filter((e) => examKind(e) === 'real');
     const gen = exams.filter((e) => examKind(e) === 'gen');
     app.innerHTML = `
-      <div class="page-head"><div>
+      <div class="page-head home-head"><div>
         <h1>AP2-Simulator für IT-System-Elektroniker/-in</h1>
         <p class="lede">Echte IHK-Prüfungen im Lernmodus mit Hilfestufen üben oder mit Zeitlimit als Prüfung schreiben.</p>
       </div></div>
@@ -359,7 +359,6 @@
             <button type="button" class="btn" id="h-exam-start">Prüfung simulieren</button>
             <a class="btn quiet" id="h-detail" href="#/exam-detail/${itse[0] ? itse[0].id : ''}">Details und PDF</a>
           </div>
-          <p class="small muted" style="margin-top:var(--space-md)">Lernmodus: ohne Zeitlimit, mit drei Tipps je Teilaufgabe und Musterlösung. Prüfung: Teil 1 und 2 je 90 Minuten, WiSo 60 Minuten, ohne Hilfen.</p>
         </section>
         <section class="sheet" aria-labelledby="open-h">
           <h2 id="open-h">Weitermachen</h2>
@@ -750,17 +749,17 @@
     const orig = Object.values(window.AP2Local.originals.all()).sort((a, b) => (b.finished || b.created).localeCompare(a.finished || a.created));
     const sections = {
       ueberblick: () => `<dl class="dl">
-        <div><dt>Abgeschlossene Prüfungssimulationen</dt><dd>${p.exams_finished}<small>${p.passed} bestanden</small></dd></div>
-        <div><dt>Durchschnitt je Simulation</dt><dd>${fmtPts(Math.round(p.average_points))}<small>Punkte, beste ${fmtPts(Math.round(p.best_points))}</small></dd></div>
+        <div><dt>Simulationen</dt><dd>${p.exams_finished}<small>${p.passed} bestanden</small></dd></div>
+        <div><dt>Durchschnitt</dt><dd>${fmtPts(Math.round(p.average_points))}<small>Punkte, beste ${fmtPts(Math.round(p.best_points))}</small></dd></div>
         <div><dt>Lernsitzungen</dt><dd>${p.learn_sessions}</dd></div>
       </dl>
       <section class="section"><h2>Prüfungsbereitschaft</h2>
-        <p class="prose small muted">Prognose je schriftlichem Bereich: 60 % aus deinen letzten drei Prüfungssimulationen, 40 % aus den letzten 40 bewerteten Teilaufgaben. Fehlt eine Quelle, zählt die andere allein.</p>
-        ${p.readiness.map((r) => r.points === null ? `<div class="meter-row"><span>${esc(kindLabel(r.kind))}</span><span class="small muted">Noch zu wenig Daten, mindestens 5 bewertete Teilaufgaben oder eine Simulation</span><span></span><span></span></div>` : meterRow(esc(kindLabel(r.kind)), r.points / 100, `${r.points} Punkte, Note ${window.AP2Tools.decimalGrade(r.points)}`, `<span class="small muted">${r.simulations} Sim., ${r.items} Aufg.</span>`)).join('')}
+        <details class="why"><summary>Wie wird das berechnet?</summary><p class="prose small muted">Prognose je schriftlichem Bereich: 60 % aus deinen letzten drei Prüfungssimulationen, 40 % aus den letzten 40 bewerteten Teilaufgaben. Fehlt eine Quelle, zählt die andere allein.</p></details>
+        ${p.readiness.map((r) => r.points === null ? `<div class="meter-row none"><span>${esc(kindLabel(r.kind))}</span><span class="small muted">Noch zu wenig Daten</span><span></span><span></span></div>` : meterRow(esc(kindLabel(r.kind)), r.points / 100, `${r.points} Punkte, Note ${window.AP2Tools.decimalGrade(r.points)}`, `<span class="small muted">${r.simulations} Sim., ${r.items} Aufg.</span>`)).join('')}
         <p class="actions" style="margin-top:var(--space-md)"><a class="btn sm" href="#/noten">Im Notenrechner verwenden</a></p>
       </section>
       <section class="section"><h2>Wiederholung</h2>
-        ${p.review.total ? `<p class="prose small muted">Jede bearbeitete Teilaufgabe aus echten Prüfungen und Themen-Trainings kommt nach festen Abständen wieder: sofort (Fehlerkorb), nach 1, 3, 7 und 14 Tagen. Mit mindestens 80 % der Punkte steigt sie eine Stufe auf, unter 50 % fällt sie zurück in den Fehlerkorb. Nach der letzten Stufe gilt sie als gemeistert.</p>
+        ${p.review.total ? `<details class="why"><summary>Wie funktioniert das?</summary><p class="prose small muted">Jede bearbeitete Teilaufgabe aus echten Prüfungen und Themen-Trainings kommt nach festen Abständen wieder: sofort (Fehlerkorb), nach 1, 3, 7 und 14 Tagen. Mit mindestens 80 % der Punkte steigt sie eine Stufe auf, unter 50 % fällt sie zurück in den Fehlerkorb. Nach der letzten Stufe gilt sie als gemeistert.</p></details>
         <dl class="dl" style="margin-top:var(--space-sm)">${['Fehlerkorb', 'Stufe 1, nach 1 Tag', 'Stufe 2, nach 3 Tagen', 'Stufe 3, nach 7 Tagen', 'Stufe 4, nach 14 Tagen', 'Gemeistert'].map((l, i) => `<div><dt>${l}</dt><dd>${p.review.boxes[i]}</dd></div>`).join('')}</dl>
         <p class="actions" style="margin-top:var(--space-md)">${p.review.due ? `<button type="button" class="btn" data-review>${p.review.due} fällige wiederholen</button>` : `<span class="small muted">Heute ist nichts fällig${p.review.next ? `, die nächste Wiederholung kommt am ${fmtDate(p.review.next)}` : ''}.</span>`}</p>`
         : '<p class="empty">Noch nichts zu wiederholen. Hier landen alle bewerteten Teilaufgaben aus echten Prüfungen und Themen-Trainings.</p>'}
@@ -1690,6 +1689,10 @@
   }
 
   const wide = () => matchMedia('(min-width: 60.01rem)').matches;
+  // Nebenaktionen der Arbeitsansicht in einem Menü, damit oben nur das Nötige steht
+  const moreMenu = (inner) => `<details class="more-menu"><summary class="btn sm">Mehr</summary><div class="menu">${inner}</div></details>`;
+  const bindMoreMenu = () => $$('.more-menu .menu > *').forEach((b) => b.addEventListener('click', () => { b.closest('details').open = false; }));
+  document.addEventListener('click', (ev) => $$('.more-menu[open]').forEach((d) => { if (!d.contains(ev.target)) d.open = false; }));
   function navigatorHtml(view, partId, current, summary) {
     const exam = view.exam;
     const part = exam.parts.find((p) => p.id === partId);
@@ -1789,29 +1792,31 @@
       // Auf der Originalseite ausfüllen, wenn die Seite der Teilaufgabe bekannt ist (Einstellung learnText schaltet auf die Textfassung)
       const canOrig = !!(origPage(item) && part.page_images && part.page_images[origPage(item) - 1]);
       const onOrig = canOrig && !store.get('ap2.settings', {}).learnText;
-      app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Lernmodus</span><h1>${esc(view.exam.title)}</h1></div>
-          <div class="actions">${onOrig ? `<button type="button" class="btn sm" id="b-input" aria-pressed="${penMode()}">Eingabe: ${penMode() ? 'Stift' : 'Tastatur'}</button>` : ''}${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button></div></div>
+      app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Lernmodus, ${esc(kindShort(part.kind))}</span><h1>${esc(view.exam.title)}</h1></div>
+          <div class="actions">${moreMenu(`<button type="button" class="btn sm quiet" id="b-tools" hidden>Werkzeuge</button>${onOrig ? `<button type="button" class="btn sm quiet" id="b-input" aria-pressed="${penMode()}">Eingabe: ${penMode() ? 'Stift' : 'Tastatur'}</button>` : ''}${canOrig ? `<button type="button" class="btn sm quiet" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}<a class="btn sm quiet" href="#/result/${sid}">Zwischenstand</a>${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}`)}</div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
         <div>
           ${sheetHtml(part, task, item, idx, items.length, `
             <div class="answer${onOrig ? ' mark-host' : ''}" id="answer-area">${onOrig ? '' : renderAnswerInput(item, a, false)}</div>
             <div class="tool-row">
               <button type="button" id="b-check" class="btn primary">${isText || onOrig ? 'Stichwort-Check' : 'Antwort prüfen'}</button>
+              <details class="assist"${hintsUsed ? ' open' : ''}><summary class="btn">Hilfe</summary><span class="assist-body">
               <button type="button" id="b-hint1" class="btn" ${hintsUsed >= 1 ? 'hidden' : ''}>Tipp 1: Ansatz</button>
               <button type="button" id="b-hint2" class="btn" ${hintsUsed >= 2 || hintsUsed < 1 ? 'hidden' : ''}>Tipp 2: konkreter</button>
               <button type="button" id="b-hint3" class="btn" ${hintsUsed >= 3 || hintsUsed < 2 ? 'hidden' : ''}>Tipp 3: fast die Lösung</button>
-              <button type="button" id="b-solution" class="btn quiet">Musterlösung</button>
+              <button type="button" id="b-solution" class="btn quiet">Musterlösung</button></span></details>
               <button type="button" id="b-flag" class="btn sm" aria-pressed="${!!a.flagged}">${a.flagged ? 'Markiert' : 'Markieren'}</button>
               <span class="save-state" id="save-state" role="status"></span>
             </div>
             <div id="hints"></div>
             <div id="feedback" aria-live="polite"></div>
             ${critHtml(item, a, 'learn', true)}
+            <details class="sg-more"><summary>Punkte selbst anpassen</summary>
             <div class="selfgrade" id="selfgrade">
               <label class="field"><span>Selbstbewertung</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" id="sg-points" value="${a.self_points ?? ''}" placeholder="0 bis ${fmtPts(item.points)}"></label>
               <span class="small muted" style="padding-bottom:var(--space-xs)">von ${ptsLabel(item.points)}</span>
               <button type="button" class="btn sm" id="sg-full">Volle Punkte</button><button type="button" class="btn sm" id="sg-zero">0 Punkte</button><button type="button" class="btn sm" id="sg-save">Übernehmen</button>
-            </div>
+            </div></details>
             <div id="topicbox"></div>`, onOrig ? ' learn on-orig' : ' learn')}
           <div class="pager"><button type="button" class="btn" id="b-prev" ${idx === 0 ? 'disabled' : ''}>Vorherige</button><span class="pos">${idx + 1} / ${items.length}</span><button type="button" class="btn" id="b-next">${idx === items.length - 1 ? 'Nächster Teil' : 'Nächste'}</button></div>
         </div></div>`;
@@ -1954,6 +1959,7 @@
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
       if ($('#b-view')) $('#b-view').onclick = async () => { await save(); const s = store.get('ap2.settings', {}); s.learnText = onOrig; store.set('ap2.settings', s); renderLearn(true); };
       if ($('#b-input')) $('#b-input').onclick = () => togglePen(save, () => renderLearn(true));
+      bindMoreMenu();
       tools.mount(part, item, collect);
       // erst jetzt: die Seite steht. Mit Antwortfeld dorthin, sonst auf derselben Seite die Stelle behalten
       if (focusSheet && orig && orig.field) orig.field.scrollIntoView({ block: 'center' });
@@ -2047,7 +2053,7 @@
       const canOrig = !!(origPage(item) && part.page_images && part.page_images[origPage(item) - 1]);
       const onOrig = canOrig && !store.get('ap2.settings', {}).examText;
       app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Prüfung, Teil ${pi + 1} von ${order.length}</span><h1>${esc(part.title)}</h1></div>
-          <div class="actions"><span class="small muted"><span class="num">${answered} / ${items.length}</span> beantwortet</span>${onOrig ? `<button type="button" class="btn sm" id="b-input" aria-pressed="${penMode()}">Eingabe: ${penMode() ? 'Stift' : 'Tastatur'}</button>` : ''}${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}<button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button><button type="button" class="btn danger" id="b-finish">Teil abgeben</button></div></div>
+          <div class="actions"><span class="small muted count-wide"><span class="num">${answered} / ${items.length}</span> beantwortet</span>${moreMenu(`<button type="button" class="btn sm quiet" id="b-tools" hidden>Werkzeuge</button>${onOrig ? `<button type="button" class="btn sm quiet" id="b-input" aria-pressed="${penMode()}">Eingabe: ${penMode() ? 'Stift' : 'Tastatur'}</button>` : ''}${canOrig ? `<button type="button" class="btn sm quiet" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}`)}<button type="button" class="btn sm danger" id="b-finish">Abgeben</button></div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
         <div>${sheetHtml(part, task, item, idx, items.length, `
           <div class="answer${onOrig ? ' mark-host' : ''}" id="answer-area">${onOrig ? '' : renderAnswerInput(item, a, false)}</div>
@@ -2085,6 +2091,7 @@
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
       if ($('#b-view')) $('#b-view').onclick = async () => { await saveNow(); const s = store.get('ap2.settings', {}); s.examText = onOrig; store.set('ap2.settings', s); render(true); };
       if ($('#b-input')) $('#b-input').onclick = () => togglePen(saveNow, () => render(true));
+      bindMoreMenu();
       tools.mount(part, item);
       if (focusSheet && orig && orig.field) orig.field.scrollIntoView({ block: 'center' });
     };
