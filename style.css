@@ -72,6 +72,8 @@ main.app { padding-block: var(--space-xl) var(--space-3xl); }
 .sheet { background: var(--color-sheet); border-top: var(--rule-bar) solid var(--color-ink); padding: var(--space-lg); }
 @media (max-width: 40rem) { .sheet { padding: var(--space-md); margin-inline: calc(var(--gutter) * -1); } }
 .sheet + .sheet { margin-top: var(--space-lg); }
+.split > .sheet + .sheet { margin-top: 0; }
+.split + .sheet { margin-top: var(--space-lg); }  /* im Raster regelt gap den Abstand */
 .split { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: var(--space-xl); align-items: start; }
 @media (max-width: 60rem) { .split { grid-template-columns: minmax(0, 1fr); } }
 

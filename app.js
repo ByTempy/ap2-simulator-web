@@ -339,7 +339,7 @@
   async function home() {
     setNav('home');
     const [status, exams, sessions, prog] = await Promise.all([api('/api/status'), loadExams(true), api('/api/sessions'), api('/api/progress')]);
-    const open = sessions.filter((s) => !s.finished).slice(0, 6);
+    const open = sessions.filter((s) => !s.finished).slice(0, 3);
     const itse = exams.filter((e) => examKind(e) === 'real');
     const gen = exams.filter((e) => examKind(e) === 'gen');
     app.innerHTML = `
@@ -347,7 +347,6 @@
         <h1>AP2-Simulator für IT-System-Elektroniker/-in</h1>
         <p class="lede">Echte IHK-Prüfungen im Lernmodus mit Hilfestufen üben oder mit Zeitlimit als Prüfung schreiben.</p>
       </div></div>
-      ${todayHtml(prog, sessions)}
       <div class="split">
         <section class="sheet" aria-labelledby="start-h">
           <h2 id="start-h">Prüfung wählen</h2>
@@ -362,11 +361,12 @@
         </section>
         <section class="sheet" aria-labelledby="open-h">
           <h2 id="open-h">Weitermachen</h2>
-          ${open.length ? `<ul class="todo" style="margin-top:var(--space-sm)">${open.map((s2) => `<li><span><a class="row-title" href="${sessionHref(s2)}">${esc(s2.exam_title)}</a><br><span class="small muted">${s2.mode === 'exam' ? 'Prüfung' : 'Lernen'}, ${fmtDate(s2.created_at)}, ${s2.answered} ${s2.answered === 1 ? 'Antwort' : 'Antworten'}</span></span><span class="actions"><a class="btn sm" href="${sessionHref(s2)}">Fortsetzen</a><button type="button" class="btn sm quiet" data-del-session="${s2.id}">Löschen</button></span></li>`).join('')}</ul>`
-            : '<p class="empty">Keine offene Sitzung. Wähle links eine Prüfung und starte den Lernmodus.</p>'}
-          <p class="small muted" style="margin-top:var(--space-md)">Ältere und abgeschlossene Sitzungen findest du unter <a href="#/stats/verlauf">Statistik, Verlauf</a>.</p>
+          ${open.length ? `<ul class="todo" style="margin-top:var(--space-sm)">${open.map((s2) => `<li><span><a class="row-title" href="${sessionHref(s2)}">${esc(s2.exam_title.replace(/\s*[–-]\s*IT-System-Elektroniker\/-in$/, ''))}</a><br><span class="small muted">${s2.mode === 'exam' ? 'Prüfung' : 'Lernen'}, ${fmtDate(s2.created_at)}, ${s2.answered} ${s2.answered === 1 ? 'Antwort' : 'Antworten'}</span></span><span class="actions"><a class="btn sm" href="${sessionHref(s2)}">Fortsetzen</a><button type="button" class="btn sm quiet" data-del-session="${s2.id}">Löschen</button></span></li>`).join('')}</ul>`
+            : '<p class="empty">Keine offene Sitzung.</p>'}
+          <p class="small" style="margin-top:var(--space-sm)"><a href="#/stats/verlauf">Alle Sitzungen</a></p>
         </section>
       </div>
+      ${todayHtml(prog, sessions)}
       ${status.warnings.length ? `<section class="section"><details class="disc"><summary>${status.warnings.length} Datenhinweise</summary><div class="disc-body"><ul class="small">${status.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div></details></section>` : ''}`;
     bindToday();
     const sel = $('#h-exam');
@@ -404,11 +404,10 @@
       <h2 id="today-h">Dein Stand</h2>
       <dl class="dl">
         <div><dt><label for="h-date">Prüfungstermin</label></dt><dd><input class="input date" type="date" id="h-date" value="${esc(st.examDate || '')}">${days !== null ? `<small>${days > 0 ? `noch ${days} ${days === 1 ? 'Tag' : 'Tage'}` : days === 0 ? 'heute' : 'vorbei'}</small>` : ''}</dd></div>
-        <div><dt>Prognose der schriftlichen Bereiche</dt><dd>${ready.length ? ready.map((r) => `<span class="prog">${kindShort(r.kind)} <b>${r.points}</b></span>`).join('') : '<small>Noch zu wenige bewertete Antworten</small>'}</dd></div>
+        ${ready.length ? `<div><dt>Prognose der schriftlichen Bereiche</dt><dd>${ready.map((r) => `<span class="prog">${kindShort(r.kind)} <b>${r.points}</b></span>`).join('')}</dd></div>` : ''}
       </dl>
       <h3 class="today-sub">Heute sinnvoll</h3>
-      <ul class="todo">${todo.join('')}</ul>
-      <p class="small muted"><a href="#/noten">Notenrechner</a>: Was brauchst du in den offenen Bereichen zum Bestehen?</p>
+      <ul class="todo">${todo.slice(0, 3).join('')}</ul>
     </section>`;
   }
   function bindToday() {
