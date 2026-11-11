@@ -221,8 +221,21 @@
     const out = new Uint8Array(len); let p = 0; parts.forEach((b) => { out.set(b, p); p += b.length; });
     return out;
   }
+  const loadImg = (u) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Seite konnte nicht geladen werden')); im.src = u; });
+  // Handschrift (Striche in Seitenanteilen) auf eine eigene Ebene, damit Radieren nur Tinte entfernt, nicht den Scan
+  function inkLayer(strokes, W, H) {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d'); g.lineCap = g.lineJoin = 'round'; g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-pen').trim() || 'navy';
+    strokes.forEach((s) => {
+      g.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over'; g.lineWidth = W * (s.erase ? 0.022 : 0.0022);
+      g.beginPath(); s.pts.forEach((p, i) => { if (i) g.lineTo(p[0] * W, p[1] * H); else g.moveTo(p[0] * W, p[1] * H); }); if (s.pts.length === 1) g.lineTo(s.pts[0][0] * W + 1, s.pts[0][1] * H);
+      g.stroke();
+    });
+    return c;
+  }
   let downloading = false;
-  async function downloadPages(pages, title) {
+  // inks: je Seite die Striche, die darauf gezeichnet werden (ausgefüllte Prüfung)
+  async function downloadPages(pages, title, inks) {
     if (downloading || !pages || !pages.length) return;
     downloading = true;
     try {
@@ -233,6 +246,7 @@
         const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error(`Seite ${i + 1} konnte nicht geladen werden`)); im.src = u; });
         const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
         const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0);
+        if (inks && inks[i] && inks[i].length) g.drawImage(inkLayer(inks[i], c.width, c.height), 0, 0);
         const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
         imgs.push({ w: c.width, h: c.height, data: new Uint8Array(await blob.arrayBuffer()) });
       }
@@ -302,7 +316,7 @@
     [/^#\/noten$/, gradesView],
     [/^#\/rechnen$/, drillView],
     [/^#\/fragen$/, quizView],
-    [/^#\/projekt$/, projectView],
+    [/^#\/projekt(?:\/(antrag|doku|praes|fg))?$/, projectView],
     [/^#\/archive(?:\/([a-z0-9-]+))?$/, archiveView],
     [/^#\/learn\/([^/]+)$/, learnView],
     [/^#\/exam\/([^/]+)$/, examView],
@@ -333,6 +347,7 @@
   const subnav = (items, cur) => `<nav class="subnav" aria-label="Bereich">${items.map(([k, label, href]) => `<a href="${href}"${k === cur ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
   const EXAM_TABS = [['exams', 'Prüfungen', '#/exams'], ['generate', 'Generator', '#/generate']];
   const WIKI_TABS = [['wiki', 'Themen und Artikel', '#/topics'], ['formeln', 'Formelsammlung', '#/formeln']];
+  const PJ_TABS = [['start', 'Überblick', '#/projekt'], ['antrag', 'Antrag', '#/projekt/antrag'], ['doku', 'Dokumentation', '#/projekt/doku'], ['praes', 'Präsentation', '#/projekt/praes'], ['fg', 'Fachgespräch', '#/projekt/fg']];
   const STATS_TABS = [['ueberblick', 'Überblick', '#/stats'], ['verlauf', 'Verlauf', '#/stats/verlauf'], ['noten', 'Notenrechner', '#/noten'], ['daten', 'Deine Daten', '#/stats/daten']];
 
   // ---------- Startseite ----------
@@ -915,17 +930,19 @@
       reset() { start = null; acc = 0; clearInterval(id); draw(); },
     };
   }
-  async function projectView() {
+  async function projectView(tab) {
+    tab = tab || 'start';
     setNav('project');
     const T = window.AP2Tools; const pr = store.get('ap2.project', {}); pr.checks = pr.checks || {}; pr.fg = pr.fg || {};
     const save = () => { store.set('ap2.project', pr); const st = $('#pj-stand'); if (st) st.innerHTML = standHtml(); };
     const days = pr.docDate ? Math.ceil((Date.parse(pr.docDate + 'T00:00') - Date.now()) / 864e5) : null;
     const rated = (r) => T.FG_QUESTIONS.filter((q) => pr.fg[q.id] && pr.fg[q.id].r === r).length;
     pr.form = pr.form || {}; pr.antrag = pr.antrag || {};
-    const standHtml = () => `<div><dt>Projektantrag</dt><dd>${T.ANTRAG.filter((_, i) => pr.antrag[i]).length}<small>von ${T.ANTRAG.length} Punkten erfüllt</small></dd></div><div><dt>Dokumentation</dt><dd>${T.DOC_CHECKLIST.filter((_, i) => pr.checks[i]).length + T.DOC_FORM.filter((_, i) => pr.form[i]).length}<small>von ${T.DOC_CHECKLIST.length + T.DOC_FORM.length} Punkten erledigt</small></dd></div>
-          <div><dt>Fachgespräch</dt><dd>${rated('sicher')}<small>sicher, ${rated('unsicher')} unsicher, ${T.FG_QUESTIONS.length - rated('sicher') - rated('unsicher')} offen</small></dd></div>`;
-    app.innerHTML = `<nav class="subnav" aria-label="Abschnitte">${[['pj-h', 'Projekt'], ['pj-antrag', 'Antrag'], ['pj-doku', 'Dokumentation'], ['pj-praes', 'Präsentation'], ['pj-fg', 'Fachgespräch']].map(([id, l]) => `<a href="#/projekt" data-jump="${id}">${l}</a>`).join('')}</nav><div class="page-head"><div><h1>Projekt und Fachgespräch</h1><p class="lede">Der Prüfungsbereich mit Projektarbeit, Dokumentation, Präsentation und Fachgespräch zählt 50 % der Gesamtnote. Hier bereitest du ihn vor.</p></div></div>
-      <div class="split">
+    const standHtml = () => `<div><dt><a href="#/projekt/antrag">Projektantrag</a></dt><dd>${T.ANTRAG.filter((_, i) => pr.antrag[i]).length}<small>von ${T.ANTRAG.length} Punkten erfüllt</small></dd></div><div><dt><a href="#/projekt/doku">Dokumentation</a></dt><dd>${T.DOC_CHECKLIST.filter((_, i) => pr.checks[i]).length + T.DOC_FORM.filter((_, i) => pr.form[i]).length}<small>von ${T.DOC_CHECKLIST.length + T.DOC_FORM.length} Punkten erledigt</small></dd></div>
+          <div><dt><a href="#/projekt/fg">Fachgespräch</a></dt><dd>${rated('sicher')}<small>sicher, ${rated('unsicher')} unsicher, ${T.FG_QUESTIONS.length - rated('sicher') - rated('unsicher')} offen</small></dd></div>`;
+    // Ein Abschnitt je Reiter; alle bleiben im DOM, damit Timer und Fragenkarte ihre Bindungen behalten
+    app.innerHTML = `${subnav(PJ_TABS, tab)}<div class="page-head"><div><h1>${{ start: 'Projekt und Fachgespräch', antrag: 'Projektantrag prüfen', doku: 'Checkliste Dokumentation', praes: 'Präsentation üben', fg: 'Fachgespräch trainieren' }[tab]}</h1>${tab === 'start' ? '<p class="lede">Projektarbeit, Dokumentation, Präsentation und Fachgespräch zählen zusammen 50 % der Gesamtnote.</p>' : ''}</div></div>
+      <div class="split" data-pj="start">
         <section class="sheet" aria-labelledby="pj-h"><h2 id="pj-h">Dein Projekt</h2>
           <div class="grade-list">
             <label class="field"><span>Projekttitel</span><input class="input" id="pj-title" type="text" value="${esc(pr.title || '')}" placeholder="z. B. Erweiterung des Serverraums mit USV und Unterverteilung"></label>
@@ -936,15 +953,15 @@
         </section>
         <section aria-labelledby="pj-s-h"><h2 id="pj-s-h" class="visually-hidden">Stand</h2>
           <dl class="dl" id="pj-stand">${standHtml()}</dl>
-          <p class="small muted" style="margin-top:var(--space-sm)">Im Notenrechner zählt die Projektarbeit mit Dokumentation 30 %, Präsentation und Fachgespräch 20 % der Gesamtnote. Präsentation und Gespräch dauern zusammen höchstens 30 Minuten, die Präsentation höchstens 15. Die Vorgaben deiner IHK zu Umfang und Form der Dokumentation gehen vor.</p>
+          <details class="why" style="margin-top:var(--space-sm)"><summary>Wie zählt das?</summary><p class="small muted">Im Notenrechner zählt die Projektarbeit mit Dokumentation 30 %, Präsentation und Fachgespräch 20 % der Gesamtnote. Präsentation und Gespräch dauern zusammen höchstens 30 Minuten, die Präsentation höchstens 15. Die Vorgaben deiner IHK zu Umfang und Form der Dokumentation gehen vor.</p></details>
           <p class="actions" style="margin-top:var(--space-sm)"><a class="btn sm quiet" href="#/noten">Im Notenrechner eintragen</a></p>
         </section>
       </div>
-      <section class="section"><h2 id="pj-antrag">Projektantrag prüfen</h2>
+      <section class="section" data-pj="antrag"><h2 id="pj-antrag">Projektantrag prüfen</h2>
         <p class="prose small muted">Bevor du den Antrag einreichst: Erfüllt dein Vorhaben, was ein Prüfungsprojekt ausmacht? Fehlt Projektcharakter oder fachliche Tiefe, lehnt die IHK den Antrag oft ab.</p>
         <div class="checklist">${T.ANTRAG.map((c, i) => `<label class="check"><input type="checkbox" data-antrag="${i}"${pr.antrag[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
       </section>
-      <section class="section"><h2 id="pj-doku">Checkliste Dokumentation</h2>
+      <section class="section" data-pj="doku"><h2 id="pj-doku">Checkliste Dokumentation</h2>
         <h3 class="today-sub">Inhalt</h3>
         <div class="checklist">${T.DOC_CHECKLIST.map((c, i) => `<label class="check"><input type="checkbox" data-doc="${i}"${pr.checks[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
         <h3 class="today-sub">Form</h3>
@@ -952,7 +969,7 @@
         <h4 style="margin-top:var(--space-md)">Mehr dazu</h4>
         <ul class="links"><li><a href="https://www.digitalklempner.de/unterrichtsmaterial/technische_dokumentation/projektdoku/" target="_blank" rel="noopener">Digitalklempner: Projektdokumentation</a> <span class="small muted">ausführlicher Leitfaden eines IT-Ausbilders</span></li><li><a href="https://www.digitalklempner.de/kursinfos/besuchswoche/" target="_blank" rel="noopener">Digitalklempner: Projektfindung und Projektantrag</a> <span class="small muted">Projektcharakter und fachliche Tiefe</span></li></ul>
       </section>
-      <section class="section"><h2 id="pj-praes">Präsentation üben</h2>
+      <section class="section" data-pj="praes"><h2 id="pj-praes">Präsentation üben</h2>
         <div class="split">
           <div class="sheet"><p class="tag">Höchstens 15 Minuten</p><p class="clock" id="pt-clock" aria-live="off">15:00</p>
             <div class="actions"><button type="button" class="btn primary" id="pt-start">Start</button><button type="button" class="btn" id="pt-reset">Zurücksetzen</button></div>
@@ -960,15 +977,15 @@
           <div><h3 class="today-sub">Möglicher Ablauf</h3><ol class="outline" id="pt-outline">${T.TALK_OUTLINE.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
         </div>
       </section>
-      <section class="section"><h2 id="pj-fg">Fachgespräch trainieren</h2>
-        <div class="tools-row"><label class="field"><span>Fragen</span><select class="input" id="fg-mode"><option value="open">Offene und unsichere zuerst</option><option value="all">Alle gemischt</option><option value="unsicher">Nur unsichere</option></select></label></div>
+      <section class="section" data-pj="fg"><h2 id="pj-fg">Fachgespräch trainieren</h2>
+        <div class="tools-row"><label class="field" style="min-width:min(100%, 18rem)"><span>Fragen</span><select class="input" id="fg-mode"><option value="open">Offene und unsichere zuerst</option><option value="all">Alle gemischt</option><option value="unsicher">Nur unsichere</option></select></label></div>
         <div class="sheet fg-card" id="fg-card" style="margin-top:var(--space-md)"></div>
         <details class="disc" style="margin-top:var(--space-md)"><summary>Alle ${T.FG_QUESTIONS.length} Fragen mit deinen Notizen</summary><div class="disc-body" id="fg-all"></div></details>
       </section>`;
-    $$('[data-jump]', app).forEach((a) => a.onclick = (ev) => { ev.preventDefault(); const el = document.getElementById(a.dataset.jump); if (el) el.scrollIntoView({ behavior: 'smooth' }); });
+    $$('[data-pj]', app).forEach((s) => { s.hidden = s.dataset.pj !== tab; const h = $(':scope > h2', s); if (h) h.classList.add('visually-hidden'); });  // Titel steht schon oben
     const bindField = (id, key) => { $(id).oninput = (ev) => { pr[key] = ev.target.value; save(); }; };
     bindField('#pj-title', 'title'); bindField('#pj-desc', 'desc');
-    $('#pj-date').onchange = (ev) => { pr.docDate = ev.target.value; save(); projectView(); };
+    $('#pj-date').onchange = (ev) => { pr.docDate = ev.target.value; save(); projectView(tab); };
     $$('[data-doc]', app).forEach((c) => c.onchange = () => { pr.checks[c.dataset.doc] = c.checked; save(); });
     $$('[data-form]', app).forEach((c) => c.onchange = () => { pr.form[c.dataset.form] = c.checked; save(); });
     $$('[data-antrag]', app).forEach((c) => c.onchange = () => { pr.antrag[c.dataset.antrag] = c.checked; save(); });
@@ -2006,7 +2023,10 @@
         stopTimer();
         // Handschrift vor der Abgabe lesen, solange die Antworten noch geändert werden dürfen
         const pp = view.exam.parts.find((p) => p.id === partId);
-        if (pp && Object.values(view.session.answers).some((a) => a && a.marks && (a.marks.strokes || []).length)) await penReadAll(sid, view, pp);
+        if (pp && Object.values(view.session.answers).some((a) => a && a.marks && (a.marks.strokes || []).length)) {
+          if (!auto && !(await puterReady(true).catch(() => false))) toast('Handschrift wird nicht gelesen. Du siehst sie in der Auswertung und bewertest sie dort selbst.');
+          await penReadAll(sid, view, pp);
+        }
         view = await post(`/api/sessions/${sid}/finish-part`, { part: partId });
         state.view = view;
         pos = { item: null };
@@ -2115,18 +2135,25 @@
       const unrated = r.parts.reduce((a, p) => a + p.unrated_items, 0);
       const bucket = (ir, item) => !ir.answered ? 'empty' : ir.points === null || ir.points === undefined ? 'open' : ir.points >= item.points ? 'full' : 'lost';
       const counts = { all: 0, lost: 0, open: 0, empty: 0 };
+      // Seiten mit Handschrift: für die Anzeige je Teilaufgabe und das PDF der ausgefüllten Seiten
+      const inkOf = (pid, it) => { const a = s.answers[answerKey(pid, it.id)]; return a && a.marks && (a.marks.strokes || []).length ? a.marks.strokes : null; };
+      const inkMap = new Map();
+      r.parts.forEach((p) => { const part = exam.parts.find((x) => x.id === p.part_id); part.tasks.forEach((t) => t.items.forEach((it) => { const st = inkOf(p.part_id, it), src = st && part.page_images && part.page_images[origPage(it) - 1]; if (src) inkMap.set(src, (inkMap.get(src) || []).concat(st)); })); });
+      const inkPages = [...inkMap.keys()];
+      const inkOpen = r.parts.reduce((n, p) => n + p.items.filter((ir) => ir.ink && (ir.points === null || ir.points === undefined)).length, 0);
       r.parts.forEach((p) => { const part = exam.parts.find((x) => x.id === p.part_id); p.items.forEach((ir) => { const it = part.tasks.find((x) => x.number === ir.task_number).items.find((x) => x.id === ir.item_id); counts.all++; const b = bucket(ir, it); if (b in counts) counts[b]++; }); });
       app.innerHTML = `<div class="page-head"><div>
           <p class="work-head" style="margin:0 0 var(--space-xs)"><span class="mode" style="font:500 var(--text-sm)/1 var(--font-display);color:var(--color-accent)">${s.mode === 'exam' ? 'Auswertung der Prüfungssimulation' : 'Zwischenstand im Lernmodus'}</span></p>
           <h1>${esc(s.exam_title)}</h1></div>
-          <div class="actions">${pdfLink(`/api/sessions/${sid}/pdf?solutions=1`, 'PDF mit Antworten und Lösungen')}<a class="btn sm" href="#/exam-detail/${s.exam_id}">Zur Prüfung</a></div></div>
+          <div class="actions">${inkPages.length ? '<button type="button" class="btn sm" id="r-inkpdf">Ausgefüllte Seiten als PDF</button>' : ''}${pdfLink(`/api/sessions/${sid}/pdf?solutions=1`, 'PDF mit Antworten und Lösungen')}<a class="btn sm" href="#/exam-detail/${s.exam_id}">Zur Prüfung</a></div></div>
+        ${inkOpen ? `<div class="panel warn" role="status"><h4>${inkOpen} ${inkOpen === 1 ? 'handschriftliche Antwort ist' : 'handschriftliche Antworten sind'} noch nicht bewertet</h4><p>Die Handschrift konnte nicht gelesen werden. Deine Antworten sind aber gespeichert: Unter „Noch bewerten“ siehst du sie auf der Originalseite neben den Lösungshinweisen und trägst die Punkte selbst ein.</p></div>` : ''}
         <div class="split">
           <div class="sheet">
             <table class="t"><thead><tr><th>Bereich</th><th class="num">Punkte</th><th class="num">Note</th><th class="num">Zeit</th></tr></thead><tbody>
             ${r.parts.map((p) => `<tr><td>${esc(kindLabel(p.kind))}${p.unrated_items ? `<span class="sub tag accent">${p.unrated_items} Antworten noch selbst bewerten</span>` : ''}</td><td class="num">${fmtPts(Math.round(p.points * 2) / 2)} / ${p.max_points}</td><td class="num">${p.grade}</td><td class="num">${p.used_minutes ? Math.round(p.used_minutes) + ' min' : '–'}</td></tr>`).join('')}
             </tbody></table>
             <p style="margin-top:var(--space-md)"><span class="grade">${fmtPts(Math.round(r.total_points * 2) / 2)}</span> <span class="muted">von ${r.total_max} Punkten, ${totalPct.toFixed(0)} %, Notenschnitt ${r.average_grade.toFixed(1).replace('.', ',')}</span></p>
-            ${s.mode === 'exam' ? `<p class="verdict ${r.passed ? 'ok' : 'bad'}" style="margin-top:var(--space-xs)">${r.passed ? 'Bestanden' : 'Nach den Bestehensregeln nicht bestanden'}</p>` : ''}
+            ${s.mode === 'exam' ? `<p class="verdict ${r.passed ? 'ok' : 'bad'}" style="margin-top:var(--space-xs)">${unrated ? `Vorläufig, ${unrated} noch nicht bewertet: ` : ''}${r.passed ? 'Bestanden' : 'Nach den Bestehensregeln nicht bestanden'}</p>` : ''}
           </div>
           <div class="small muted prose">
             <p>Notenschlüssel je Bereich: 1 ab 92, 2 ab 81, 3 ab 67, 4 ab 50, 5 ab 30 Punkten, darunter 6.</p>
@@ -2150,12 +2177,13 @@
                   ${b === 'open' ? '<span class="score open">noch bewerten</span>' : `<span class="score ${ir.points >= item.points ? 'ok' : ir.points > 0 ? 'part' : 'bad'}">${fmtPts(ir.points)} / ${fmtPts(item.points)}${ir.auto ? ' automatisch' : ir.keyword ? ' nach Stichworten' : ''}</span>`}</div>
                 <p class="q">${nl(item.text)}</p>
                 ${item.options && item.options.length ? `<div class="small muted">${item.options.map((o) => `<div><span class="key">${esc(o.key)}</span> ${esc(o.text)}</div>`).join('')}</div>` : ''}
-                <div class="ans">${answerIsEmpty(a) ? '<em class="muted">Keine Antwort</em>' : esc([a.value, (a.selected || []).join(', '), a.text, ...(a.cells || []).map((row) => row.filter((cell) => cell && cell.trim()).join(' | '))].filter(Boolean).join('\n'))}</div>
+                ${ir.ink ? `<div class="ink-view" data-ink="${p.part_id}|${item.id}" aria-label="Deine handschriftliche Antwort auf der Originalseite"></div>` : ''}
+                <div class="ans">${answerIsEmpty(a) ? `<em class="muted">${ir.ink ? 'Handschrift nicht gelesen, siehe oben' : 'Keine Antwort'}</em>` : esc([a.value, (a.selected || []).join(', '), a.text, ...(a.cells || []).map((row) => row.filter((cell) => cell && cell.trim()).join(' | '))].filter(Boolean).join('\n'))}</div>
                 ${c && c.keywords && c.keywords.length ? `<div class="kws">${c.keywords.map((k) => `<span class="kw ${k.hit ? 'hit' : 'miss'}">${esc(k.keyword)}</span>`).join('')}</div>` : ''}
                 ${c && c.message && ir.auto ? `<p class="small">${esc(c.message)}</p>` : ''}
                 <details ${ir.auto ? '' : 'open'}><summary>Lösungshinweise${item.expected ? `: ${esc(item.expected)} ${esc(item.unit || '')}` : ''}</summary><div class="panel solution">${nl(item.solution || '–')}${item.grading ? `<p class="grading">Bewertung: ${esc(item.grading)}</p>` : ''}</div></details>
-                ${ir.auto || s.mode === 'exam' ? '' : critHtml(item, a, `${p.part_id}|${item.id}`, false)}
-                ${ir.auto || s.mode === 'exam' ? '' : `<div class="selfgrade"><label class="field"><span>Punkte</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" value="${a.self_points ?? (c && c.suggested_points !== undefined && !answerIsEmpty(a) ? c.suggested_points : '')}" data-sg="${p.part_id}|${item.id}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${fmtPts(item.points)}</span><button type="button" class="btn sm" data-sgfull="${p.part_id}|${item.id}">Volle Punkte</button><button type="button" class="btn sm" data-sgzero="${p.part_id}|${item.id}">0 Punkte</button></div>`}
+                ${(ir.auto || s.mode === 'exam') && !ir.ink ? '' : critHtml(item, a, `${p.part_id}|${item.id}`, false)}
+                ${(ir.auto || s.mode === 'exam') && !ir.ink ? '' : `<div class="selfgrade"><label class="field"><span>Punkte</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" value="${a.self_points ?? (c && c.suggested_points !== undefined && !answerIsEmpty(a) ? c.suggested_points : '')}" data-sg="${p.part_id}|${item.id}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${fmtPts(item.points)}</span><button type="button" class="btn sm" data-sgfull="${p.part_id}|${item.id}">Volle Punkte</button><button type="button" class="btn sm" data-sgzero="${p.part_id}|${item.id}">0 Punkte</button></div>`}
               </div>`; }).join('')}`; }).join('')}
           <p class="empty" id="ri-none" hidden>Keine Teilaufgabe in dieser Ansicht.</p>
         </section>`;
@@ -2171,6 +2199,22 @@
       $$('input[data-sg]', app).forEach((i) => i.onchange = () => { const [part, itemId] = i.dataset.sg.split('|'); const max = +i.max; sg(part, itemId, i.value === '' ? null : Math.min(max, Math.max(0, +String(i.value).replace(',', '.')))); });
       $$('[data-sgfull]', app).forEach((b) => b.onclick = () => { const [part, itemId] = b.dataset.sgfull.split('|'); const inp = app.querySelector(`input[data-sg="${part}|${itemId}"]`); sg(part, itemId, +inp.max); });
       $$('[data-sgzero]', app).forEach((b) => b.onclick = () => { const [part, itemId] = b.dataset.sgzero.split('|'); sg(part, itemId, 0); });
+      if ($('#r-inkpdf')) $('#r-inkpdf').onclick = () => downloadPages(inkPages, `${s.exam_title} ausgefüllt`, inkPages.map((src) => inkMap.get(src)));
+      // Ausschnitt der Originalseite mit der eigenen Handschrift, über die ganze Breite
+      for (const el of $$('[data-ink]', app)) {
+        const [pid, iid] = el.dataset.ink.split('|'); const part = exam.parts.find((x) => x.id === pid); const it = part.tasks.flatMap((t) => t.items).find((x) => x.id === iid);
+        const st = inkOf(pid, it), src = st && part.page_images && part.page_images[origPage(it) - 1];
+        if (!src) { el.remove(); continue; }
+        const ys = st.flatMap((x) => x.pts.map((q) => q[1])).concat((it.fields || []).flatMap((f) => [f.y, f.y + f.h]));
+        const y0 = Math.max(0, Math.min(...ys) - 0.02), y1 = Math.min(1, Math.max(...ys) + 0.02);
+        try {
+          const img = await loadImg(await window.AP2Local.pageSrc(src)); const W = img.naturalWidth, H = img.naturalHeight;
+          const c = document.createElement('canvas'); c.width = W; c.height = Math.max(8, Math.round((y1 - y0) * H));
+          const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+          g.drawImage(img, 0, y0 * H, W, c.height, 0, 0, W, c.height); g.drawImage(inkLayer(st, W, H), 0, y0 * H, W, c.height, 0, 0, W, c.height);
+          c.setAttribute('role', 'img'); c.setAttribute('aria-label', 'Deine handschriftliche Antwort'); el.append(c);
+        } catch (e) { el.textContent = 'Seite konnte nicht geladen werden.'; }
+      }
     };
     await render();
   }

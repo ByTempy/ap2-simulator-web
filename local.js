@@ -149,6 +149,7 @@
     return Number.isFinite(n) ? n : null;
   }
   const digits = (s) => String(s || '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const hasInk = (a) => !!(a && a.marks && (a.marks.strokes || []).some((s) => !s.erase));
   const isEmpty = (a) => !a || (!(a.text || '').trim() && !(a.value || '').trim() && !(a.selected || []).length && !(a.cells || []).some((r) => r.some((c) => (c || '').trim())));
   function check(item, a) {
     a = a || {};
@@ -256,9 +257,12 @@
       if (!part) continue;
       const items = []; let sum = 0, open = 0, unrated = 0;
       for (const t of part.tasks) for (const it of t.items) {
-        const a = ans(s, pid, it.id); const answered = !isEmpty(a);
-        const ir = { part_id: pid, task_number: t.number, item_id: it.id, label: it.label, max_points: it.points, points: null, auto: AUTO.has(it.answer_type), answered, topics: it.topics || [], check: null };
-        if (ir.auto) { const c = check(it, a); ir.points = c.auto_points ?? 0; ir.check = c; }
+        const a = ans(s, pid, it.id); const ink = hasInk(a); const answered = !isEmpty(a) || ink;
+        const ir = { part_id: pid, task_number: t.number, item_id: it.id, label: it.label, max_points: it.points, points: null, auto: AUTO.has(it.answer_type), answered, ink, topics: it.topics || [], check: null };
+        // Handschrift: eigene Punkte gehen vor (das Lesen kann irren); ungelesen bleibt sie offen statt 0 Punkte
+        if (ink && a.self_points !== null && a.self_points !== undefined) ir.points = Math.max(0, Math.min(it.points, a.self_points));
+        else if (ink && isEmpty(a)) unrated++;
+        else if (ir.auto) { const c = check(it, a); ir.points = c.auto_points ?? 0; ir.check = c; }
         else if (a.self_points !== null && a.self_points !== undefined) ir.points = Math.max(0, Math.min(it.points, a.self_points));
         else if (!answered) ir.points = 0;
         else { ir.check = check(it, a); ir.points = ir.check.suggested_points || 0; ir.keyword = true; }

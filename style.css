@@ -262,6 +262,7 @@ table.answer-table td .input { min-height: 36px; }
 .panel.hint { border-top-color: var(--color-warn); }
 .panel.ok { border-top-color: var(--color-success); }
 .panel.bad { border-top-color: var(--color-error); }
+.panel.warn { border-top-color: var(--color-warn); margin-bottom: var(--space-md); }
 .panel.solution { border-top-color: var(--color-success); white-space: pre-wrap; }
 .panel .grading { margin-top: var(--space-xs); font-size: var(--text-sm); color: var(--color-muted); }
 .kws { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-sm); margin-top: var(--space-xs); }
@@ -642,6 +643,7 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .exam-sheet.learn { grid-template-columns: minmax(0, 1fr); }
 .exam-sheet.learn .rand { display: none; }
 .exam-sheet.on-orig .body { padding: var(--space-md) var(--space-lg) var(--space-lg); }
+.ink-view canvas { display: block; width: 100%; height: auto; margin: var(--space-xs) 0; outline: var(--rule-hair) solid var(--color-rule-2); }
 .exam-sheet.on-orig .item-text { font-size: var(--text-sm); color: var(--color-ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }  /* steht ohnehin auf dem Scan */
 .mark-host > .pad-bar { position: sticky; top: var(--nav-h); z-index: 2; margin: 0; padding: var(--space-2xs) 0; background: var(--color-sheet); }
 /* Antwortfeld im erkannten Antwortbereich der Originalseite */
