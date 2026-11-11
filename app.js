@@ -1178,9 +1178,9 @@
         if (ai.gpu === null) { box.innerHTML = '<p class="small muted">Prüfe, was dieses Gerät kann …</p>'; return; }
         const models = AI_MODELS.filter((m) => ai.gpu || !m.gpu);
         const pick = models.find((m) => m.id === st.aiModel) ? st.aiModel : models[0].id;
-        box.innerHTML = `<p class="small">Lernpartner, der die Aufgabe und die offizielle Lösung kennt. Er läuft komplett auf deinem Gerät, ohne Konto und ohne Schlüssel. Beim ersten Mal wird das Modell einmalig geladen und danach im Browser gespeichert.</p>
-          <p class="small">„Online“ ist am schnellsten: Aufgabe, offizielle Lösung und deine Antwort gehen dabei an Puter und den KI-Anbieter. Die anderen Modelle laufen nur auf deinem Gerät.${ai.gpu ? '' : ' Hier gibt es keine nutzbare Grafikkarte (WebGPU), lokal geht deshalb nur der Prozessor: das antwortet langsam, oft ein paar Wörter pro Sekunde.'}</p>
-          <label class="field" style="margin-top:var(--space-sm)"><span>Modell</span><select class="input" id="ai-model">${models.map((m) => `<option value="${m.id}"${pick === m.id ? ' selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
+        box.innerHTML = `<p class="small">Lernpartner, der die Aufgabe und die offizielle Lösung kennt.</p>
+          <details class="ai-info"><summary>Wie funktioniert das?</summary><p class="small">„Online“ ist am schnellsten und braucht ein kostenloses Puter-Konto. Aufgabe, offizielle Lösung und deine Antwort gehen dabei an Puter und den KI-Anbieter. Die anderen Modelle laufen nur auf deinem Gerät und werden beim ersten Mal einmalig geladen.${ai.gpu ? '' : ' Hier gibt es keine nutzbare Grafikkarte (WebGPU), lokal geht deshalb nur der Prozessor: das antwortet langsam, oft ein paar Wörter pro Sekunde.'}</p></details>
+          <label class="field"><span>Modell</span><select class="input" id="ai-model">${models.map((m) => `<option value="${m.id}"${pick === m.id ? ' selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
           <div class="actions" style="margin-top:var(--space-sm)"><button type="button" class="btn primary" id="ai-load"${ai.loading ? ' disabled' : ''}>KI laden</button>${ai.needLogin ? '<button type="button" class="btn" id="ai-login">Bei Puter anmelden</button>' : ''}</div>
           <p class="small muted" id="ai-progress" role="status">${ai.loading ? 'Wird geladen …' : ''}</p>
           <p class="small muted">Kleine Modelle können sich irren. Im Zweifel gilt die offizielle Lösung.</p>`;
@@ -1256,6 +1256,7 @@
     // Lernmodus (noCalc): eigene Einstellung, standardmäßig ausgeblendet, damit die Originalseite die Breite bekommt
     const offKey = noCalc ? 'learnToolsOff' : 'toolsOff';
     let part = null, item = null, tab = st.toolsTab || 'calc', shown = { beleg: null, orig: null }, off = noCalc ? st.learnToolsOff !== false : !!st.toolsOff;
+    if (!matchMedia('(min-width: 84rem)').matches) off = true;  // schmaler: Werkzeuge liegen über der Seite, also erst auf Wunsch zeigen
     const has = (k) => k === 'calc' ? !noCalc && wide.matches : k === 'ki' ? !!noCalc : k === 'pad' ? true : k === 'beleg' ? !!(part && (part.attachments || []).some((a) => (a.pages && a.pages.length) || a.text)) : !!(part && part.page_images && part.page_images.length);
     const save = () => { const s = store.get('ap2.settings', {}); s.toolsTab = tab; s[offKey] = off; store.set('ap2.settings', s); };
     const show = (k, page) => {
@@ -1277,7 +1278,11 @@
       }
       save();
     };
-    const apply = () => { const work = $('.work'); if (!work) return; el.hidden = off; work.classList.toggle('with-tools', !off); const b = $('#b-tools'); if (b) b.hidden = !off; };
+    const apply = () => {
+      const work = $('.work'); if (!work) return; el.hidden = off; work.classList.toggle('with-tools', !off); const b = $('#b-tools'); if (b) b.hidden = !off;
+      // als Spalte daneben rückt die Übersicht zugeklappt nach oben; sonst wie gewohnt (breit offen)
+      const nav = $('#navigator'); if (nav) nav.open = !off && matchMedia('(min-width: 84rem)').matches ? false : matchMedia('(min-width: 60.01rem)').matches;
+    };
     $$('[data-tool]', el).forEach((b) => b.onclick = () => show(b.dataset.tool));
     $('[data-tools-close]', el).onclick = () => { off = true; save(); apply(); const b = $('#b-tools'); if (b) b.focus(); };
     wide.addEventListener('change', () => { if (el.isConnected) show(tab); });

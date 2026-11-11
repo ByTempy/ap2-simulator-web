@@ -567,10 +567,17 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
 .tools .dv-title { display: none; }
 .tools .attachment { max-height: 60vh; overflow: auto; }
 .orig-link { margin-top: var(--space-sm); }
-.work > .tools { grid-column: 1 / -1; }
-@media (min-width: 84rem) { /* dritte Spalte neben dem Aufgabenblatt */
-  .work.with-tools { grid-template-columns: var(--navigator-w) minmax(0, 1fr) 21rem; }
-  .work.with-tools > .tools { grid-column: auto; position: sticky; top: calc(var(--nav-h) + var(--space-md)); max-height: calc(100dvh - var(--nav-h) - var(--space-xl)); overflow-y: auto; }
+/* Werkzeuge: unter 84rem als Leiste rechts über der Seite (kein Suchen unter dem Blatt), ab 84rem als eigene Spalte;
+   dann rückt die Aufgabenübersicht als aufklappbare Zeile über das Blatt, damit die Originalseite breit bleibt */
+.work > .tools { position: fixed; z-index: var(--z-sticky); top: var(--nav-h); right: 0; bottom: 0; width: min(26rem, 100vw); overflow-y: auto; border-radius: 0; border-width: 0 0 0 var(--rule-hair); }
+@media (min-width: 84rem) {
+  .work.with-tools { grid-template-columns: minmax(0, 1fr) minmax(22rem, 27rem); }
+  .work.with-tools > .tools { position: sticky; top: calc(var(--nav-h) + var(--space-md)); bottom: auto; width: auto; max-height: calc(100dvh - var(--nav-h) - var(--space-xl)); border-radius: var(--radius-card); border-width: var(--rule-hair); }
+  .work.with-tools > .navigator { grid-column: 1 / -1; position: static; max-height: none; padding: 0; }
+  .work.with-tools > .navigator > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); cursor: pointer; list-style: none; font: 500 var(--text-sm)/1.3 var(--font-display); color: var(--color-ink); min-height: 48px; }
+  .work.with-tools > .navigator > summary::-webkit-details-marker { display: none; }
+  .work.with-tools > .navigator > summary .pos-text { color: var(--color-muted); font: 400 var(--text-sm)/1.3 var(--font-body); }
+  .work.with-tools > .navigator > .nav-body { padding: 0 var(--space-md) var(--space-md); }
 }
 @media print { .tools, #b-tools { display: none !important; } }
 .tools [data-calc-close] { display: none; }
@@ -630,7 +637,9 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .mark-field.other, .mark-tick.other { outline-color: var(--color-print-rule); }
 /* KI-Lernpartner */
 .tools-panel.ai { display: grid; gap: var(--space-sm); }
-.ai-log { max-height: min(28rem, 55dvh); overflow-y: auto; display: grid; gap: var(--space-xs); padding: var(--space-xs); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-sheet); }
+.ai-info summary { cursor: pointer; font-size: var(--text-sm); color: var(--color-muted); }
+.ai-info p { margin-top: var(--space-2xs); }
+.ai-log { max-height: calc(100dvh - var(--nav-h) - 17rem); min-height: 8rem; overflow-y: auto; display: grid; gap: var(--space-xs); padding: var(--space-xs); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-sheet); }
 .ai-msg p { margin: var(--space-3xs) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ai-msg.user { justify-self: end; max-width: 90%; padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-card); background: var(--color-well); }
 .ai-msg.assistant { max-width: 100%; }
