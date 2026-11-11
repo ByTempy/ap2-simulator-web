@@ -1136,7 +1136,76 @@
 
   // Werkzeugleiste beim Bearbeiten: Taschenrechner, Notizen (Karopapier), Belegsatz, Originalseite.
   // Ein Element je Sitzung, das nach jedem Neuzeichnen wieder eingehängt wird; so bleiben Notizen und Rechnungen erhalten.
-  const TOOL_TABS = [['calc', 'Rechner'], ['pad', 'Notizen'], ['beleg', 'Belegsatz'], ['orig', 'Original']];
+  const TOOL_TABS = [['calc', 'Rechner'], ['pad', 'Notizen'], ['beleg', 'Belegsatz'], ['orig', 'Original'], ['ki', 'KI']];
+
+  // ---------- KI-Lernpartner im Browser (WebLLM, WebGPU): kein Schlüssel, nach dem ersten Laden offline, nichts verlässt das Gerät ----------
+  const AI_LIB = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.84/+esm';
+  const AI_MODELS = [['Qwen2.5-1.5B-Instruct-q4f16_1-MLC', 'Klein, schnell (etwa 1,6 GB)'], ['Qwen2.5-3B-Instruct-q4f16_1-MLC', 'Mittel, besser (etwa 2,5 GB)'], ['Qwen2.5-7B-Instruct-q4f16_1-MLC', 'Groß, am besten (etwa 5 GB, starke Grafikkarte)']];
+  const ai = { engine: null, model: null, loading: null, chats: new Map() };
+  const aiPrompt = (item, ans) => [
+    'Du bist ein geduldiger Lernpartner für die IHK-Abschlussprüfung der IT-System-Elektroniker/-innen. Antworte immer auf Deutsch, kurz, klar und fachlich korrekt.',
+    'Stütze dich auf die offizielle Lösung unten. Wenn du etwas nicht sicher weißt, sag das, statt zu raten. Verrate die Lösung nicht ungefragt, wenn der Lernende noch übt: gib dann Hinweise und stelle Rückfragen.',
+    `Aufgabe (${item.points} Punkte): ${item.text}`,
+    item.solution ? `Offizielle Lösung: ${item.solution}` : '', item.expected ? `Erwartetes Ergebnis: ${item.expected} ${item.unit || ''}` : '', item.grading ? `Bewertungshinweis: ${item.grading}` : '',
+    `Antwort des Lernenden: ${[(ans && ans.value) || '', (ans && ans.text) || ''].filter(Boolean).join(' | ') || '(noch keine)'}`,
+  ].filter(Boolean).join('\n');
+  const AI_ACTIONS = [['Aufgabe erklären', 'Erkläre mir, worum es in dieser Aufgabe geht und welches Wissen ich dafür brauche. Verrate die Lösung noch nicht.'],
+    ['Antwort bewerten', 'Bewerte meine Antwort nach dem Bewertungshinweis mit Punkten. Sag kurz, was richtig ist, was fehlt und wie ich es verbessern kann.'],
+    ['Abfragen', 'Stell mir eine Verständnisfrage zum Thema dieser Aufgabe und warte auf meine Antwort.']];
+  function aiPanel(box, getCtx) {
+    const st = store.get('ap2.settings', {});
+    if (!navigator.gpu) {
+      box.innerHTML = '<p class="small">Die KI läuft direkt im Browser und braucht WebGPU. Dieser Browser unterstützt das nicht. Am besten geht es mit einem aktuellen Chrome oder Edge am PC.</p>';
+      return () => {};
+    }
+    const render = () => {
+      if (!ai.engine) {
+        box.innerHTML = `<p class="small">Lernpartner, der die Aufgabe und die offizielle Lösung kennt. Er läuft komplett auf deinem Gerät, ohne Konto und ohne Schlüssel. Beim ersten Mal wird das Modell einmalig geladen und danach im Browser gespeichert.</p>
+          <label class="field" style="margin-top:var(--space-sm)"><span>Modell</span><select class="input" id="ai-model">${AI_MODELS.map(([id, l]) => `<option value="${id}"${(st.aiModel || AI_MODELS[0][0]) === id ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+          <div class="actions" style="margin-top:var(--space-sm)"><button type="button" class="btn primary" id="ai-load"${ai.loading ? ' disabled' : ''}>KI laden</button></div>
+          <p class="small muted" id="ai-progress" role="status">${ai.loading ? 'Wird geladen …' : ''}</p>
+          <p class="small muted">Kleine Modelle können sich irren. Im Zweifel gilt die offizielle Lösung.</p>`;
+        $('#ai-load', box).onclick = load;
+        return;
+      }
+      const { item } = getCtx(); if (!item) { box.innerHTML = '<p class="small muted">Wähle eine Teilaufgabe.</p>'; return; }
+      const log = ai.chats.get(item.id) || [];
+      box.innerHTML = `<div class="ai-log" id="ai-log" aria-live="polite">${log.length ? log.map((m) => `<div class="ai-msg ${m.role}"><span class="small muted">${m.role === 'user' ? 'Du' : 'KI'}</span><p>${nl(m.content)}</p></div>`).join('') : '<p class="small muted">Frag etwas zu dieser Teilaufgabe oder nutze einen Knopf.</p>'}</div>
+        <div class="actions ai-quick">${AI_ACTIONS.map(([l], i) => `<button type="button" class="btn sm" data-ai="${i}">${l}</button>`).join('')}</div>
+        <form id="ai-form" class="ai-form"><label class="visually-hidden" for="ai-in">Nachricht an die KI</label><textarea class="input" id="ai-in" rows="2" placeholder="Deine Frage oder Antwort"></textarea><button type="submit" class="btn primary sm">Senden</button></form>
+        <p class="small muted">${esc((AI_MODELS.find((m) => m[0] === ai.model) || [, ai.model])[1])}, läuft lokal. <button type="button" class="btn sm quiet" id="ai-reset">Gespräch neu</button></p>`;
+      const lg = $('#ai-log', box); lg.scrollTop = lg.scrollHeight;
+      $$('[data-ai]', box).forEach((b) => b.onclick = () => ask(AI_ACTIONS[+b.dataset.ai][1]));
+      $('#ai-form', box).onsubmit = (ev) => { ev.preventDefault(); const t = $('#ai-in', box).value.trim(); if (t) ask(t); };
+      $('#ai-in', box).onkeydown = (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('#ai-form', box).requestSubmit(); } };
+      $('#ai-reset', box).onclick = () => { ai.chats.delete(item.id); render(); };
+    };
+    const load = async () => {
+      const model = $('#ai-model', box).value; const s = store.get('ap2.settings', {}); s.aiModel = model; store.set('ap2.settings', s);
+      ai.loading = true; render();
+      try {
+        const webllm = await import(AI_LIB);
+        ai.engine = await webllm.CreateMLCEngine(model, { initProgressCallback: (r) => { const p = $('#ai-progress', box); if (p) p.textContent = r.text; } });
+        ai.model = model;
+      } catch (e) { ai.engine = null; toast(`KI konnte nicht geladen werden: ${e.message}`, true); }
+      ai.loading = null; render();
+    };
+    let busy = false;
+    const ask = async (text) => {
+      if (busy) return; busy = true;
+      const { item, answer } = getCtx();
+      const log = ai.chats.get(item.id) || []; ai.chats.set(item.id, log);
+      log.push({ role: 'user', content: text }); const reply = { role: 'assistant', content: '' }; log.push(reply); render();
+      const out = $$('.ai-msg.assistant p', box).pop();
+      try {
+        const msgs = [{ role: 'system', content: aiPrompt(item, answer()) }, ...log.slice(-10, -1).map((m) => ({ role: m.role, content: m.content }))];
+        const chunks = await ai.engine.chat.completions.create({ messages: msgs, stream: true, temperature: 0.4, max_tokens: 600 });
+        for await (const c of chunks) { reply.content += (c.choices[0] && c.choices[0].delta && c.choices[0].delta.content) || ''; if (out && out.isConnected) { out.innerHTML = nl(reply.content); const lg = $('#ai-log', box); if (lg) lg.scrollTop = lg.scrollHeight; } }
+      } catch (e) { reply.content = `Fehler: ${e.message}`; }
+      busy = false; render();
+    };
+    return render;
+  }
   function workTools(noCalc) {
     const st = store.get('ap2.settings', {});
     const el = document.createElement('aside'); el.className = 'tools'; el.id = 'w-tools'; el.setAttribute('aria-label', 'Werkzeuge');
@@ -1145,14 +1214,16 @@
       <div class="tools-panel" data-panel="calc" hidden></div>
       <section class="pad tools-panel" data-panel="pad" hidden>${padHtml()}</section>
       <div class="tools-panel" data-panel="beleg" hidden></div>
-      <div class="tools-panel" data-panel="orig" hidden></div>`;
+      <div class="tools-panel" data-panel="orig" hidden></div>
+      <div class="tools-panel ai" data-panel="ki" hidden></div>`;
+    let aiRender = null, aiCtx = () => ({});
     if (!noCalc) calculator($('[data-panel="calc"]', el), st.calcMode === 'base' ? 'base' : 'calc');
     drawPad($('[data-panel="pad"]', el));
     const wide = matchMedia('(min-width: 64rem)'); // Rechner nur bei breitem Fenster, wie im Rechentrainer
     // Lernmodus (noCalc): eigene Einstellung, standardmäßig ausgeblendet, damit die Originalseite die Breite bekommt
     const offKey = noCalc ? 'learnToolsOff' : 'toolsOff';
     let part = null, item = null, tab = st.toolsTab || 'calc', shown = { beleg: null, orig: null }, off = noCalc ? st.learnToolsOff !== false : !!st.toolsOff;
-    const has = (k) => k === 'calc' ? !noCalc && wide.matches : k === 'pad' ? true : k === 'beleg' ? !!(part && (part.attachments || []).some((a) => (a.pages && a.pages.length) || a.text)) : !!(part && part.page_images && part.page_images.length);
+    const has = (k) => k === 'calc' ? !noCalc && wide.matches : k === 'ki' ? !!noCalc : k === 'pad' ? true : k === 'beleg' ? !!(part && (part.attachments || []).some((a) => (a.pages && a.pages.length) || a.text)) : !!(part && part.page_images && part.page_images.length);
     const save = () => { const s = store.get('ap2.settings', {}); s.toolsTab = tab; s[offKey] = off; store.set('ap2.settings', s); };
     const show = (k, page) => {
       if (!has(k)) k = TOOL_TABS.map((t) => t[0]).find(has);
@@ -1179,9 +1250,11 @@
     wide.addEventListener('change', () => { if (el.isConnected) show(tab); });
     return {
       // nach jedem Neuzeichnen der Arbeitsansicht aufrufen
-      mount(p, it) {
+      // answer: Funktion, die die aktuelle Antwort liefert (für den KI-Lernpartner)
+      mount(p, it, answer) {
         if (!part || part.id !== p.id) { shown = { beleg: null, orig: null }; }
         part = p; item = it;
+        if (noCalc) { aiCtx = () => ({ item, answer: answer || (() => null) }); if (!aiRender) aiRender = aiPanel($('[data-panel="ki"]', el), () => aiCtx()); aiRender(); }
         $('.work').appendChild(el);
         const b = $('#b-tools'); if (b) b.onclick = () => { off = false; save(); apply(); show(tab); };
         $$('[data-orig]', app).forEach((x) => x.onclick = () => { off = false; apply(); show('orig', +x.dataset.orig); });
@@ -1291,7 +1364,12 @@
       }
       page.setPointerCapture(ev.pointerId); cur = { erase: tool === 'erase' || ev.button === 5, pts: [at(ev)], n: Date.now() }; own.strokes.push(cur); line(cv, cur, 0);
     };
-    page.onpointermove = (ev) => { if (!cur) return; cur.pts.push(at(ev)); line(cv, cur, cur.pts.length - 1); };
+    page.onpointermove = (ev) => {
+      if (!cur) return;
+      const p = at(ev), q = cur.pts[cur.pts.length - 1];
+      if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 0.0015) return;  // dichter als 1,5 ‰ der Seite bringt nichts, kostet aber Speicher
+      cur.pts.push(p); line(cv, cur, cur.pts.length - 1);
+    };
     page.onpointerup = page.onpointercancel = () => { if (cur) onChange(); cur = null; };
     $$('[data-pad]', host).forEach((b) => b.onclick = () => {
       const a = b.dataset.pad;
@@ -1677,7 +1755,7 @@
       };
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
       if ($('#b-view')) $('#b-view').onclick = async () => { await save(); const s = store.get('ap2.settings', {}); s.learnText = onOrig; store.set('ap2.settings', s); renderLearn(true); };
-      tools.mount(part, item);
+      tools.mount(part, item, collect);
       // erst jetzt: die Seite steht. Mit Antwortfeld dorthin, sonst auf derselben Seite die Stelle behalten
       if (focusSheet && orig && orig.field) orig.field.scrollIntoView({ block: 'center' });
       else if (focusSheet && samePage) scrollTo(0, y);

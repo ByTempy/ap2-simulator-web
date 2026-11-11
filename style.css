@@ -628,3 +628,11 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .mark-tick.ro { outline: 0; pointer-events: none; }
 /* Felder anderer Teilaufgaben auf derselben Seite: beschreibbar, Umrandung zurückhaltender */
 .mark-field.other, .mark-tick.other { outline-color: var(--color-print-rule); }
+/* KI-Lernpartner */
+.tools-panel.ai { display: grid; gap: var(--space-sm); }
+.ai-log { max-height: min(28rem, 55dvh); overflow-y: auto; display: grid; gap: var(--space-xs); padding: var(--space-xs); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-sheet); }
+.ai-msg p { margin: var(--space-3xs) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-msg.user { justify-self: end; max-width: 90%; padding: var(--space-2xs) var(--space-xs); border-radius: var(--radius-card); background: var(--color-well); }
+.ai-msg.assistant { max-width: 100%; }
+.ai-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xs); align-items: end; }
+.ai-quick { flex-wrap: wrap; }

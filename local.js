@@ -123,7 +123,19 @@
   }
 
   // ---------- Bewertung (Port von src/grading.rs) ----------
-  const normalize = (s) => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/ß/g, 'ss').replace(/[^\p{L}\p{N}]/gu, ' ');
+  // „Störung“ und „Stoerung“, „Maß“ und „Mass“ gelten gleich
+  const normalize = (s) => String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^\p{L}\p{N}]/gu, ' ');
+  // Tippfehler-Toleranz: Abstand (Einfügen, Löschen, Ersetzen, Vertauschen) bis zu einer Grenze
+  const near = (a, b, max) => {
+    if (Math.abs(a.length - b.length) > max) return false;
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+    return d[a.length][b.length] <= max;
+  };
   function parseNumber(s) {
     let t = String(s || '').trim().replace(/[^0-9.,+-]/g, '');
     if (!t) return null;
@@ -151,20 +163,26 @@
     } else if (t === 'number') {
       const e = parseNumber(exp), g = parseNumber((a.value || '').trim() ? a.value : a.text);
       if (e !== null && g !== null) {
-        const tol = item.tolerance > 0 ? item.tolerance : 0.01;
-        const ok = e === 0 ? Math.abs(g) < 1e-9 : (Math.abs((g - e) / e) <= tol || Math.abs(g - e) <= 0.005);
+        const tol = Math.max(item.tolerance > 0 ? item.tolerance : 0, 0.02);
+        const ok = e === 0 ? Math.abs(g) < 0.005 : (Math.abs((g - e) / e) <= tol || Math.abs(g - e) <= 0.01);
         Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? `Richtig: ${exp} ${item.unit || ''}` : `Erwartet: ${exp} ${item.unit || ''}, deine Eingabe: ${de(g)}` });
       } else if (e !== null) Object.assign(res, { correct: false, auto_points: 0, message: 'Keine Zahl erkannt.' });
       else res.message = 'Keine automatische Prüfung möglich.';
     } else if (t === 'choice') {
-      const got = (a.selected || [])[0] || (a.value || '').trim();
+      const keys = (item.options || []).map((o) => o.key);
+      let got = (a.selected || [])[0] || (a.value || '').trim();
+      if (got && !keys.includes(got)) { const k = digits(got).filter((x) => keys.includes(x)); if (k.length === 1) got = k[0]; }
       const ok = !!got && got === exp;
       Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? 'Richtig.' : `Richtige Lösung: ${exp}` });
     } else if (t === 'multi_choice') {
-      const got = [...new Set((a.selected || []).length ? a.selected : digits(a.value))].sort();
-      const e = digits(exp).sort();
+      const num = (x, y) => x.localeCompare(y, undefined, { numeric: true });
+      const got = [...new Set((a.selected || []).length ? a.selected : digits(a.value))].sort(num);
+      const e = digits(exp).sort(num);
       const ok = got.join(',') === e.join(',');
-      Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? 'Richtig.' : `Richtige Lösung: ${e.join(', ')}` });
+      // Teilpunkte wie „je Angabe 1 Punkt“: richtige Kreuze zählen, falsche ziehen ab
+      const right = got.filter((x) => e.includes(x)).length, wrong = got.length - right;
+      const pts = ok ? item.points : e.length ? Math.max(0, Math.floor(item.points * (right - wrong) / e.length * 2) / 2) : 0;
+      Object.assign(res, { correct: ok, auto_points: pts, message: ok ? 'Richtig.' : `Richtige Lösung: ${e.join(', ')}${pts ? ` (${de(pts)} von ${de(item.points)} Punkten)` : ''}` });
     } else if (t === 'assignment' || t === 'order') {
       const got = (a.selected || []).length ? a.selected : digits(a.value);
       const e = digits(exp);
@@ -193,7 +211,7 @@
       (a.cells || []).forEach((r) => r.forEach((c) => { text += ' ' + (c || ''); }));
       const words = normalize(text).split(/\s+/).filter(Boolean);
       const stem = (kp) => [...kp].slice(0, Math.min(Math.max([...kp].length, 4), 6)).join('');
-      const hitStem = (s) => words.some((w) => w.startsWith(s) || (w.length >= 4 && s.startsWith(w)));
+      const hitStem = (s) => words.some((w) => w.startsWith(s) || (w.length >= 4 && s.startsWith(w)) || (s.length >= 5 && near(s, w.slice(0, s.length), s.length >= 8 ? 2 : 1)));
       let hits = 0;
       (item.keywords || []).forEach((kw) => {
         const parts = normalize(kw).split(/\s+/).filter(Boolean);
@@ -611,6 +629,11 @@
   assert(parseNumber('1.500,5') === 1500.5 && parseNumber('1,5') === 1.5 && parseNumber('90 min') === 90 && parseNumber('2.400') === 2400 && parseNumber('12.5') === 12.5, 'parseNumber');
   assert(check({ points: 4, answer_type: 'text', keywords: ['Hot-Spare', 'Ruhezustand', 'Ausfall', 'Rekonstruktion'] }, { text: 'Die Hotspare Platte ist im Ruhezustand und springt beim Ausfall ein' }).keywords.filter((k) => k.hit).length === 3, 'Stichworte');
   assert(check({ points: 3, answer_type: 'multi_choice', expected: '2,4' }, { selected: ['4', '2'] }).correct === true, 'Mehrfachauswahl');
+  assert(check({ points: 3, answer_type: 'multi_choice', expected: '1,7,10' }, { selected: ['1', '7'] }).auto_points === 2 && check({ points: 3, answer_type: 'multi_choice', expected: '1,7,10' }, { selected: ['1', '7', '9'] }).auto_points === 1, 'Teilpunkte Mehrfachauswahl');
+  assert(check({ points: 2, answer_type: 'text', keywords: ['Störung', 'Schirmung'] }, { text: 'Stoerung durch fehlende Schrimung' }).keywords.every((k) => k.hit), 'Umlaute und Tippfehler');
+  assert(!check({ points: 2, answer_type: 'text', keywords: ['Switch'] }, { text: 'Router' }).keywords[0].hit, 'keine falschen Treffer');
+  assert(check({ points: 2, answer_type: 'number', expected: '43,8' }, { value: '44' }).correct && !check({ points: 2, answer_type: 'number', expected: '43,8' }, { value: '45' }).correct, 'Zahlentoleranz');
+  assert(check({ points: 3, answer_type: 'choice', expected: '3', options: [{ key: '1' }, { key: '3' }] }, { value: 'Netzwerkkarte 3' }).correct, 'Auswahl als Text');
   assert(check({ points: 2, answer_type: 'number', expected: '15.06.2023' }, { value: '15.06.2023' }).correct === true, 'Datum');
   const day = 864e5;
   assert(nextBox(undefined, 0.3, 0) === 0 && nextBox(undefined, 0.9, 0) === 1 && nextBox(undefined, 0.6, 0) === 1, 'Wiederholung: erster Versuch');
