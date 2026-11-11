@@ -97,6 +97,7 @@
           <label><span class="visually-hidden">Zoom</span><select class="input dv-zoom" data-dv="zoom"><option value="fit">Ganze Seite</option><option value="width">Seitenbreite</option>${ZOOM_STEPS.map((z) => `<option value="${z}">${z} %</option>`).join('')}</select></label>
           <button type="button" class="btn icon-btn" data-dv="in" aria-label="Vergrößern" title="Vergrößern (Strg und Mausrad)">${icon('<path d="M12 5v14M5 12h14"/>')}</button>
         </div>
+        <button type="button" class="btn icon-btn" data-dv="download" aria-label="Als PDF herunterladen" title="Als PDF herunterladen">${icon('<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>')}</button>
         <button type="button" class="btn icon-btn" data-dv="print" aria-label="Alle Seiten drucken" title="Alle Seiten drucken oder als PDF speichern">${icon('<path d="M6 9V3h12v6"/><rect x="4" y="9" width="16" height="8" rx="1"/><path d="M7 14h10v7H7z"/>')}</button>
         ${opts.inline ? '' : '<button type="button" class="btn sm dv-close" data-close>Schließen</button>'}
       </div>
@@ -157,6 +158,7 @@
     $('[data-dv="next"]', host).onclick = () => go(cur() + 1);
     $('[data-dv="in"]', host).onclick = () => step(1);
     $('[data-dv="print"]', host).onclick = () => printPages(pages, opts.printTitle || opts.title || 'Seiten');
+    $('[data-dv="download"]', host).onclick = () => downloadPages(pages, opts.printTitle || opts.title || 'Seiten');
     $('[data-dv="out"]', host).onclick = () => step(-1);
     sel.onchange = () => setZoom(/^\d+$/.test(sel.value) ? +sel.value : sel.value);
     pin.onchange = () => { const v = parseInt(pin.value, 10); if (v) go(v - 1); else pin.value = cur() + 1; };
@@ -186,10 +188,61 @@
       }))));
     } catch (e) { toast(e.message, true); box.remove(); printing = false; return; }
     const oldTitle = document.title; document.title = title; // Dateiname beim Speichern als PDF
+    // ohne Rand: keine Kopf- und Fußzeile des Browsers, die Scanseite füllt das Blatt; quer gescannte Seiten bekommen ein Querformat-Blatt
+    const pageCss = document.createElement('style');
+    pageCss.textContent = '@page { margin: 0; }';
+    document.head.appendChild(pageCss);
     document.body.classList.add('printing-pages');
-    const done = () => { document.body.classList.remove('printing-pages'); box.remove(); document.title = oldTitle; printing = false; window.removeEventListener('afterprint', done); };
+    const done = () => { document.body.classList.remove('printing-pages'); box.remove(); pageCss.remove(); document.title = oldTitle; printing = false; window.removeEventListener('afterprint', done); };
     window.addEventListener('afterprint', done);
     window.print();
+  }
+  // Kleines PDF ohne Bibliothek: je Seite ein JPEG-Bild auf A4 (hoch oder quer), Bild eingepasst
+  function pdfFromJpegs(imgs) {
+    const enc = new TextEncoder(), parts = [], offs = [];
+    let len = 0;
+    const put = (x) => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); len += b.length; };
+    const obj = (n, body, stream) => { offs[n] = len; put(`${n} 0 obj\n${body}\n`); if (stream) { put('stream\n'); put(stream); put('\nendstream\n'); } put('endobj\n'); };
+    put('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');
+    const kids = imgs.map((_, i) => `${3 + i * 3} 0 R`).join(' ');
+    obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+    obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${imgs.length} >>`);
+    imgs.forEach((im, i) => {
+      const n = 3 + i * 3, land = im.w > im.h, W = land ? 842 : 595, H = land ? 595 : 842;
+      const s = Math.min(W / im.w, H / im.h), w = im.w * s, h = im.h * s, x = (W - w) / 2, y = (H - h) / 2;
+      const content = enc.encode(`q ${w.toFixed(2)} 0 0 ${h.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /Im0 Do Q`);
+      obj(n, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /XObject << /Im0 ${n + 2} 0 R >> >> /Contents ${n + 1} 0 R >>`);
+      obj(n + 1, `<< /Length ${content.length} >>`, content);
+      obj(n + 2, `<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.data.length} >>`, im.data);
+    });
+    const count = 3 + imgs.length * 3, xref = len;
+    put(`xref\n0 ${count}\n0000000000 65535 f \n${offs.slice(1, count).map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`);
+    put(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    const out = new Uint8Array(len); let p = 0; parts.forEach((b) => { out.set(b, p); p += b.length; });
+    return out;
+  }
+  let downloading = false;
+  async function downloadPages(pages, title) {
+    if (downloading || !pages || !pages.length) return;
+    downloading = true;
+    try {
+      const imgs = [];
+      for (let i = 0; i < pages.length; i++) {
+        toast(`PDF wird erstellt (${i} von ${pages.length} Seiten)`);
+        const u = await window.AP2Local.pageSrc(pages[i]);
+        const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error(`Seite ${i + 1} konnte nicht geladen werden`)); im.src = u; });
+        const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0);
+        const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+        imgs.push({ w: c.width, h: c.height, data: new Uint8Array(await blob.arrayBuffer()) });
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([pdfFromJpegs(imgs)], { type: 'application/pdf' }));
+      a.download = `${title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast(`PDF mit ${pages.length} Seiten heruntergeladen`);
+    } catch (e) { toast(e.message, true); }
+    downloading = false;
   }
   function pageViewer(pages, start = 0, title = 'Originalseiten') {
     if (!pages || !pages.length) { toast('Keine Seitenbilder vorhanden', true); return; }
@@ -2032,6 +2085,7 @@
         ${d.rolle === 'aufgaben' ? `<a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>` : ''}
         <button type="button" class="btn sm quiet" data-view="${d.id}">Ansehen</button>
         <button type="button" class="btn sm quiet" data-print="${d.id}">Drucken</button>
+        <button type="button" class="btn sm quiet" data-dl="${d.id}">Herunterladen</button>
         ${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">Lösung</button>`).join('')}</div></td></tr>`; };
     app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Alle Originalprüfungen als Seiten zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
         <div class="actions" style="align-items:end">
@@ -2046,6 +2100,7 @@
     const byId = Object.fromEntries(docs.map((d) => [d.id, d]));
     $$('[data-view]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.view]; pageViewer(docPages(d), 0, `${d.termin}: ${d.title}`); });
     $$('[data-print]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.print]; printPages(docPages(d), `${d.termin}: ${d.title}`); });
+    $$('[data-dl]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.dl]; downloadPages(docPages(d), `${d.termin} ${d.title}`); });
     $('#a-search').oninput = (ev) => {
       const q = ev.target.value.toLowerCase().trim();
       $$('[data-term]', app).forEach((c) => { c.hidden = !!q && !c.dataset.term.includes(q); });

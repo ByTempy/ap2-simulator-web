@@ -503,14 +503,14 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
 
 /* ---------- Seiten drucken (Archiv, Betrachter) ---------- */
 #print-pages { display: none; }
-@page scan { size: A4; margin: 6mm; }
+@page scan { size: A4; margin: 0; }
 @media print {
   body.printing-pages > *:not(#print-pages) { display: none !important; }
   body.printing-pages { background: none; }
   body.printing-pages #print-pages { display: block; }
-  #print-pages .pp { page: scan; margin: 0; height: 284mm; display: flex; align-items: center; justify-content: center; break-after: page; break-inside: avoid; }
+  #print-pages .pp { page: scan; margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; break-after: page; break-inside: avoid; overflow: hidden; }
   #print-pages .pp:last-child { break-after: auto; }
-  #print-pages img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #print-pages img { max-width: 100%; max-height: 100%; object-fit: contain; filter: contrast(1.25); }  /* helle Scans kräftiger */
 }
 
 /* ---------- Rechentrainer: Tipps, Taschenrechner (nach dem Vorbild fx-991DE CW), Karopapier ---------- */
