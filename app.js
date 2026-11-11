@@ -1129,13 +1129,14 @@
     draw();
   }
 
-  const padHtml = () => `<div class="pad-bar" role="toolbar" aria-label="Zeichenwerkzeuge">${[['pen', 'Stift', '<path d="M4 20l4-1L19 8l-3-3L5 16z"/><path d="M14 7l3 3"/>'], ['erase', 'Radierer', '<path d="M5 15l9-9 5 5-8 8H8z"/><path d="M10 10l5 5"/><path d="M11 19h9"/>'], ['undo', 'Rückgängig', '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>'], ['clear', 'Leeren', '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>']].map(([k, l, d]) => `<button type="button" class="btn icon-btn" data-pad="${k}" aria-label="${l}" title="${l}"${k === 'pen' || k === 'erase' ? ` aria-pressed="${k === 'pen'}"` : ''}>${icon(d)}</button>`).join('')}</div>
+  const padBar = (pre = [], label = 'Zeichenwerkzeuge') => `<div class="pad-bar" role="toolbar" aria-label="${label}">${[...pre, ['pen', 'Stift', '<path d="M4 20l4-1L19 8l-3-3L5 16z"/><path d="M14 7l3 3"/>'], ['erase', 'Radierer', '<path d="M5 15l9-9 5 5-8 8H8z"/><path d="M10 10l5 5"/><path d="M11 19h9"/>'], ['undo', 'Rückgängig', '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>'], ['clear', 'Leeren', '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/>']].map(([k, l, d]) => `<button type="button" class="btn icon-btn" data-pad="${k}" aria-label="${l}" title="${l}"${['text', 'pen', 'erase'].includes(k) ? ` aria-pressed="${k === (pre.length ? pre[0][0] : 'pen')}"` : ''}>${icon(d)}</button>`).join('')}</div>`;
+  const padHtml = () => `${padBar()}
     <canvas role="img" aria-label="Zeichenfläche mit Karomuster"></canvas>`;
 
   // Werkzeugleiste beim Bearbeiten: Taschenrechner, Notizen (Karopapier), Belegsatz, Originalseite.
   // Ein Element je Sitzung, das nach jedem Neuzeichnen wieder eingehängt wird; so bleiben Notizen und Rechnungen erhalten.
   const TOOL_TABS = [['calc', 'Rechner'], ['pad', 'Notizen'], ['beleg', 'Belegsatz'], ['orig', 'Original']];
-  function workTools() {
+  function workTools(noCalc) {
     const st = store.get('ap2.settings', {});
     const el = document.createElement('aside'); el.className = 'tools'; el.id = 'w-tools'; el.setAttribute('aria-label', 'Werkzeuge');
     el.innerHTML = `<div class="tools-head"><div class="seg" role="tablist" aria-label="Werkzeug">${TOOL_TABS.map(([k, l]) => `<button type="button" class="btn sm" role="tab" data-tool="${k}" aria-selected="false">${l}</button>`).join('')}</div>
@@ -1144,11 +1145,11 @@
       <section class="pad tools-panel" data-panel="pad" hidden>${padHtml()}</section>
       <div class="tools-panel" data-panel="beleg" hidden></div>
       <div class="tools-panel" data-panel="orig" hidden></div>`;
-    calculator($('[data-panel="calc"]', el), st.calcMode === 'base' ? 'base' : 'calc');
+    if (!noCalc) calculator($('[data-panel="calc"]', el), st.calcMode === 'base' ? 'base' : 'calc');
     drawPad($('[data-panel="pad"]', el));
     const wide = matchMedia('(min-width: 64rem)'); // Rechner nur bei breitem Fenster, wie im Rechentrainer
     let part = null, item = null, tab = st.toolsTab || 'calc', shown = { beleg: null, orig: null }, off = !!st.toolsOff;
-    const has = (k) => k === 'calc' ? wide.matches : k === 'pad' ? true : k === 'beleg' ? !!(part && (part.attachments || []).some((a) => (a.pages && a.pages.length) || a.text)) : !!(part && part.page_images && part.page_images.length);
+    const has = (k) => k === 'calc' ? !noCalc && wide.matches : k === 'pad' ? true : k === 'beleg' ? !!(part && (part.attachments || []).some((a) => (a.pages && a.pages.length) || a.text)) : !!(part && part.page_images && part.page_images.length);
     const save = () => { const s = store.get('ap2.settings', {}); s.toolsTab = tab; s.toolsOff = off; store.set('ap2.settings', s); };
     const show = (k, page) => {
       if (!has(k)) k = TOOL_TABS.map((t) => t[0]).find(has);
@@ -1211,6 +1212,66 @@
     // Farbe folgt dem Thema: bei Wechsel neu zeichnen, solange die Seite offen ist
     const mo = new MutationObserver(() => cv.isConnected ? paint() : mo.disconnect()); mo.observe(document.documentElement, { attributes: true });
     const mq = matchMedia('(prefers-color-scheme: dark)'); const f = () => cv.isConnected ? paint() : mq.removeEventListener('change', f); mq.addEventListener('change', f);
+  }
+
+  // Ausfüllen auf der Originalseite: Text an die angeklickte Stelle, Stift und Radierer. Koordinaten relativ zur Seite (0 bis 1),
+  // damit alles bei jeder Breite an derselben Stelle steht. own = { boxes: [{ x, y, t, n }], strokes: [{ erase, pts, n }] } wird
+  // verändert; others sind die Einträge anderer Teilaufgaben auf derselben Seite und werden nur angezeigt.
+  function markPage(host, src, own, others, onChange) {
+    host.innerHTML = `${padBar([['text', 'Text schreiben', '<path d="M5 7V5h14v2"/><path d="M12 5v14"/><path d="M9 19h6"/>']], 'Auf der Seite ausfüllen')}
+      <div class="mark-page"><img alt="Originalseite der Aufgabe" draggable="false"><canvas aria-hidden="true"></canvas><canvas aria-hidden="true"></canvas></div>
+      <p class="small muted">„Text schreiben“ wählen, in die Seite klicken, zum Beispiel auf eine Antwortlinie, und tippen. Leere Felder verschwinden wieder.</p>`;
+    const page = $('.mark-page', host), img = $('img', page), [cvO, cv] = $$('canvas', page);
+    let tool = 'text', cur = null;
+    const line = (c, s, from) => {
+      const g = c.getContext('2d'), w = c.width, h = c.height, p = s.pts;
+      g.lineCap = g.lineJoin = 'round'; g.strokeStyle = getComputedStyle(page).color; g.lineWidth = w * (s.erase ? 0.022 : 0.0022);
+      g.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
+      g.beginPath(); g.moveTo(p[Math.max(0, from - 1)][0] * w, p[Math.max(0, from - 1)][1] * h);
+      for (let k = from; k < p.length; k++) g.lineTo(p[k][0] * w, p[k][1] * h);
+      if (p.length === 1) g.lineTo(p[0][0] * w + 0.5, p[0][1] * h);
+      g.stroke();
+    };
+    const box = (b, ro) => {
+      const el = document.createElement(ro ? 'div' : 'textarea');
+      el.className = `mark-text${ro ? ' ro' : ''}`; el.style.left = `${b.x * 100}%`; el.style.top = `${b.y * 100}%`;
+      if (ro) { el.textContent = b.t; page.append(el); return el; }
+      el.value = b.t; el.rows = 1; el.spellcheck = false; el.setAttribute('aria-label', 'Eintrag auf der Seite');
+      const fit = () => { el.rows = Math.max(1, el.value.split('\n').length); };
+      el.oninput = () => { b.t = el.value; fit(); onChange(); };
+      el.onblur = () => { if (!el.value.trim()) { own.boxes.splice(own.boxes.indexOf(b), 1); el.remove(); onChange(); } };
+      el.onpointerdown = (ev) => ev.stopPropagation();
+      fit(); page.append(el); return el;
+    };
+    const paint = () => {
+      if (!page.isConnected) return;
+      page.style.setProperty('--u', `${page.clientWidth / 100}px`);
+      [cvO, cv].forEach((c) => { c.width = page.clientWidth * (window.devicePixelRatio || 1); c.height = page.clientHeight * (window.devicePixelRatio || 1); });
+      others.forEach((o) => (o.strokes || []).forEach((s) => line(cvO, s, 0))); own.strokes.forEach((s) => line(cv, s, 0));
+    };
+    others.forEach((o) => (o.boxes || []).forEach((b) => box(b, true))); own.boxes.forEach((b) => box(b));
+    const at = (ev) => { const r = page.getBoundingClientRect(); return [+((ev.clientX - r.left) / r.width).toFixed(4), +((ev.clientY - r.top) / r.height).toFixed(4)]; };
+    page.onpointerdown = (ev) => {
+      if (tool === 'text') {
+        ev.preventDefault(); const [x, y] = at(ev);
+        const b = { x, y: Math.max(0, y - 0.012), t: '', n: Date.now() }; own.boxes.push(b); box(b).focus(); return;
+      }
+      page.setPointerCapture(ev.pointerId); cur = { erase: tool === 'erase' || ev.button === 5, pts: [at(ev)], n: Date.now() }; own.strokes.push(cur); line(cv, cur, 0);
+    };
+    page.onpointermove = (ev) => { if (!cur) return; cur.pts.push(at(ev)); line(cv, cur, cur.pts.length - 1); };
+    page.onpointerup = page.onpointercancel = () => { if (cur) onChange(); cur = null; };
+    $$('[data-pad]', host).forEach((b) => b.onclick = () => {
+      const a = b.dataset.pad;
+      if (a === 'undo' || a === 'clear') {
+        if (a === 'clear') { own.boxes.length = 0; own.strokes.length = 0; }
+        else { const lb = own.boxes[own.boxes.length - 1], ls = own.strokes[own.strokes.length - 1]; if (lb && (!ls || lb.n > ls.n)) own.boxes.pop(); else own.strokes.pop(); }
+        $$('textarea.mark-text', page).forEach((t) => t.remove()); own.boxes.forEach((x) => box(x)); paint(); onChange();
+      } else { tool = a; page.dataset.tool = a; $$('[aria-pressed]', host).forEach((x) => x.setAttribute('aria-pressed', x === b)); }
+    });
+    page.dataset.tool = tool;
+    img.onload = () => { page.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; paint(); };
+    window.AP2Local.pageSrc(src).then((u) => { img.src = u; }).catch(() => { img.alt = 'Seite konnte nicht geladen werden'; });
+    new ResizeObserver(paint).observe(page);
   }
 
   // ---------- Bewertung nach Kriterien (aus dem Bewertungshinweis) ----------
@@ -1333,10 +1394,10 @@
     if (pg) pg.onclick = () => pageViewer(part.page_images, 0, 'Originalprüfung');
   }
 
-  function sheetHtml(part, task, item, idx, total, inner) {
+  function sheetHtml(part, task, item, idx, total, inner, cls = '') {
     const figure = item.needs_figure && item.figure_pages && item.figure_pages.length && part.page_images && part.page_images.length
       ? `<p style="margin-top:var(--space-sm)"><button type="button" class="btn sm" data-fig="${item.figure_pages[0] - 1}">Abbildung ansehen (Originalseite ${item.figure_pages.join(', ')})</button></p>` : '';
-    return `<article class="exam-sheet" aria-labelledby="task-h">
+    return `<article class="exam-sheet${cls}" aria-labelledby="task-h">
       <div class="body">
         <div class="task-head"><h2 id="task-h">${part.kind === 'WiSo' ? `Aufgabe ${task.number}` : `${task.number}. Aufgabe${task.title ? `: ${esc(task.title)}` : ''}`}</h2><span class="num">${task.points} Punkte</span></div>
         ${task.intro && part.kind !== 'WiSo' ? `<div class="task-intro">${nl(task.intro)}</div>` : ''}
@@ -1357,7 +1418,7 @@
     const stKey = `learn-pos-${sid}`;
     let pos = JSON.parse(sessionStorage.getItem(stKey) || 'null') || { part: view.session.part_order[0], item: null };
     if (!view.exam.parts.find((p) => p.id === pos.part)) pos.part = view.session.part_order[0];
-    const tools = workTools();
+    const tools = workTools(true); // im Lernmodus ohne Rechner, wie auf dem Papier
 
     const renderLearn = (focusSheet) => {
       const part = view.exam.parts.find((p) => p.id === pos.part);
@@ -1371,14 +1432,18 @@
       const hintsUsed = a.hints_used || 0;
       const isText = item.answer_type === 'text' || item.answer_type === 'table' || item.answer_type === 'sketch';
       const where = `${kindShort(part.kind)}, ${part.kind === 'WiSo' ? 'Aufgabe ' + task.number : task.number + ' ' + (item.label || '')}`;
+      // Auf der Originalseite ausfüllen, wenn die Seite der Teilaufgabe bekannt ist (Einstellung learnText schaltet auf die Textfassung)
+      const canOrig = !!(item.page && part.page_images && part.page_images[item.page - 1]);
+      const onOrig = canOrig && !store.get('ap2.settings', {}).learnText;
+      const own = onOrig ? JSON.parse(JSON.stringify(a.marks || { boxes: [], strokes: [] })) : null;
       app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Lernmodus</span><h1>${esc(view.exam.title)}</h1></div>
-          <div class="actions">${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button></div></div>
+          <div class="actions">${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button></div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
         <div>
           ${sheetHtml(part, task, item, idx, items.length, `
-            <div class="answer" id="answer-area">${renderAnswerInput(item, a, false)}</div>
+            <div class="answer${onOrig ? ' mark-host' : ''}" id="answer-area">${onOrig ? '' : renderAnswerInput(item, a, false)}</div>
             <div class="tool-row">
-              <button type="button" id="b-check" class="btn primary">${isText ? 'Stichwort-Check' : 'Antwort prüfen'}</button>
+              <button type="button" id="b-check" class="btn primary">${isText || onOrig ? 'Stichwort-Check' : 'Antwort prüfen'}</button>
               <button type="button" id="b-hint1" class="btn" ${hintsUsed >= 1 ? 'hidden' : ''}>Tipp 1: Ansatz</button>
               <button type="button" id="b-hint2" class="btn" ${hintsUsed >= 2 || hintsUsed < 1 ? 'hidden' : ''}>Tipp 2: konkreter</button>
               <button type="button" id="b-hint3" class="btn" ${hintsUsed >= 3 || hintsUsed < 2 ? 'hidden' : ''}>Tipp 3: fast die Lösung</button>
@@ -1394,7 +1459,7 @@
               <span class="small muted" style="padding-bottom:var(--space-xs)">von ${ptsLabel(item.points)}</span>
               <button type="button" class="btn sm" id="sg-full">Volle Punkte</button><button type="button" class="btn sm" id="sg-zero">0 Punkte</button><button type="button" class="btn sm" id="sg-save">Übernehmen</button>
             </div>
-            <div id="topicbox"></div>`)}
+            <div id="topicbox"></div>`, onOrig ? ' on-orig' : '')}
           <div class="pager"><button type="button" class="btn" id="b-prev" ${idx === 0 ? 'disabled' : ''}>Vorherige</button><span class="pos">${idx + 1} / ${items.length}</span><button type="button" class="btn" id="b-next">${idx === items.length - 1 ? 'Nächster Teil' : 'Nächste'}</button></div>
         </div></div>`;
       // Operatoren im Aufgabentext markieren und erklären (nur Lernmodus)
@@ -1408,8 +1473,23 @@
       let saveTimer = null;
       const area = $('#answer-area');
       if (item.answer_type === 'sketch' && $('.ans-pad', area)) drawPad($('.ans-pad', area), getAnswer(view, part.id, item.id).sketch || [], () => area.dispatchEvent(new Event('change')));
+      // Auf dem Original: Text der Felder ist die Antwort (Stichwort-Check, Auswertung); ohne Einträge bleibt die Antwort unverändert
+      const collect = () => {
+        const prev = getAnswer(view, part.id, item.id);
+        if (!onOrig) return collectAnswer(area, item, prev);
+        if (!own.boxes.length && !own.strokes.length && !prev.marks) return prev;
+        const text = own.boxes.map((b) => b.t.trim()).filter(Boolean).join('\n');
+        const ans = Object.assign({}, prev, { marks: own, text });
+        // shortcut: Ergebnis einer Rechenaufgabe = letzte Zahl im geschriebenen Text; ein eigenes Ergebnisfeld wäre genauer
+        if (item.answer_type === 'number') { const m = text.match(/-?\d+(?:[.,]\d+)*/g); ans.value = m ? m[m.length - 1] : ''; }
+        return ans;
+      };
+      if (onOrig) {
+        const others = items.filter((x) => x.item.page === item.page && x.item.id !== item.id).map((x) => getAnswer(view, part.id, x.item.id).marks).filter(Boolean);
+        markPage(area, part.page_images[item.page - 1], own, others, () => area.dispatchEvent(new Event('input')));
+      }
       const save = async () => {
-        const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id));
+        const ans = collect();
         view.session.answers[answerKey(part.id, item.id)] = ans;
         setSave('speichert …');
         try { await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans }); setSave('gespeichert'); }
@@ -1485,7 +1565,7 @@
         showSolution(r);
       };
       $('#b-flag').onclick = async () => {
-        const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id));
+        const ans = collect();
         ans.flagged = !ans.flagged;
         view.session.answers[answerKey(part.id, item.id)] = ans;
         await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans });
@@ -1525,6 +1605,7 @@
         }
       };
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
+      if ($('#b-view')) $('#b-view').onclick = async () => { await save(); const s = store.get('ap2.settings', {}); s.learnText = onOrig; store.set('ap2.settings', s); renderLearn(true); };
       tools.mount(part, item);
     };
     renderLearn(false);
