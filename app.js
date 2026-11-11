@@ -1143,7 +1143,10 @@
   const AI_LIB = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.84/+esm';
   const AI_CPU_LIB = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/esm/index.js';
   const AI_CPU_WASM = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/esm/wasm/wllama.wasm';
+  // Online über Puter.js: kein Schlüssel in der Seite, du meldest dich mit einem kostenlosen Puter-Konto an; Anfragen gehen an Puter
+  const AI_PUTER = 'https://js.puter.com/v2/';
   const AI_MODELS = [
+    { id: 'online', online: true, label: 'Online, schnell (Puter, kostenloses Konto nötig)' },
     { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', gpu: true, label: 'Grafikkarte: klein, schnell (etwa 1,6 GB)' },
     { id: 'Qwen2.5-3B-Instruct-q4f16_1-MLC', gpu: true, label: 'Grafikkarte: mittel, besser (etwa 2,5 GB)' },
     { id: 'Qwen2.5-7B-Instruct-q4f16_1-MLC', gpu: true, label: 'Grafikkarte: groß, am besten (etwa 5 GB)' },
@@ -1152,7 +1155,9 @@
   ];
   const ai = { engine: null, model: null, loading: null, gpu: undefined, chats: new Map() };
   // einheitlich: Antwort als Folge von Textstücken
-  const aiStream = (msgs) => ai.engine.wllama
+  const aiStream = (msgs) => ai.engine.puter
+    ? (async function* () { for await (const p of await window.puter.ai.chat(msgs, false, { stream: true, max_tokens: 700 })) { if (p && p.type === 'error') throw new Error(p.message || 'Fehler beim Online-Dienst'); if (p && p.text) yield { choices: [{ delta: { content: p.text } }] }; } })()
+    : ai.engine.wllama
     ? ai.engine.wllama.createChatCompletion({ messages: msgs, stream: true, temperature: 0.4, max_tokens: 500 })
     : ai.engine.chat.completions.create({ messages: msgs, stream: true, temperature: 0.4, max_tokens: 600 });
   const aiPrompt = (item, ans) => [
@@ -1174,12 +1179,14 @@
         const models = AI_MODELS.filter((m) => ai.gpu || !m.gpu);
         const pick = models.find((m) => m.id === st.aiModel) ? st.aiModel : models[0].id;
         box.innerHTML = `<p class="small">Lernpartner, der die Aufgabe und die offizielle Lösung kennt. Er läuft komplett auf deinem Gerät, ohne Konto und ohne Schlüssel. Beim ersten Mal wird das Modell einmalig geladen und danach im Browser gespeichert.</p>
-          ${ai.gpu ? '' : '<p class="small">Hier gibt es keine nutzbare Grafikkarte (WebGPU). Die KI läuft deshalb nur mit dem Prozessor: das geht in jedem aktuellen Browser, antwortet aber langsamer, oft ein paar Wörter pro Sekunde.</p>'}
+          <p class="small">„Online“ ist am schnellsten: Aufgabe, offizielle Lösung und deine Antwort gehen dabei an Puter und den KI-Anbieter. Die anderen Modelle laufen nur auf deinem Gerät.${ai.gpu ? '' : ' Hier gibt es keine nutzbare Grafikkarte (WebGPU), lokal geht deshalb nur der Prozessor: das antwortet langsam, oft ein paar Wörter pro Sekunde.'}</p>
           <label class="field" style="margin-top:var(--space-sm)"><span>Modell</span><select class="input" id="ai-model">${models.map((m) => `<option value="${m.id}"${pick === m.id ? ' selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
-          <div class="actions" style="margin-top:var(--space-sm)"><button type="button" class="btn primary" id="ai-load"${ai.loading ? ' disabled' : ''}>KI laden</button></div>
+          <div class="actions" style="margin-top:var(--space-sm)"><button type="button" class="btn primary" id="ai-load"${ai.loading ? ' disabled' : ''}>KI laden</button>${ai.needLogin ? '<button type="button" class="btn" id="ai-login">Bei Puter anmelden</button>' : ''}</div>
           <p class="small muted" id="ai-progress" role="status">${ai.loading ? 'Wird geladen …' : ''}</p>
           <p class="small muted">Kleine Modelle können sich irren. Im Zweifel gilt die offizielle Lösung.</p>`;
         $('#ai-load', box).onclick = load;
+        // Anmeldung direkt im Klick, sonst blockiert der Browser das Anmeldefenster
+        if ($('#ai-login', box)) $('#ai-login', box).onclick = async () => { try { await window.puter.auth.signIn(); ai.needLogin = false; ai.engine = { puter: true }; ai.model = 'online'; render(); } catch (e) { toast('Anmeldung bei Puter abgebrochen', true); } };
         return;
       }
       const { item } = getCtx(); if (!item) { box.innerHTML = '<p class="small muted">Wähle eine Teilaufgabe.</p>'; return; }
@@ -1200,7 +1207,10 @@
       ai.loading = true; render();
       const say = (t) => { const p = $('#ai-progress', box); if (p) p.textContent = t; };
       try {
-        if (m.gpu) {
+        if (m.online) {
+          if (!window.puter) await new Promise((ok, fail) => { const sc = document.createElement('script'); sc.src = AI_PUTER; sc.onload = ok; sc.onerror = () => fail(new Error('Puter ist nicht erreichbar')); document.head.append(sc); });
+          if (window.puter.auth.isSignedIn()) ai.engine = { puter: true }; else ai.needLogin = true;
+        } else if (m.gpu) {
           const webllm = await import(AI_LIB);
           ai.engine = await webllm.CreateMLCEngine(model, { initProgressCallback: (r) => say(r.text) });
         } else {
