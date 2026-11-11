@@ -1219,11 +1219,11 @@
   // Ausfüllen auf der Originalseite: Text an die angeklickte Stelle, Stift und Radierer. Koordinaten relativ zur Seite (0 bis 1),
   // damit alles bei jeder Breite an derselben Stelle steht. own = { boxes: [{ x, y, t, n }], strokes: [{ erase, pts, n }] } wird
   // verändert; others sind die Einträge anderer Teilaufgaben auf derselben Seite und werden nur angezeigt.
-  // field = { area, value } ist das Antwortfeld der Teilaufgabe im erkannten Antwortbereich; others = [{ marks, area, value }]
-  function markPage(host, src, own, others, onChange, field) {
+  // fields = [{ area, value }] sind die Eingabefelder der Teilaufgabe (Zellen, Antwortlinien); others = [{ marks, fields }]
+  function markPage(host, src, own, others, onChange, fields = []) {
     host.innerHTML = `${padBar([['text', 'Text schreiben', '<path d="M5 7V5h14v2"/><path d="M12 5v14"/><path d="M9 19h6"/>']], 'Auf der Seite ausfüllen')}
       <div class="mark-page"><img alt="Originalseite der Aufgabe" draggable="false"><canvas aria-hidden="true"></canvas><canvas aria-hidden="true"></canvas></div>
-      <p class="small muted">${field ? 'In das umrandete Feld klicken und die Antwort schreiben. Mit „Text schreiben“ geht es zusätzlich an jeder anderen Stelle der Seite.' : '„Text schreiben“ wählen, in die Seite klicken, zum Beispiel auf eine Antwortlinie, und tippen. Leere Felder verschwinden wieder.'}</p>`;
+      <p class="small muted">${fields.length ? 'In die umrandeten Felder klicken und die Antwort schreiben. Mit „Text schreiben“ geht es zusätzlich an jeder anderen Stelle der Seite.' : '„Text schreiben“ wählen, in die Seite klicken, zum Beispiel auf eine Antwortlinie, und tippen. Leere Felder verschwinden wieder.'}</p>`;
     const page = $('.mark-page', host), img = $('img', page), [cvO, cv] = $$('canvas', page);
     let tool = 'text', cur = null;
     const line = (c, s, from) => {
@@ -1248,21 +1248,35 @@
     };
     const paint = () => {
       if (!page.isConnected) return;
-      page.style.setProperty('--u', `${page.clientWidth / 100}px`);
+      page.style.setProperty('--u', `${page.clientWidth / 100}px`); page.style.setProperty('--ph', `${page.clientHeight}px`);
       [cvO, cv].forEach((c) => { c.width = page.clientWidth * (window.devicePixelRatio || 1); c.height = page.clientHeight * (window.devicePixelRatio || 1); });
       others.forEach((o) => ((o.marks || {}).strokes || []).forEach((s) => line(cvO, s, 0))); own.strokes.forEach((s) => line(cv, s, 0));
     };
     others.forEach((o) => ((o.marks || {}).boxes || []).forEach((b) => box(b, true))); own.boxes.forEach((b) => box(b));
+    // Antwortlinien (lh): Zeilenhöhe = Linienabstand, damit die Schrift auf den gedruckten Linien steht; Zellen: eine Zeile mittig
     const fieldEl = (f, ro) => {
+      if (f.area.tick) {  // Ankreuzfeld: Klick setzt oder entfernt das Kreuz
+        const el = document.createElement(ro ? 'div' : 'button');
+        el.className = `mark-tick${ro ? ' ro' : ''}`;
+        Object.assign(el.style, { left: `${f.area.x * 100}%`, top: `${f.area.y * 100}%`, width: `${f.area.w * 100}%`, height: `${f.area.h * 100}%` });
+        const show = () => { el.textContent = f.value ? '✕' : ''; if (!ro) el.setAttribute('aria-pressed', String(!!f.value)); };
+        if (!ro) {
+          el.type = 'button'; el.setAttribute('aria-label', `Ankreuzen: ${f.text || f.area.label || f.area.key}`);
+          el.onpointerdown = (ev) => ev.stopPropagation();
+          el.onclick = () => { f.value = f.value ? '' : 'X'; show(); onChange(); };
+        }
+        show(); page.append(el); return el;
+      }
       const el = document.createElement(ro ? 'div' : 'textarea');
-      el.className = `mark-field${ro ? ' ro' : ''}`;
+      el.className = `mark-field${ro ? ' ro' : ''}${f.area.lh ? ' lined' : ''}`;
       Object.assign(el.style, { left: `${f.area.x * 100}%`, top: `${f.area.y * 100}%`, width: `${f.area.w * 100}%`, height: `${f.area.h * 100}%` });
+      el.style.setProperty('--lh', f.area.lh || Math.min(f.area.h, 0.03));
       if (ro) el.textContent = f.value || '';
       else { el.value = f.value || ''; el.spellcheck = false; el.setAttribute('aria-label', 'Antwortfeld dieser Teilaufgabe'); el.oninput = () => { f.value = el.value; onChange(); }; el.onpointerdown = (ev) => ev.stopPropagation(); }
       page.append(el); return el;
     };
-    others.forEach((o) => { if (o.area && o.value) fieldEl(o, true); });
-    const mine = field ? fieldEl(field) : null;
+    others.forEach((o) => (o.fields || []).forEach((f) => { if (f.value) fieldEl(f, true); }));
+    const mine = fields.map((f) => fieldEl(f));
     const at = (ev) => { const r = page.getBoundingClientRect(); return [+((ev.clientX - r.left) / r.width).toFixed(4), +((ev.clientY - r.top) / r.height).toFixed(4)]; };
     page.onpointerdown = (ev) => {
       if (tool === 'text') {
@@ -1285,24 +1299,31 @@
     img.onload = () => { page.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; paint(); };
     window.AP2Local.pageSrc(src).then((u) => { img.src = u; }).catch(() => { img.alt = 'Seite konnte nicht geladen werden'; });
     new ResizeObserver(paint).observe(page);
-    return mine;
+    return mine[0] || null;
   }
 
   // Antworten auf der Originalseite (Lern- und Prüfungsmodus): Feld im Antwortbereich, dazu freie Einträge mit Text und Stift.
   // Gibt collect(prev) zurück; ohne Änderung bleibt die bisherige Antwort (auch eine aus der Textfassung) unverändert.
-  const origPage = (item) => (item.area && item.area.page) || item.page;
+  const origPage = (item) => (item.fields && item.fields.length && item.fields[0].page) || item.page;
+  // Feldinhalte einer Antwort; eine Antwort aus der Textfassung landet im ersten Feld
+  const fieldValues = (item, a) => (item.fields || []).map((f, i) => (a.fields || [])[i] ?? (f.tick ? ((a.selected || []).includes(f.key) ? 'X' : '') : i === 0 && !a.fields && !a.marks ? (a.text || '') : ''));
   function origAnswer(host, part, item, items, getA, onChange) {
     const a = getA(item.id), pg = origPage(item);
     const own = JSON.parse(JSON.stringify(a.marks || { boxes: [], strokes: [] }));
-    const field = item.area ? { area: item.area, value: a.field ?? (a.marks ? '' : (a.text || '')) } : null;
-    const others = items.filter((x) => x.item.id !== item.id && origPage(x.item) === pg).map((x) => { const o = getA(x.item.id); return { marks: o.marks, area: x.item.area, value: o.field }; });
+    const vals = fieldValues(item, a);
+    const optText = (k) => ((item.options || []).find((o) => o.key === k) || {}).text;
+    const all = (item.fields || []).map((f, i) => ({ area: f, value: vals[i], text: f.key ? optText(f.key) : f.label })), fields = all.filter((f) => f.area.page === pg);
+    const others = items.filter((x) => x.item.id !== item.id && origPage(x.item) === pg).map((x) => { const o = getA(x.item.id), v = o.fields || []; return { marks: o.marks, fields: (x.item.fields || []).map((f, i) => ({ area: f, value: v[i] })).filter((f) => f.area.page === pg) }; });
     let dirty = false;
-    const el = markPage(host, part.page_images[pg - 1], own, others, () => { dirty = true; onChange(); }, field);
+    const el = markPage(host, part.page_images[pg - 1], own, others, () => { dirty = true; onChange(); }, fields);
     const collect = (prev) => {
       if (!dirty) return prev;
-      const text = [field && field.value.trim(), ...own.boxes.map((b) => b.t.trim())].filter(Boolean).join('\n');
+      // Kreuze zählen mit ihrer Bedeutung (Antwortmöglichkeit oder „Zeile: Spalte“), damit Stichworte und Lösung greifen
+      const text = [...all.map((f) => f.area.tick ? (f.value ? f.text || '' : '') : (f.value || '').trim()), ...own.boxes.map((b) => b.t.trim())].filter(Boolean).join('\n');
       const ans = Object.assign({}, prev, { marks: own, text });
-      if (field) ans.field = field.value;
+      if (all.length) ans.fields = all.map((f) => f.value || '');
+      const keys = all.filter((f) => f.area.tick && f.area.key && f.value).map((f) => f.area.key);
+      if (all.some((f) => f.area.tick && f.area.key)) { ans.selected = keys; ans.value = keys.join(', '); return ans; }
       const t = item.answer_type;
       // shortcut: Ergebnis einer Rechenaufgabe = letzte Zahl im Geschriebenen; ein eigenes Ergebnisfeld wäre genauer
       if (t === 'number') { const m = text.match(/-?\d+(?:[.,]\d+)*/g); ans.value = m ? m[m.length - 1] : ''; }

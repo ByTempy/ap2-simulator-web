@@ -171,6 +171,23 @@
       const ok = got.join(',') === e.join(',');
       const partial = got.length === e.length && e.length ? got.filter((x, i) => x === e[i]).length / e.length : 0;
       Object.assign(res, { correct: ok, auto_points: ok ? item.points : 0, message: ok ? 'Richtig.' : `Richtige Reihenfolge: ${e.join(' ')} (${Math.round(partial * 100)} % der Positionen korrekt)` });
+    } else if ((item.fields || []).some((f) => f.tick && f.label) && a.fields) {
+      // Ankreuztabelle: je Zeile genau die Spalte, die in der Lösung hinter der Zeilenbezeichnung zuerst genannt ist
+      const sq = (x) => normalize(x).replace(/\s+/g, '');
+      const sol = sq(item.solution), rows = {};
+      item.fields.forEach((f, i) => { if (f.tick && f.label) { const k = f.label.split(': ')[0]; (rows[k] = rows[k] || []).push({ col: f.label.slice(k.length + 2), on: !!a.fields[i] }); } });
+      let ok = 0, n = 0;
+      Object.entries(rows).forEach(([row, cols]) => {
+        const i = sol.indexOf(sq(row)); if (i < 0) return;
+        const after = sol.slice(i + sq(row).length);
+        const right = cols.map((c) => ({ c, at: after.indexOf(sq(c.col)) })).filter((x) => x.at >= 0).sort((x, y) => x.at - y.at)[0];
+        if (!right) return;
+        n++; if (cols.every((c) => c.on === (c === right.c))) ok++;
+      });
+      if (n) {
+        res.suggested_points = Math.round(item.points * ok / n * 2) / 2;
+        res.message = `${ok} von ${n} Zeilen richtig angekreuzt: ${de(res.suggested_points)} von ${de(item.points)} Punkten`;
+      } else res.message = 'Bitte mit der Musterlösung vergleichen und selbst bewerten.';
     } else {
       let text = a.text || '';
       (a.cells || []).forEach((r) => r.forEach((c) => { text += ' ' + (c || ''); }));

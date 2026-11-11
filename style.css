@@ -615,6 +615,14 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 /* Antwortfeld im erkannten Antwortbereich der Originalseite */
 .exam-sheet.on-orig { grid-template-columns: minmax(0, 1fr); }
 .exam-sheet.on-orig .rand { display: none; }
-.mark-field { position: absolute; z-index: 1; margin: 0; padding: calc(var(--u, 8px) * 0.6) calc(var(--u, 8px) * 0.8); border: 0; border-radius: 2px; background: transparent; color: var(--color-pen); font: 400 calc(var(--u, 8px) * 1.7)/calc(var(--u, 8px) * 3.75) var(--font-body); resize: none; overflow: auto; outline: var(--rule-hair) dashed var(--color-pen); outline-offset: -1px; box-sizing: border-box; }
+.mark-field { position: absolute; z-index: 1; margin: 0; padding: 0 calc(var(--u, 8px) * 0.6); border: 0; border-radius: 2px; background: transparent; color: var(--color-pen); font: 400 min(calc(var(--u, 8px) * 1.6), calc(var(--lh) * var(--ph, 1100px) * 0.62))/calc(var(--lh) * var(--ph, 1100px)) var(--font-body); resize: none; overflow: hidden; outline: var(--rule-hair) dashed var(--color-pen); outline-offset: -1px; box-sizing: border-box; }
+.mark-field:not(.lined) { display: block; padding-top: calc((var(--lh) * var(--ph, 1100px) - 1.25em) / 2); line-height: 1.25; }
+.mark-field:not(.lined).ro { overflow: hidden; }
 .mark-field:focus { outline-style: solid; }
 .mark-field.ro { outline: 0; white-space: pre-wrap; overflow: hidden; pointer-events: none; }
+/* Grundlinie der Schrift auf die gedruckte Linie: in der Zeilenbox liegt sie bei etwa 63 %, die Linie bei 90 % */
+.mark-field.lined { box-sizing: content-box; padding-top: calc(var(--lh) * var(--ph, 1100px) * 0.27); padding-bottom: 0; }
+/* Ankreuzfeld auf der Originalseite */
+.mark-tick { position: absolute; z-index: 1; margin: 0; padding: 0; border: 0; border-radius: 2px; background: transparent; color: var(--color-pen); font: 600 min(calc(var(--u, 8px) * 2.2), 90%)/1 var(--font-body); display: grid; place-items: center; cursor: pointer; outline: var(--rule-hair) dashed var(--color-pen); outline-offset: 1px; }
+.mark-tick:focus-visible { outline-style: solid; outline-width: var(--rule-bar); }
+.mark-tick.ro { outline: 0; pointer-events: none; }
