@@ -598,7 +598,7 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
 .tag.chip { padding: 1px var(--space-2xs); border: var(--rule-hair) solid currentColor; border-radius: var(--radius-card); }
 
 /* Lernmodus: Ausfüllen auf der Originalseite */
-.exam-sheet.on-orig .task-intro, .exam-sheet.on-orig .orig-link, .exam-sheet.on-orig .ops { display: none; }
+.exam-sheet.on-orig .task-intro, .exam-sheet.on-orig .orig-link, .exam-sheet.on-orig .fig-link, .exam-sheet.on-orig .ops { display: none; }
 .mark-page { position: relative; width: 100%; aspect-ratio: 827 / 1169; margin-top: var(--space-xs); background: var(--color-scan); outline: var(--rule-hair) solid var(--color-rule-2); outline-offset: -1px; color: var(--color-pen); touch-action: none; cursor: crosshair; overflow: hidden; }
 .mark-page[data-tool="text"] { cursor: text; }
 .mark-page img { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; pointer-events: none; }
@@ -606,3 +606,15 @@ mark.op { background: color-mix(in oklab, var(--color-accent) 14%, transparent);
 .mark-text { position: absolute; z-index: 1; margin: 0; padding: 0 2px; border: 0; background: transparent; color: var(--color-pen); font: 400 calc(var(--u, 8px) * 1.7)/1.25 var(--font-body); resize: none; overflow: hidden; field-sizing: content; min-width: 3ch; max-width: 96%; white-space: pre; outline: var(--rule-hair) dashed transparent; }
 textarea.mark-text:focus { outline-color: var(--color-pen); }
 .mark-text.ro { pointer-events: none; }
+/* Lernmodus ohne Korrekturrand; auf dem Original bekommt die Seite die Breite, Aufgabentext nur als kleine Orientierung */
+.exam-sheet.learn { grid-template-columns: minmax(0, 1fr); }
+.exam-sheet.learn .rand { display: none; }
+.exam-sheet.on-orig .body { padding: var(--space-md) var(--space-lg) var(--space-lg); }
+.exam-sheet.on-orig .item-text { font-size: var(--text-sm); color: var(--color-ink-2); }
+.mark-host > .pad-bar { position: sticky; top: var(--nav-h); z-index: 2; margin: 0; padding: var(--space-2xs) 0; background: var(--color-sheet); }
+/* Antwortfeld im erkannten Antwortbereich der Originalseite */
+.exam-sheet.on-orig { grid-template-columns: minmax(0, 1fr); }
+.exam-sheet.on-orig .rand { display: none; }
+.mark-field { position: absolute; z-index: 1; margin: 0; padding: calc(var(--u, 8px) * 0.6) calc(var(--u, 8px) * 0.8); border: 0; border-radius: 2px; background: transparent; color: var(--color-pen); font: 400 calc(var(--u, 8px) * 1.7)/calc(var(--u, 8px) * 3.75) var(--font-body); resize: none; overflow: auto; outline: var(--rule-hair) dashed var(--color-pen); outline-offset: -1px; box-sizing: border-box; }
+.mark-field:focus { outline-style: solid; }
+.mark-field.ro { outline: 0; white-space: pre-wrap; overflow: hidden; pointer-events: none; }

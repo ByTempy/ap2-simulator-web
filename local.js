@@ -226,7 +226,7 @@
         if (ir.auto) { const c = check(it, a); ir.points = c.auto_points ?? 0; ir.check = c; }
         else if (a.self_points !== null && a.self_points !== undefined) ir.points = Math.max(0, Math.min(it.points, a.self_points));
         else if (!answered) ir.points = 0;
-        else { unrated++; open += it.points; ir.check = check(it, a); }
+        else { ir.check = check(it, a); ir.points = ir.check.suggested_points || 0; ir.keyword = true; }
         if (ir.points !== null) { sum += ir.points; (it.topics || []).forEach((tp) => { const e = topicMap[tp] || (topicMap[tp] = [0, 0]); e[0] += ir.points; e[1] += it.points; }); }
         items.push(ir);
       }

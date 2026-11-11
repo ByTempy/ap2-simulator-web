@@ -1148,9 +1148,11 @@
     if (!noCalc) calculator($('[data-panel="calc"]', el), st.calcMode === 'base' ? 'base' : 'calc');
     drawPad($('[data-panel="pad"]', el));
     const wide = matchMedia('(min-width: 64rem)'); // Rechner nur bei breitem Fenster, wie im Rechentrainer
-    let part = null, item = null, tab = st.toolsTab || 'calc', shown = { beleg: null, orig: null }, off = !!st.toolsOff;
+    // Lernmodus (noCalc): eigene Einstellung, standardmäßig ausgeblendet, damit die Originalseite die Breite bekommt
+    const offKey = noCalc ? 'learnToolsOff' : 'toolsOff';
+    let part = null, item = null, tab = st.toolsTab || 'calc', shown = { beleg: null, orig: null }, off = noCalc ? st.learnToolsOff !== false : !!st.toolsOff;
     const has = (k) => k === 'calc' ? !noCalc && wide.matches : k === 'pad' ? true : k === 'beleg' ? !!(part && (part.attachments || []).some((a) => (a.pages && a.pages.length) || a.text)) : !!(part && part.page_images && part.page_images.length);
-    const save = () => { const s = store.get('ap2.settings', {}); s.toolsTab = tab; s.toolsOff = off; store.set('ap2.settings', s); };
+    const save = () => { const s = store.get('ap2.settings', {}); s.toolsTab = tab; s[offKey] = off; store.set('ap2.settings', s); };
     const show = (k, page) => {
       if (!has(k)) k = TOOL_TABS.map((t) => t[0]).find(has);
       tab = k;
@@ -1217,10 +1219,11 @@
   // Ausfüllen auf der Originalseite: Text an die angeklickte Stelle, Stift und Radierer. Koordinaten relativ zur Seite (0 bis 1),
   // damit alles bei jeder Breite an derselben Stelle steht. own = { boxes: [{ x, y, t, n }], strokes: [{ erase, pts, n }] } wird
   // verändert; others sind die Einträge anderer Teilaufgaben auf derselben Seite und werden nur angezeigt.
-  function markPage(host, src, own, others, onChange) {
+  // field = { area, value } ist das Antwortfeld der Teilaufgabe im erkannten Antwortbereich; others = [{ marks, area, value }]
+  function markPage(host, src, own, others, onChange, field) {
     host.innerHTML = `${padBar([['text', 'Text schreiben', '<path d="M5 7V5h14v2"/><path d="M12 5v14"/><path d="M9 19h6"/>']], 'Auf der Seite ausfüllen')}
       <div class="mark-page"><img alt="Originalseite der Aufgabe" draggable="false"><canvas aria-hidden="true"></canvas><canvas aria-hidden="true"></canvas></div>
-      <p class="small muted">„Text schreiben“ wählen, in die Seite klicken, zum Beispiel auf eine Antwortlinie, und tippen. Leere Felder verschwinden wieder.</p>`;
+      <p class="small muted">${field ? 'In das umrandete Feld klicken und die Antwort schreiben. Mit „Text schreiben“ geht es zusätzlich an jeder anderen Stelle der Seite.' : '„Text schreiben“ wählen, in die Seite klicken, zum Beispiel auf eine Antwortlinie, und tippen. Leere Felder verschwinden wieder.'}</p>`;
     const page = $('.mark-page', host), img = $('img', page), [cvO, cv] = $$('canvas', page);
     let tool = 'text', cur = null;
     const line = (c, s, from) => {
@@ -1247,9 +1250,19 @@
       if (!page.isConnected) return;
       page.style.setProperty('--u', `${page.clientWidth / 100}px`);
       [cvO, cv].forEach((c) => { c.width = page.clientWidth * (window.devicePixelRatio || 1); c.height = page.clientHeight * (window.devicePixelRatio || 1); });
-      others.forEach((o) => (o.strokes || []).forEach((s) => line(cvO, s, 0))); own.strokes.forEach((s) => line(cv, s, 0));
+      others.forEach((o) => ((o.marks || {}).strokes || []).forEach((s) => line(cvO, s, 0))); own.strokes.forEach((s) => line(cv, s, 0));
     };
-    others.forEach((o) => (o.boxes || []).forEach((b) => box(b, true))); own.boxes.forEach((b) => box(b));
+    others.forEach((o) => ((o.marks || {}).boxes || []).forEach((b) => box(b, true))); own.boxes.forEach((b) => box(b));
+    const fieldEl = (f, ro) => {
+      const el = document.createElement(ro ? 'div' : 'textarea');
+      el.className = `mark-field${ro ? ' ro' : ''}`;
+      Object.assign(el.style, { left: `${f.area.x * 100}%`, top: `${f.area.y * 100}%`, width: `${f.area.w * 100}%`, height: `${f.area.h * 100}%` });
+      if (ro) el.textContent = f.value || '';
+      else { el.value = f.value || ''; el.spellcheck = false; el.setAttribute('aria-label', 'Antwortfeld dieser Teilaufgabe'); el.oninput = () => { f.value = el.value; onChange(); }; el.onpointerdown = (ev) => ev.stopPropagation(); }
+      page.append(el); return el;
+    };
+    others.forEach((o) => { if (o.area && o.value) fieldEl(o, true); });
+    const mine = field ? fieldEl(field) : null;
     const at = (ev) => { const r = page.getBoundingClientRect(); return [+((ev.clientX - r.left) / r.width).toFixed(4), +((ev.clientY - r.top) / r.height).toFixed(4)]; };
     page.onpointerdown = (ev) => {
       if (tool === 'text') {
@@ -1272,6 +1285,31 @@
     img.onload = () => { page.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`; paint(); };
     window.AP2Local.pageSrc(src).then((u) => { img.src = u; }).catch(() => { img.alt = 'Seite konnte nicht geladen werden'; });
     new ResizeObserver(paint).observe(page);
+    return mine;
+  }
+
+  // Antworten auf der Originalseite (Lern- und Prüfungsmodus): Feld im Antwortbereich, dazu freie Einträge mit Text und Stift.
+  // Gibt collect(prev) zurück; ohne Änderung bleibt die bisherige Antwort (auch eine aus der Textfassung) unverändert.
+  const origPage = (item) => (item.area && item.area.page) || item.page;
+  function origAnswer(host, part, item, items, getA, onChange) {
+    const a = getA(item.id), pg = origPage(item);
+    const own = JSON.parse(JSON.stringify(a.marks || { boxes: [], strokes: [] }));
+    const field = item.area ? { area: item.area, value: a.field ?? (a.marks ? '' : (a.text || '')) } : null;
+    const others = items.filter((x) => x.item.id !== item.id && origPage(x.item) === pg).map((x) => { const o = getA(x.item.id); return { marks: o.marks, area: x.item.area, value: o.field }; });
+    let dirty = false;
+    const el = markPage(host, part.page_images[pg - 1], own, others, () => { dirty = true; onChange(); }, field);
+    const collect = (prev) => {
+      if (!dirty) return prev;
+      const text = [field && field.value.trim(), ...own.boxes.map((b) => b.t.trim())].filter(Boolean).join('\n');
+      const ans = Object.assign({}, prev, { marks: own, text });
+      if (field) ans.field = field.value;
+      const t = item.answer_type;
+      // shortcut: Ergebnis einer Rechenaufgabe = letzte Zahl im Geschriebenen; ein eigenes Ergebnisfeld wäre genauer
+      if (t === 'number') { const m = text.match(/-?\d+(?:[.,]\d+)*/g); ans.value = m ? m[m.length - 1] : ''; }
+      if (['choice', 'multi_choice', 'assignment', 'order'].includes(t)) { ans.value = text; ans.selected = []; }
+      return ans;
+    };
+    return { collect, field: el };
   }
 
   // ---------- Bewertung nach Kriterien (aus dem Bewertungshinweis) ----------
@@ -1396,7 +1434,7 @@
 
   function sheetHtml(part, task, item, idx, total, inner, cls = '') {
     const figure = item.needs_figure && item.figure_pages && item.figure_pages.length && part.page_images && part.page_images.length
-      ? `<p style="margin-top:var(--space-sm)"><button type="button" class="btn sm" data-fig="${item.figure_pages[0] - 1}">Abbildung ansehen (Originalseite ${item.figure_pages.join(', ')})</button></p>` : '';
+      ? `<p class="fig-link" style="margin-top:var(--space-sm)"><button type="button" class="btn sm" data-fig="${item.figure_pages[0] - 1}">Abbildung ansehen (Originalseite ${item.figure_pages.join(', ')})</button></p>` : '';
     return `<article class="exam-sheet${cls}" aria-labelledby="task-h">
       <div class="body">
         <div class="task-head"><h2 id="task-h">${part.kind === 'WiSo' ? `Aufgabe ${task.number}` : `${task.number}. Aufgabe${task.title ? `: ${esc(task.title)}` : ''}`}</h2><span class="num">${task.points} Punkte</span></div>
@@ -1419,8 +1457,10 @@
     let pos = JSON.parse(sessionStorage.getItem(stKey) || 'null') || { part: view.session.part_order[0], item: null };
     if (!view.exam.parts.find((p) => p.id === pos.part)) pos.part = view.session.part_order[0];
     const tools = workTools(true); // im Lernmodus ohne Rechner, wie auf dem Papier
+    let lastPage = null; // Teil und Seite der zuletzt gezeigten Teilaufgabe: gleiche Seite = Scrollposition behalten
 
     const renderLearn = (focusSheet) => {
+      const y = scrollY;
       const part = view.exam.parts.find((p) => p.id === pos.part);
       const items = flatItems(part);
       let idx = items.findIndex((x) => x.item.id === pos.item);
@@ -1433,9 +1473,8 @@
       const isText = item.answer_type === 'text' || item.answer_type === 'table' || item.answer_type === 'sketch';
       const where = `${kindShort(part.kind)}, ${part.kind === 'WiSo' ? 'Aufgabe ' + task.number : task.number + ' ' + (item.label || '')}`;
       // Auf der Originalseite ausfüllen, wenn die Seite der Teilaufgabe bekannt ist (Einstellung learnText schaltet auf die Textfassung)
-      const canOrig = !!(item.page && part.page_images && part.page_images[item.page - 1]);
+      const canOrig = !!(origPage(item) && part.page_images && part.page_images[origPage(item) - 1]);
       const onOrig = canOrig && !store.get('ap2.settings', {}).learnText;
-      const own = onOrig ? JSON.parse(JSON.stringify(a.marks || { boxes: [], strokes: [] })) : null;
       app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Lernmodus</span><h1>${esc(view.exam.title)}</h1></div>
           <div class="actions">${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}${pdfLink(`/api/sessions/${sid}/pdf?parts=${part.id}`, 'PDF mit Antworten')}${pdfLink(`/api/exams/${view.exam.id}/pdf?parts=${part.id}`, 'PDF Prüfungsbogen')}<a class="btn sm" href="#/result/${sid}">Zwischenstand</a><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button></div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
@@ -1459,13 +1498,15 @@
               <span class="small muted" style="padding-bottom:var(--space-xs)">von ${ptsLabel(item.points)}</span>
               <button type="button" class="btn sm" id="sg-full">Volle Punkte</button><button type="button" class="btn sm" id="sg-zero">0 Punkte</button><button type="button" class="btn sm" id="sg-save">Übernehmen</button>
             </div>
-            <div id="topicbox"></div>`, onOrig ? ' on-orig' : '')}
+            <div id="topicbox"></div>`, onOrig ? ' learn on-orig' : ' learn')}
           <div class="pager"><button type="button" class="btn" id="b-prev" ${idx === 0 ? 'disabled' : ''}>Vorherige</button><span class="pos">${idx + 1} / ${items.length}</span><button type="button" class="btn" id="b-next">${idx === items.length - 1 ? 'Nächster Teil' : 'Nächste'}</button></div>
         </div></div>`;
       // Operatoren im Aufgabentext markieren und erklären (nur Lernmodus)
       const itx = $('.item-text');
       if (itx) { const m = window.AP2Tools.markOps(itx.innerHTML); itx.innerHTML = m.html; if (m.ops.length) itx.closest('.item-head').insertAdjacentHTML('afterend', `<details class="ops"><summary>Verlangt: ${m.ops.map((o) => o.op[0].toUpperCase() + o.op.slice(1)).join(', ')}${m.ops.length > 1 ? `, also ${m.ops.length} Teilleistungen` : ''}</summary><ul>${m.ops.map((o) => `<li>${esc(o.hint)}</li>`).join('')}</ul></details>`); }
-      if (focusSheet) { $('#task-h').setAttribute('tabindex', '-1'); $('#task-h').focus(); }
+      const samePage = onOrig && lastPage === `${part.id}:${origPage(item)}`;
+      lastPage = onOrig ? `${part.id}:${origPage(item)}` : null;
+      if (focusSheet) { $('#task-h').setAttribute('tabindex', '-1'); $('#task-h').focus({ preventScroll: samePage }); }
       const go = { part: (pid) => { pos = { part: pid, item: null }; renderLearn(true); }, item: (iid) => { pos.item = iid; renderLearn(true); } };
       bindNavigator(view, part.id, go.part, go.item);
 
@@ -1473,21 +1514,9 @@
       let saveTimer = null;
       const area = $('#answer-area');
       if (item.answer_type === 'sketch' && $('.ans-pad', area)) drawPad($('.ans-pad', area), getAnswer(view, part.id, item.id).sketch || [], () => area.dispatchEvent(new Event('change')));
-      // Auf dem Original: Text der Felder ist die Antwort (Stichwort-Check, Auswertung); ohne Einträge bleibt die Antwort unverändert
-      const collect = () => {
-        const prev = getAnswer(view, part.id, item.id);
-        if (!onOrig) return collectAnswer(area, item, prev);
-        if (!own.boxes.length && !own.strokes.length && !prev.marks) return prev;
-        const text = own.boxes.map((b) => b.t.trim()).filter(Boolean).join('\n');
-        const ans = Object.assign({}, prev, { marks: own, text });
-        // shortcut: Ergebnis einer Rechenaufgabe = letzte Zahl im geschriebenen Text; ein eigenes Ergebnisfeld wäre genauer
-        if (item.answer_type === 'number') { const m = text.match(/-?\d+(?:[.,]\d+)*/g); ans.value = m ? m[m.length - 1] : ''; }
-        return ans;
-      };
-      if (onOrig) {
-        const others = items.filter((x) => x.item.page === item.page && x.item.id !== item.id).map((x) => getAnswer(view, part.id, x.item.id).marks).filter(Boolean);
-        markPage(area, part.page_images[item.page - 1], own, others, () => area.dispatchEvent(new Event('input')));
-      }
+      // Auf dem Original: Feld und Einträge sind die Antwort (Stichwort-Check, Auswertung)
+      const orig = onOrig ? origAnswer(area, part, item, items, (id) => getAnswer(view, part.id, id), () => area.dispatchEvent(new Event('input'))) : null;
+      const collect = () => { const prev = getAnswer(view, part.id, item.id); return orig ? orig.collect(prev) : collectAnswer(area, item, prev); };
       const save = async () => {
         const ans = collect();
         view.session.answers[answerKey(part.id, item.id)] = ans;
@@ -1607,6 +1636,9 @@
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
       if ($('#b-view')) $('#b-view').onclick = async () => { await save(); const s = store.get('ap2.settings', {}); s.learnText = onOrig; store.set('ap2.settings', s); renderLearn(true); };
       tools.mount(part, item);
+      // erst jetzt: die Seite steht. Mit Antwortfeld dorthin, sonst auf derselben Seite die Stelle behalten
+      if (focusSheet && orig && orig.field) orig.field.scrollIntoView({ block: 'center' });
+      else if (focusSheet && samePage) scrollTo(0, y);
     };
     renderLearn(false);
   }
@@ -1690,12 +1722,14 @@
       const a = getAnswer(view, part.id, item.id);
       const answered = items.filter((x) => !answerIsEmpty(view.session.answers[answerKey(part.id, x.item.id)])).length;
       const where = `${part.kind === 'WiSo' ? 'Aufgabe ' + task.number : task.number + ' ' + (item.label || '')}`;
+      const canOrig = !!(origPage(item) && part.page_images && part.page_images[origPage(item) - 1]);
+      const onOrig = canOrig && !store.get('ap2.settings', {}).examText;
       app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Prüfung, Teil ${pi + 1} von ${order.length}</span><h1>${esc(part.title)}</h1></div>
-          <div class="actions"><span class="small muted"><span class="num">${answered} / ${items.length}</span> beantwortet</span><button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button><button type="button" class="btn danger" id="b-finish">Teil abgeben</button></div></div>
+          <div class="actions"><span class="small muted"><span class="num">${answered} / ${items.length}</span> beantwortet</span>${canOrig ? `<button type="button" class="btn sm" id="b-view">${onOrig ? 'Als Text ausfüllen' : 'Auf dem Original ausfüllen'}</button>` : ''}<button type="button" class="btn sm" id="b-tools" hidden>Werkzeuge</button><button type="button" class="btn danger" id="b-finish">Teil abgeben</button></div></div>
         <div class="work">${navigatorHtml(view, part.id, item.id, `${esc(where)}, ${idx + 1} von ${items.length}`)}
         <div>${sheetHtml(part, task, item, idx, items.length, `
-          <div class="answer" id="answer-area">${renderAnswerInput(item, a, false)}</div>
-          <div class="tool-row"><button type="button" id="b-flag" class="btn sm" aria-pressed="${!!a.flagged}">${a.flagged ? 'Zur Kontrolle markiert' : 'Zur Kontrolle markieren'}</button><span class="save-state" id="save-state" role="status"></span></div>`)}
+          <div class="answer${onOrig ? ' mark-host' : ''}" id="answer-area">${onOrig ? '' : renderAnswerInput(item, a, false)}</div>
+          <div class="tool-row"><button type="button" id="b-flag" class="btn sm" aria-pressed="${!!a.flagged}">${a.flagged ? 'Zur Kontrolle markiert' : 'Zur Kontrolle markieren'}</button><span class="save-state" id="save-state" role="status"></span></div>`, onOrig ? ' on-orig' : '')}
         <div class="pager"><button type="button" class="btn" id="b-prev" ${idx === 0 ? 'disabled' : ''}>Vorherige</button><span class="pos">${idx + 1} / ${items.length}</span><button type="button" class="btn" id="b-next" ${idx === items.length - 1 ? 'disabled' : ''}>Nächste</button></div>
         </div></div>`;
       if (focusSheet) { $('#task-h').setAttribute('tabindex', '-1'); $('#task-h').focus(); }
@@ -1705,8 +1739,10 @@
       const area = $('#answer-area');
       if (item.answer_type === 'sketch' && $('.ans-pad', area)) drawPad($('.ans-pad', area), getAnswer(view, part.id, item.id).sketch || [], () => area.dispatchEvent(new Event('change')));
       let saveTimer = null;
+      const orig = onOrig ? origAnswer(area, part, item, items, (id) => getAnswer(view, part.id, id), () => area.dispatchEvent(new Event('input'))) : null;
+      const collect = () => { const prev = getAnswer(view, part.id, item.id); return orig ? orig.collect(prev) : collectAnswer(area, item, prev); };
       const saveNow = async () => {
-        const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id));
+        const ans = collect();
         if (JSON.stringify(ans) === JSON.stringify(view.session.answers[answerKey(part.id, item.id)] || null) && answerIsEmpty(ans)) return;
         view.session.answers[answerKey(part.id, item.id)] = ans;
         setSave('speichert …');
@@ -1718,12 +1754,14 @@
       };
       area.addEventListener('input', () => { clearTimeout(saveTimer); setSave('…'); saveTimer = setTimeout(saveNow, 700); });
       area.addEventListener('change', () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 100); });
-      $('#b-flag').onclick = async () => { const ans = collectAnswer(area, item, getAnswer(view, part.id, item.id)); ans.flagged = !ans.flagged; view.session.answers[answerKey(part.id, item.id)] = ans; await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans }); render(); };
+      $('#b-flag').onclick = async () => { const ans = collect(); ans.flagged = !ans.flagged; view.session.answers[answerKey(part.id, item.id)] = ans; await post(`/api/sessions/${sid}/answer`, { part: part.id, item: item.id, answer: ans }); render(); };
       $('#b-prev').onclick = async () => { await saveNow(); pos.item = items[idx - 1].item.id; render(true); };
       $('#b-next').onclick = async () => { await saveNow(); pos.item = items[idx + 1].item.id; render(true); };
       $('#b-finish').onclick = async () => { await saveNow(); finishPart(partId, false); };
       $$('[data-fig]', app).forEach((b) => b.onclick = () => pageViewer(part.page_images, +b.dataset.fig, 'Abbildung zur Aufgabe'));
+      if ($('#b-view')) $('#b-view').onclick = async () => { await saveNow(); const s = store.get('ap2.settings', {}); s.examText = onOrig; store.set('ap2.settings', s); render(true); };
       tools.mount(part, item);
+      if (focusSheet && orig && orig.field) orig.field.scrollIntoView({ block: 'center' });
     };
     render(false);
   }
@@ -1762,7 +1800,7 @@
           <div class="small muted prose">
             <p>Notenschlüssel je Bereich: 1 ab 92, 2 ab 81, 3 ab 67, 4 ab 50, 5 ab 30 Punkten, darunter 6.</p>
             <p>Bestanden heißt hier: insgesamt mindestens 50 %, höchstens ein Bereich mangelhaft und keiner ungenügend.</p>
-            <p>Freitext bewertest du selbst mit den Lösungshinweisen. Der Stichwort-Check schlägt Punkte vor.${unrated ? ` Noch offen: ${unrated} Antworten.` : ''}</p>
+            <p>Alles wird automatisch bewertet: Rechen- und Auswahlaufgaben nach der Lösung, Freitext nach den Stichworten der Lösungshinweise (Anteil der gefundenen Stichworte, auf halbe Punkte gerundet).${s.mode === 'exam' ? '' : ' Im Lernmodus kannst du die Punkte selbst anpassen.'}</p>
           </div>
         </div>
         ${r.topic_stats.length ? `<section class="section"><details class="disc"><summary>Auswertung nach Themen<span class="tag">${r.topic_stats.length} Themen</span></summary><div class="disc-body">${r.topic_stats.map((t) => meterRow(esc(t.topic), t.ratio, `${fmtPts(t.points)} / ${fmtPts(t.max_points)}`)).join('')}</div></details></section>` : ''}
@@ -1771,22 +1809,22 @@
           <div class="tabs" role="tablist" aria-label="Teilaufgaben filtern">
             <button type="button" role="tab" data-filter="all" aria-selected="${filter === 'all'}">Alle<span class="count">${counts.all}</span></button>
             <button type="button" role="tab" data-filter="lost" aria-selected="${filter === 'lost'}">Punkte verloren<span class="count">${counts.lost}</span></button>
-            <button type="button" role="tab" data-filter="open" aria-selected="${filter === 'open'}">Noch bewerten<span class="count">${counts.open}</span></button>
+            ${counts.open ? `<button type="button" role="tab" data-filter="open" aria-selected="${filter === 'open'}">Noch bewerten<span class="count">${counts.open}</span></button>` : ''}
             <button type="button" role="tab" data-filter="empty" aria-selected="${filter === 'empty'}">Nicht beantwortet<span class="count">${counts.empty}</span></button>
           </div>
           ${r.parts.map((p) => { const part = exam.parts.find((x) => x.id === p.part_id); return `<h3 style="margin-top:var(--space-lg)" data-parthead>${esc(kindLabel(p.kind))}</h3>
             ${p.items.map((ir) => { const t = part.tasks.find((x) => x.number === ir.task_number); const item = t.items.find((x) => x.id === ir.item_id); const a = s.answers[answerKey(p.part_id, item.id)] || {}; const c = ir.check; const b = bucket(ir, item);
               return `<div class="result-item" id="ri-${p.part_id}-${item.id}" data-bucket="${b}" ${filter !== 'all' && filter !== b ? 'hidden' : ''}>
                 <div class="ri-head"><div><strong>${part.kind === 'WiSo' ? `Aufgabe ${t.number}` : `${t.number}${esc(item.label ? ' ' + item.label : '')}`}</strong> <span class="muted small">${esc(t.title || '')}</span></div>
-                  ${b === 'open' ? '<span class="score open">noch bewerten</span>' : `<span class="score ${ir.points >= item.points ? 'ok' : ir.points > 0 ? 'part' : 'bad'}">${fmtPts(ir.points)} / ${fmtPts(item.points)}${ir.auto ? ' automatisch' : ''}</span>`}</div>
+                  ${b === 'open' ? '<span class="score open">noch bewerten</span>' : `<span class="score ${ir.points >= item.points ? 'ok' : ir.points > 0 ? 'part' : 'bad'}">${fmtPts(ir.points)} / ${fmtPts(item.points)}${ir.auto ? ' automatisch' : ir.keyword ? ' nach Stichworten' : ''}</span>`}</div>
                 <p class="q">${nl(item.text)}</p>
                 ${item.options && item.options.length ? `<div class="small muted">${item.options.map((o) => `<div><span class="key">${esc(o.key)}</span> ${esc(o.text)}</div>`).join('')}</div>` : ''}
                 <div class="ans">${answerIsEmpty(a) ? '<em class="muted">Keine Antwort</em>' : esc([a.value, (a.selected || []).join(', '), a.text, ...(a.cells || []).map((row) => row.filter((cell) => cell && cell.trim()).join(' | '))].filter(Boolean).join('\n'))}</div>
                 ${c && c.keywords && c.keywords.length ? `<div class="kws">${c.keywords.map((k) => `<span class="kw ${k.hit ? 'hit' : 'miss'}">${esc(k.keyword)}</span>`).join('')}</div>` : ''}
                 ${c && c.message && ir.auto ? `<p class="small">${esc(c.message)}</p>` : ''}
                 <details ${ir.auto ? '' : 'open'}><summary>Lösungshinweise${item.expected ? `: ${esc(item.expected)} ${esc(item.unit || '')}` : ''}</summary><div class="panel solution">${nl(item.solution || '–')}${item.grading ? `<p class="grading">Bewertung: ${esc(item.grading)}</p>` : ''}</div></details>
-                ${ir.auto ? '' : critHtml(item, a, `${p.part_id}|${item.id}`, false)}
-                ${ir.auto ? '' : `<div class="selfgrade"><label class="field"><span>Punkte</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" value="${a.self_points ?? (c && c.suggested_points !== undefined && !answerIsEmpty(a) ? c.suggested_points : '')}" data-sg="${p.part_id}|${item.id}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${fmtPts(item.points)}</span><button type="button" class="btn sm" data-sgfull="${p.part_id}|${item.id}">Volle Punkte</button><button type="button" class="btn sm" data-sgzero="${p.part_id}|${item.id}">0 Punkte</button></div>`}
+                ${ir.auto || s.mode === 'exam' ? '' : critHtml(item, a, `${p.part_id}|${item.id}`, false)}
+                ${ir.auto || s.mode === 'exam' ? '' : `<div class="selfgrade"><label class="field"><span>Punkte</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" value="${a.self_points ?? (c && c.suggested_points !== undefined && !answerIsEmpty(a) ? c.suggested_points : '')}" data-sg="${p.part_id}|${item.id}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${fmtPts(item.points)}</span><button type="button" class="btn sm" data-sgfull="${p.part_id}|${item.id}">Volle Punkte</button><button type="button" class="btn sm" data-sgzero="${p.part_id}|${item.id}">0 Punkte</button></div>`}
               </div>`; }).join('')}`; }).join('')}
           <p class="empty" id="ri-none" hidden>Keine Teilaufgabe in dieser Ansicht.</p>
         </section>`;
