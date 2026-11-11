@@ -347,7 +347,8 @@
         <h1>AP2-Simulator für IT-System-Elektroniker/-in</h1>
         <p class="lede">Echte IHK-Prüfungen im Lernmodus mit Hilfestufen üben oder mit Zeitlimit als Prüfung schreiben.</p>
       </div></div>
-      <div class="split">
+      ${todayHtml(prog, sessions)}
+      <div class="split even">
         <section class="sheet" aria-labelledby="start-h">
           <h2 id="start-h">Prüfung wählen</h2>
           <div class="field" style="margin-top:var(--space-md)"><span>Prüfungstermin</span>
@@ -366,7 +367,6 @@
           <p class="small" style="margin-top:var(--space-sm)"><a href="#/stats/verlauf">Alle Sitzungen</a></p>
         </section>
       </div>
-      ${todayHtml(prog, sessions)}
       ${status.warnings.length ? `<section class="section"><details class="disc"><summary>${status.warnings.length} Datenhinweise</summary><div class="disc-body"><ul class="small">${status.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div></details></section>` : ''}`;
     bindToday();
     const sel = $('#h-exam');
