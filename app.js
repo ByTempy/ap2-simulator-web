@@ -2274,28 +2274,25 @@
   async function archiveCatalog() {
     const cat = await api('/api/archive');
     const docs = (cat.docs || []).filter((d) => !d.duplicate_of && d.pages > 0);
-    // Stick-Kopie: jede Datei vom Stick mit ihrem Pfad; inhaltsgleiche Scans zeigen das Vertreter-Dokument
-    const rep = Object.fromEntries(docs.map((d) => [d.id, d]));
-    const stick = (cat.docs || []).flatMap((d) => (d.stick || []).map((path) => ({ path, d: rep[d.duplicate_of || d.id] }))).filter((x) => x.d).sort((a, b) => a.path.localeCompare(b.path, 'de'));
     const sols = {}; docs.filter((d) => (d.rolle === 'loesung' || d.rolle === 'geloest') && d.solution_of).forEach((d) => { (sols[d.solution_of] || (sols[d.solution_of] = [])).push(d); });
-    return { docs, sols, stick };
+    return { docs, sols };
   }
   async function archiveView(slug) {
     setNav('archive');
-    const { docs, sols, stick } = await archiveCatalog();
+    const { docs, sols } = await archiveCatalog();
     const counts = {}; docs.forEach((d) => { if (d.rolle !== 'loesung' && d.rolle !== 'geloest') counts[d.beruf] = (counts[d.beruf] || 0) + 1; });
     const main = ['IT-System-Elektroniker', 'Alle IT-Berufe'];
     const others = Object.keys(counts).filter((b) => !main.includes(b)).sort();
     const beruf = [...main, ...others].find((b) => BERUF_SLUG(b) === slug) || 'IT-System-Elektroniker';
     // gemeinsame Teile (WiSo/Teil 3, AP1, alte GA2) gehören zu jeder Berufsprüfung dazu; Lösungen und gelöste Fassungen hängen als Knopf am Aufgabensatz
-    const list = docs.filter((d) => (d.beruf === beruf || d.beruf === 'Alle IT-Berufe') && d.teil !== 'Übung' && ((d.rolle !== 'loesung' && d.rolle !== 'geloest') || !d.solution_of));
+    const list = docs.filter((d) => (d.beruf === beruf || d.beruf === 'Alle IT-Berufe') && ((d.rolle !== 'loesung' && d.rolle !== 'geloest') || !d.solution_of));
     const RANK = ['Teil 1', 'Teil 2', 'Teil 3 WiSo', 'AP1', 'GA1', 'GA2', 'WiSo', 'Komplettsatz', 'Belegsatz', 'Formelsammlung', 'Lösungsbogen'];
     const rank = (d) => { const i = RANK.indexOf(d.teil); return i < 0 ? RANK.length : i; };
     // Abschnitt je Dokument: im selben Termin können AP1 (z. B. Baden-Württemberg) und AP2 liegen
     const docGroup = (d) => d.ordnung === 'AO1997' ? 'alt' : d.pruefung === 'AP2' ? 'ap2' : 'ap1';
     const terms = {}; list.forEach((d) => { const k = d.sort + '|' + d.termin + '|' + docGroup(d); (terms[k] || (terms[k] = [])).push(d); });
     // je Teil eine Zeile, der Scan mit Lösung zuerst; weitere Scans desselben Teils kommen ins Menü „Mehr“
-    const rowsOf = (ds) => { const g = {}; ds.slice().sort((x, y) => rank(x) - rank(y) || (sols[y.id] ? 1 : 0) - (sols[x.id] ? 1 : 0)).forEach((d) => { const k = d.teil + '|' + d.rolle; (g[k] || (g[k] = [])).push(d); }); return Object.values(g); };
+    const rowsOf = (ds) => { const g = {}; ds.slice().sort((x, y) => rank(x) - rank(y) || (sols[y.id] ? 1 : 0) - (sols[x.id] ? 1 : 0)).forEach((d) => { const k = d.teil === 'Übung' ? d.id : d.teil + '|' + d.rolle; (g[k] || (g[k] = [])).push(d); }); return Object.values(g); };
     const docRow = ([d, ...more]) => {
       const so = sols[d.id] || [];
       const m = d.title.match(/^(Teil \d+|AP1|GA\d)[:\s]+(.*)$/);
@@ -2310,20 +2307,11 @@
         ${moreMenu(rows.map(([d]) => `<button type="button" class="btn sm quiet" data-print="${d.id}">${esc(name(d))} drucken</button><button type="button" class="btn sm quiet" data-dl="${d.id}">${esc(name(d))} herunterladen</button>`).join(''))}</div></div>`; };
     const termHtml = (k, open) => {
       const [, termin] = k.split('|'); const rows = rowsOf(terms[k]);
-      const main = rows.filter(([d]) => rank(d) < RANK.indexOf('Komplettsatz')); const extra = rows.filter((r) => !main.includes(r));
+      const main = rows.filter(([d]) => rank(d) < RANK.indexOf('Komplettsatz') || d.teil === 'Übung'); const ueb = main.length && main.every(([d]) => d.teil === 'Übung'); const extra = rows.filter((r) => !main.includes(r));
       const solved = main.filter(([d]) => sols[d.id] || d.rolle === 'loesung').length;
-      const solTag = !main.length ? '' : solved === main.length ? '<span class="tag ok">mit Lösungen</span>' : solved ? `<span class="tag">Lösung zu ${solved} von ${main.length} Teilen</span>` : '<span class="tag warn">ohne Lösungen</span>';
-      return `<details class="disc" data-term="${esc(`${termin} ${[...new Set(terms[k].map((d) => d.pruefung))].join(' ')}`.toLowerCase())}"${open ? ' open' : ''}><summary>${esc(termin)}<span class="tag">${main.length} ${main.length === 1 ? 'Teil' : 'Teile'}</span>${solTag}</summary><div class="disc-body doc-rows">${main.map(docRow).join('')}${extra.length ? extraRow(extra) : ''}</div></details>`; };
+      const solTag = !main.length || ueb ? '' : solved === main.length ? '<span class="tag ok">mit Lösungen</span>' : solved ? `<span class="tag">Lösung zu ${solved} von ${main.length} Teilen</span>` : '<span class="tag warn">ohne Lösungen</span>';
+      return `<details class="disc" data-term="${esc(`${termin} ${[...new Set(terms[k].map((d) => d.pruefung))].join(' ')}`.toLowerCase())}"${open ? ' open' : ''}><summary>${esc(termin)}<span class="tag">${main.length} ${ueb ? 'Aufgaben nach Thema' : main.length === 1 ? 'Teil' : 'Teile'}</span>${solTag}</summary><div class="disc-body doc-rows">${main.map(docRow).join('')}${extra.length ? extraRow(extra) : ''}</div></details>`; };
     const groupOf = (k) => k.split('|')[2];
-    // Stick-Kopie als eigene Kategorie bei AP2: je Ordner vom Stick ein aufklappbarer Block, Dateien wie dort benannt
-    const stickDirs = {}; if (main.includes(beruf)) stick.forEach((x) => { const i = x.path.lastIndexOf('/'); (stickDirs[x.path.slice(0, i)] || (stickDirs[x.path.slice(0, i)] = [])).push(x); });
-    const stickName = (x) => x.path.slice(x.path.lastIndexOf('/') + 1).replace(/\.pdf$/i, '').trim();
-    const stickRow = (x) => `<div class="doc-row"><p class="doc-name">${esc(stickName(x))}</p><div class="actions">
-        ${x.d.rolle === 'aufgaben' ? `<a class="btn sm" href="#/original/${x.d.id}">Bearbeiten</a>` : '<span></span>'}
-        <button type="button" class="btn sm quiet" data-view="${x.d.id}">Ansehen</button><span class="doc-sols"></span>
-        ${moreMenu(`<button type="button" class="btn sm quiet" data-print="${x.d.id}">Drucken</button><button type="button" class="btn sm quiet" data-dl="${x.d.id}">Herunterladen (PDF)</button>`)}</div></div>`;
-    const stickHtml = Object.keys(stickDirs).length ? `<section class="section" data-sec="ap2"><div class="sec-head"><h2>Stick-Kopie vom 12.11.2026 <span class="small muted sec-sub">AP2 und WiSo, wie auf dem Stick abgelegt, ${stick.length} Dateien</span></h2><a class="btn sm quiet" href="stick.html">Originaldateien als ZIP</a></div>
-      ${Object.entries(stickDirs).map(([dir, xs]) => `<details class="disc" data-term="${esc(`${dir} ${xs.map(stickName).join(' ')}`.toLowerCase())}"><summary>${esc(dir.split('/').join(' / '))}<span class="tag">${xs.length} ${xs.length === 1 ? 'Datei' : 'Dateien'}</span></summary><div class="disc-body doc-rows">${xs.map(stickRow).join('')}</div></details>`).join('')}</section>` : '';
     const keys = Object.keys(terms).sort().reverse();
     const SECTIONS = [['ap2', 'Abschlussprüfung Teil 2 (AP2)', 'Ordnung 2020'], ['ap1', 'Abschlussprüfung Teil 1 (AP1)', 'Ordnung 2020, für alle IT-Berufe gleich'], ['alt', 'Alte Ordnung', 'GA1, GA2 und WiSo']];
     const bookHtml = list.some((d) => bookNote(d)) ? '<details class="why"><summary>Bis Winter 2012/13 war ein Fachbuch erlaubt</summary><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></details>' : '';
@@ -2337,7 +2325,7 @@
         <input class="input" type="search" id="a-search" autocomplete="off" aria-label="Termin suchen" placeholder="Termin suchen, z. B. 2024">
       </div>
       ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
-      <div id="a-list">${SECTIONS.map(([g, h, sub]) => { const ks = keys.filter((k) => groupOf(k) === g); return (ks.length ? `<section class="section" data-sec="${g}"><div class="sec-head"><h2>${h} <span class="small muted sec-sub">${sub}, ${ks.length} Termine</span></h2><button type="button" class="btn sm quiet" data-zip="${g}">Alle herunterladen (ZIP)</button></div>${g === 'alt' ? bookHtml : ''}${ks.map((k, i) => termHtml(k, i === 0 && g === groupOf(keys[0]))).join('')}</section>` : '') + (g === 'ap2' ? stickHtml : ''); }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</div>
+      <div id="a-list">${SECTIONS.map(([g, h, sub]) => { const ks = keys.filter((k) => groupOf(k) === g); return (ks.length ? `<section class="section" data-sec="${g}"><div class="sec-head"><h2>${h} <span class="small muted sec-sub">${sub}, ${ks.length} Termine</span></h2><button type="button" class="btn sm quiet" data-zip="${g}">Alle herunterladen (ZIP)</button></div>${g === 'alt' ? bookHtml : ''}${ks.map((k, i) => termHtml(k, i === 0 && g === groupOf(keys[0]))).join('')}</section>` : ''); }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</div>
       <p class="empty" id="a-none" hidden>Kein Termin passt zum Filter.</p>`;
     bindMoreMenu();
     $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
