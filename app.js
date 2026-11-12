@@ -234,14 +234,25 @@
     return c;
   }
   let downloading = false;
+  const fileSafe = (s) => s.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const saveBlob = (blob, name) => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  };
   // inks: je Seite die Striche, die darauf gezeichnet werden (ausgefüllte Prüfung)
   async function downloadPages(pages, title, inks) {
     if (downloading || !pages || !pages.length) return;
     downloading = true;
     try {
+      saveBlob(new Blob([await pagesPdf(pages, inks, (i) => toast(`PDF wird erstellt (${i} von ${pages.length} Seiten)`))], { type: 'application/pdf' }), `${fileSafe(title)}.pdf`);
+      toast(`PDF mit ${pages.length} Seiten heruntergeladen`);
+    } catch (e) { toast(e.message, true); }
+    downloading = false;
+  }
+  async function pagesPdf(pages, inks, progress) {
       const imgs = [];
       for (let i = 0; i < pages.length; i++) {
-        toast(`PDF wird erstellt (${i} von ${pages.length} Seiten)`);
+        progress(i);
         const u = await window.AP2Local.pageSrc(pages[i]);
         const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error(`Seite ${i + 1} konnte nicht geladen werden`)); im.src = u; });
         const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
@@ -250,11 +261,40 @@
         const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
         imgs.push({ w: c.width, h: c.height, data: new Uint8Array(await blob.arrayBuffer()) });
       }
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([pdfFromJpegs(imgs)], { type: 'application/pdf' }));
-      a.download = `${title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()}.pdf`;
-      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      toast(`PDF mit ${pages.length} Seiten heruntergeladen`);
+      return pdfFromJpegs(imgs);
+  }
+  // ZIP ohne Bibliothek und ohne Kompression (PDFs mit JPEG lassen sich kaum verkleinern); Dateinamen in UTF-8
+  // shortcut: kein ZIP64, also höchstens 4 GB und 65535 Dateien, ein Archivabschnitt liegt weit darunter
+  const CRC = Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
+  const crc32 = (b) => { let c = -1; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
+  function zipBlob(files) {
+    const enc = new TextEncoder(), parts = [], dir = []; let off = 0;
+    const t = new Date(), time = (t.getHours() << 11) | (t.getMinutes() << 5) | (t.getSeconds() >> 1), date = ((t.getFullYear() - 1980) << 9) | ((t.getMonth() + 1) << 5) | t.getDate();
+    const head = (sig, size, fill) => { const v = new DataView(new ArrayBuffer(size)); v.setUint32(0, sig, true); fill(v); return new Uint8Array(v.buffer); };
+    const common = (v, p, f) => { v.setUint16(p, 20, true); v.setUint16(p + 2, 0x0800, true); v.setUint16(p + 6, time, true); v.setUint16(p + 8, date, true); v.setUint32(p + 10, f.crc, true); v.setUint32(p + 14, f.size, true); v.setUint32(p + 18, f.size, true); v.setUint16(p + 22, f.name.length, true); };
+    files.forEach((f) => {
+      f.name = enc.encode(f.path);
+      parts.push(head(0x04034b50, 30, (v) => common(v, 4, f)), f.name, f.blob);
+      dir.push(head(0x02014b50, 46, (v) => { v.setUint16(4, 20, true); common(v, 6, f); v.setUint32(42, off, true); }), f.name);
+      off += 30 + f.name.length + f.size;
+    });
+    const dsize = dir.reduce((n, b) => n + b.length, 0);
+    return new Blob([...parts, ...dir, head(0x06054b50, 22, (v) => { v.setUint16(8, files.length, true); v.setUint16(10, files.length, true); v.setUint32(12, dsize, true); v.setUint32(16, off, true); })], { type: 'application/zip' });
+  }
+  // list: [Pfad im ZIP ohne .pdf, Seitenliste]; gleiche Pfade bekommen eine Nummer
+  async function downloadZip(list, title) {
+    if (downloading || !list.length) return;
+    downloading = true;
+    try {
+      const files = [], seen = {}, total = list.reduce((n, [, p]) => n + p.length, 0); let done = 0;
+      for (const [path, pages] of list) {
+        const n = (seen[path] = (seen[path] || 0) + 1);
+        const data = await pagesPdf(pages, null, (i) => toast(`ZIP wird erstellt (${done + i} von ${total} Seiten)`));
+        done += pages.length;
+        files.push({ path: `${fileSafe(title)}/${path}${n > 1 ? ` (${n})` : ''}.pdf`, crc: crc32(data), size: data.length, blob: new Blob([data]) });
+      }
+      saveBlob(zipBlob(files), `${fileSafe(title)}.zip`);
+      toast(`ZIP mit ${files.length} PDFs heruntergeladen`);
     } catch (e) { toast(e.message, true); }
     downloading = false;
   }
@@ -2297,7 +2337,7 @@
         <input class="input" type="search" id="a-search" autocomplete="off" aria-label="Termin suchen" placeholder="Termin suchen, z. B. 2024">
       </div>
       ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
-      <div id="a-list">${SECTIONS.map(([g, h, sub]) => { const ks = keys.filter((k) => groupOf(k) === g); return ks.length ? `<section class="section" data-sec="${g}"><h2>${h} <span class="small muted sec-sub">${sub}, ${ks.length} Termine</span></h2>${g === 'alt' ? bookHtml : ''}${ks.map((k, i) => termHtml(k, i === 0 && g === groupOf(keys[0]))).join('')}</section>` : ''; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</div>
+      <div id="a-list">${SECTIONS.map(([g, h, sub]) => { const ks = keys.filter((k) => groupOf(k) === g); return ks.length ? `<section class="section" data-sec="${g}"><div class="sec-head"><h2>${h} <span class="small muted sec-sub">${sub}, ${ks.length} Termine</span></h2><button type="button" class="btn sm quiet" data-zip="${g}">Alle herunterladen (ZIP)</button></div>${g === 'alt' ? bookHtml : ''}${ks.map((k, i) => termHtml(k, i === 0 && g === groupOf(keys[0]))).join('')}</section>` : ''; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</div>
       <p class="empty" id="a-none" hidden>Kein Termin passt zum Filter.</p>`;
     bindMoreMenu();
     $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
@@ -2305,6 +2345,18 @@
     $$('[data-view]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.view]; pageViewer(docPages(d), 0, `${d.termin}: ${d.title}`); });
     $$('[data-print]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.print]; printPages(docPages(d), `${d.termin}: ${d.title}`); });
     $$('[data-dl]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.dl]; downloadPages(docPages(d), `${d.termin} ${d.title}`); });
+    // Abschnitt als ZIP: je Termin ein Ordner, darin Original und Lösung
+    $$('[data-zip]', app).forEach((b) => b.onclick = () => {
+      const list = [];
+      keys.filter((k) => groupOf(k) === b.dataset.zip).forEach((k) => {
+        const [sort, termin] = k.split('|'), dir = fileSafe(`${sort} ${termin}`);
+        rowsOf(terms[k]).forEach(([d]) => {
+          list.push([`${dir}/${d.rolle === 'loesung' ? 'Lösung' : 'Original'}/${fileSafe(d.title)}`, docPages(d)]);
+          (sols[d.id] || []).forEach((x) => list.push([`${dir}/Lösung/${fileSafe(x.title)}`, docPages(x)]));
+        });
+      });
+      downloadZip(list, `Archiv ${beruf} ${SEG[b.dataset.zip]}`);
+    });
     let seg = 'all';
     const apply = () => {
       const q = $('#a-search').value.toLowerCase().trim();
