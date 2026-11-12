@@ -263,24 +263,7 @@
       }
       return pdfFromJpegs(imgs);
   }
-  // ZIP ohne Bibliothek und ohne Kompression (PDFs mit JPEG lassen sich kaum verkleinern); Dateinamen in UTF-8
-  // shortcut: kein ZIP64, also höchstens 4 GB und 65535 Dateien, ein Archivabschnitt liegt weit darunter
-  const CRC = Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
-  const crc32 = (b) => { let c = -1; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
-  function zipBlob(files) {
-    const enc = new TextEncoder(), parts = [], dir = []; let off = 0;
-    const t = new Date(), time = (t.getHours() << 11) | (t.getMinutes() << 5) | (t.getSeconds() >> 1), date = ((t.getFullYear() - 1980) << 9) | ((t.getMonth() + 1) << 5) | t.getDate();
-    const head = (sig, size, fill) => { const v = new DataView(new ArrayBuffer(size)); v.setUint32(0, sig, true); fill(v); return new Uint8Array(v.buffer); };
-    const common = (v, p, f) => { v.setUint16(p, 20, true); v.setUint16(p + 2, 0x0800, true); v.setUint16(p + 6, time, true); v.setUint16(p + 8, date, true); v.setUint32(p + 10, f.crc, true); v.setUint32(p + 14, f.size, true); v.setUint32(p + 18, f.size, true); v.setUint16(p + 22, f.name.length, true); };
-    files.forEach((f) => {
-      f.name = enc.encode(f.path);
-      parts.push(head(0x04034b50, 30, (v) => common(v, 4, f)), f.name, f.blob);
-      dir.push(head(0x02014b50, 46, (v) => { v.setUint16(4, 20, true); common(v, 6, f); v.setUint32(42, off, true); }), f.name);
-      off += 30 + f.name.length + f.size;
-    });
-    const dsize = dir.reduce((n, b) => n + b.length, 0);
-    return new Blob([...parts, ...dir, head(0x06054b50, 22, (v) => { v.setUint16(8, files.length, true); v.setUint16(10, files.length, true); v.setUint32(12, dsize, true); v.setUint32(16, off, true); })], { type: 'application/zip' });
-  }
+  const { crc32, zipBlob } = window.AP2Local;
   // list: [Pfad im ZIP ohne .pdf, Seitenliste]; gleiche Pfade bekommen eine Nummer
   async function downloadZip(list, title) {
     if (downloading || !list.length) return;
@@ -2334,7 +2317,7 @@
         ${x.d.rolle === 'aufgaben' ? `<a class="btn sm" href="#/original/${x.d.id}">Bearbeiten</a>` : '<span></span>'}
         <button type="button" class="btn sm quiet" data-view="${x.d.id}">Ansehen</button><span class="doc-sols"></span>
         ${moreMenu(`<button type="button" class="btn sm quiet" data-print="${x.d.id}">Drucken</button><button type="button" class="btn sm quiet" data-dl="${x.d.id}">Herunterladen (PDF)</button>`)}</div></div>`;
-    const stickHtml = Object.keys(stickDirs).length ? `<section class="section" data-sec="ap2"><div class="sec-head"><h2>Stick-Kopie vom 12.11.2026 <span class="small muted sec-sub">AP2 und WiSo, wie auf dem Stick abgelegt, ${stick.length} Dateien</span></h2><button type="button" class="btn sm quiet" data-zip="stick">Alle herunterladen (ZIP)</button></div>
+    const stickHtml = Object.keys(stickDirs).length ? `<section class="section" data-sec="ap2"><div class="sec-head"><h2>Stick-Kopie vom 12.11.2026 <span class="small muted sec-sub">AP2 und WiSo, wie auf dem Stick abgelegt, ${stick.length} Dateien</span></h2><a class="btn sm quiet" href="stick.html">Originaldateien als ZIP</a></div>
       ${Object.entries(stickDirs).map(([dir, xs]) => `<details class="disc" data-term="${esc(`${dir} ${xs.map(stickName).join(' ')}`.toLowerCase())}"><summary>${esc(dir.split('/').join(' / '))}<span class="tag">${xs.length} ${xs.length === 1 ? 'Datei' : 'Dateien'}</span></summary><div class="disc-body doc-rows">${xs.map(stickRow).join('')}</div></details>`).join('')}</section>` : '';
     const keys = Object.keys(terms).sort().reverse();
     const SECTIONS = [['ap2', 'Abschlussprüfung Teil 2 (AP2)', 'Ordnung 2020'], ['ap1', 'Abschlussprüfung Teil 1 (AP1)', 'Ordnung 2020, für alle IT-Berufe gleich'], ['alt', 'Alte Ordnung', 'GA1, GA2 und WiSo']];
@@ -2359,10 +2342,9 @@
     $$('[data-dl]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.dl]; downloadPages(docPages(d), `${d.termin} ${d.title}`); });
     // Abschnitt als ZIP: je Termin ein Ordner, darin Original und Lösung
     $$('[data-zip]', app).forEach((b) => b.onclick = () => {
-      if (b.dataset.zip === 'stick') { downloadZip(stick.map((x) => [x.path.replace(/\.pdf$/i, ''), docPages(x.d)]), 'Stick-Kopie 2026-11-12'); return; }
       const list = [];
       keys.filter((k) => groupOf(k) === b.dataset.zip).forEach((k) => {
-        const [sort, termin] = k.split('|'), dir = fileSafe(`${sort} ${termin}`);
+        const [, termin] = k.split('|'), dir = fileSafe(termin.replace('/', '-'));
         rowsOf(terms[k]).forEach(([d]) => {
           list.push([`${dir}/${d.rolle === 'loesung' ? 'Lösung' : 'Original'}/${fileSafe(d.title)}`, docPages(d)]);
           (sols[d.id] || []).forEach((x) => list.push([`${dir}/Lösung/${fileSafe(x.title)}`, docPages(x)]));

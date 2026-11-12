@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stick-Kopie herunterladen, AP2-Simulator</title>
+<meta name="robots" content="noindex">
+<script>try { var m = localStorage.getItem('ap2-mode'); if (m === 'light' || m === 'dark') document.documentElement.dataset.mode = m; } catch (e) {}</script>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme-vantage.css">
+</head>
+<body>
+<main id="app" class="app container" tabindex="-1">
+  <div class="gate"><h1>Stick-Kopie vom 12.11.2026</h1>
+    <p class="lede">Alle Originaldateien vom Stick als eine ZIP-Datei, mit derselben Ordnerstruktur. Gib das Passwort ein, das du bekommen hast.</p>
+    <form id="s-form" class="sheet" style="margin-top:var(--space-lg)" novalidate>
+      <label class="field"><span>Passwort</span><input class="input" type="password" id="s-pw" autocomplete="current-password" required autofocus></label>
+      <p class="small" id="s-err" role="alert" style="min-height:1lh;color:var(--color-error);margin-top:var(--space-2xs)"></p>
+      <div class="actions" style="margin-top:var(--space-sm)"><button type="submit" class="btn primary" id="s-go">Öffnen</button></div>
+    </form>
+  </div>
+</main>
+<script src="local.js"></script>
+<script src="stick.js"></script>
+</body>
+</html>

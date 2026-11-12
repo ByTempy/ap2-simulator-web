@@ -1,5 +1,18 @@
 {
+  "check": "te20g51rRpFG5+gxPcxj78Otj2BkyaQu8gS0RmR9KA==",
+  "extra": [
+    {
+      "iterations": 310000,
+      "key": "eJMUpixpjHN42TFZZ08DQSBfN9mighpHAZaNW/PwrDVVP/vqK0DcJDwBev4JW9Eom41yVm+O2Lpya2Uc",
+      "salt": "hAcnJSspP+GGBHDNaTxlpg=="
+    },
+    {
+      "iterations": 310000,
+      "key": "qz7pSntRFOlXdMwB9wYpSGlsw/cwNKToebS1GwJX/JciHCDjAFT8t9CI9/X2QpWKeNvSTK3oB1+Y0+Tn",
+      "salt": "u0/S0NUVvs9+SZCZ7Jh70w=="
+    }
+  ],
   "iterations": 310000,
   "salt": "7R9UmmxLj1Jp25vpSOPncg==",
-  "version": "20261112124956"
+  "version": "20261112130520"
 }

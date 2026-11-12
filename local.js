@@ -70,8 +70,37 @@
     B.data = JSON.parse(new TextDecoder().decode(plain));
     B.key = key;
   }
+  // Hauptpasswort oder eines der weiteren aus key.json (extra: Datenschlüssel, verschlüsselt mit dem Schlüssel aus dem Passwort)
+  async function keyFor(password, info) {
+    const main = await deriveKey(password, info);
+    if (!info.check || await decrypt(b64(info.check), main).then(() => true, () => false)) return main;
+    for (const e of info.extra || []) {
+      try { return await crypto.subtle.importKey('raw', await decrypt(b64(e.key), await deriveKey(password, e)), 'AES-GCM', true, ['decrypt']); } catch (err) { /* nächstes Passwort */ }
+    }
+    throw new Error('Das Passwort stimmt nicht');
+  }
+  // ZIP ohne Bibliothek und ohne Kompression (PDFs mit JPEG lassen sich kaum verkleinern); Dateinamen in UTF-8
+  // shortcut: kein ZIP64, also höchstens 4 GB und 65535 Dateien, ein Archivabschnitt liegt weit darunter
+  const CRC = Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
+  const crc32 = (b) => { let c = -1; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
+  // files: [{ path, crc, size, blob, date? }]
+  function zipBlob(files) {
+    const enc = new TextEncoder(), parts = [], dir = []; let off = 0;
+    const head = (sig, size, fill) => { const v = new DataView(new ArrayBuffer(size)); v.setUint32(0, sig, true); fill(v); return new Uint8Array(v.buffer); };
+    const common = (v, p, f) => {
+      const t = f.date || new Date(), time = (t.getHours() << 11) | (t.getMinutes() << 5) | (t.getSeconds() >> 1), date = ((t.getFullYear() - 1980) << 9) | ((t.getMonth() + 1) << 5) | t.getDate();
+      v.setUint16(p, 20, true); v.setUint16(p + 2, 0x0800, true); v.setUint16(p + 6, time, true); v.setUint16(p + 8, date, true); v.setUint32(p + 10, f.crc, true); v.setUint32(p + 14, f.size, true); v.setUint32(p + 18, f.size, true); v.setUint16(p + 22, f.name.length, true); };
+    files.forEach((f) => {
+      f.name = enc.encode(f.path);
+      parts.push(head(0x04034b50, 30, (v) => common(v, 4, f)), f.name, f.blob);
+      dir.push(head(0x02014b50, 46, (v) => { v.setUint16(4, 20, true); common(v, 6, f); v.setUint32(42, off, true); }), f.name);
+      off += 30 + f.name.length + f.size;
+    });
+    const dsize = dir.reduce((n, b) => n + b.length, 0);
+    return new Blob([...parts, ...dir, head(0x06054b50, 22, (v) => { v.setUint16(8, files.length, true); v.setUint16(10, files.length, true); v.setUint32(12, dsize, true); v.setUint32(16, off, true); })], { type: 'application/zip' });
+  }
   async function unlock(password) {
-    const key = await deriveKey(password, B.keyInfo);
+    const key = await keyFor(password, B.keyInfo);
     try { await openBundle(key); } catch (e) { throw new Error('Das Passwort stimmt nicht'); }
     localStorage.setItem(LS.key, toB64(await crypto.subtle.exportKey('raw', key)));
   }
@@ -644,5 +673,5 @@
   assert(nextBox({ box: 2, dueAt: 10 * day }, 0.9, 2 * day) === 2 && nextBox({ box: 2, dueAt: 10 * day }, 0.9, 10 * day) === 3, 'Wiederholung: Aufstieg nur wenn fällig');
   assert(nextBox({ box: 4, dueAt: 0 }, 1, 0) === 5 && nextBox({ box: 5, dueAt: Infinity }, 0.2, 0) === 0, 'Wiederholung: gemeistert und Rückfall');
 
-  window.AP2Local = { init, unlock, lock, handle, pageSrc, originals, get encrypted() { return B.encrypted; }, get builtAt() { return B.data && B.data.built; } };
+  window.AP2Local = { init, unlock, lock, handle, pageSrc, originals, keyFor, decrypt, crc32, zipBlob, get encrypted() { return B.encrypted; }, get builtAt() { return B.data && B.data.built; } };
 })();
