@@ -244,40 +244,45 @@
     if (downloading || !pages || !pages.length) return;
     downloading = true;
     try {
-      saveBlob(new Blob([await pagesPdf(pages, inks, (i) => toast(`PDF wird erstellt (${i} von ${pages.length} Seiten)`))], { type: 'application/pdf' }), `${fileSafe(title)}.pdf`);
+      let n = 0;
+      saveBlob(new Blob([await pagesPdf(pages, inks, () => toast(`PDF wird erstellt (${++n} von ${pages.length} Seiten)`))], { type: 'application/pdf' }), `${fileSafe(title)}.pdf`);
       toast(`PDF mit ${pages.length} Seiten heruntergeladen`);
     } catch (e) { toast(e.message, true); }
     downloading = false;
   }
   async function pagesPdf(pages, inks, progress) {
-      const imgs = [];
-      for (let i = 0; i < pages.length; i++) {
-        progress(i);
-        const u = await window.AP2Local.pageSrc(pages[i]);
+      const imgs = await pool(6, pages, async (src, i) => {
+        const u = await window.AP2Local.pageSrc(src);
         const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error(`Seite ${i + 1} konnte nicht geladen werden`)); im.src = u; });
         const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
         const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0);
         if (inks && inks[i] && inks[i].length) g.drawImage(inkLayer(inks[i], c.width, c.height), 0, 0);
         const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
-        imgs.push({ w: c.width, h: c.height, data: new Uint8Array(await blob.arrayBuffer()) });
-      }
+        progress();
+        return { w: c.width, h: c.height, data: new Uint8Array(await blob.arrayBuffer()) };
+      });
       return pdfFromJpegs(imgs);
   }
-  const { crc32, zipBlob } = window.AP2Local;
+  const { crc32, zipBlob, pool } = window.AP2Local;
+  const zipCache = new Map(); // fertige ZIPs bis zum Neuladen der Seite, ein zweiter Klick speichert sofort
   // list: [Pfad im ZIP ohne .pdf, Seitenliste]; gleiche Pfade bekommen eine Nummer
   async function downloadZip(list, title) {
     if (downloading || !list.length) return;
     downloading = true;
     try {
-      const files = [], seen = {}, total = list.reduce((n, [, p]) => n + p.length, 0); let done = 0;
-      for (const [path, pages] of list) {
-        const n = (seen[path] = (seen[path] || 0) + 1);
-        const data = await pagesPdf(pages, null, (i) => toast(`ZIP wird erstellt (${done + i} von ${total} Seiten)`));
-        done += pages.length;
-        files.push({ path: `${fileSafe(title)}/${path}${n > 1 ? ` (${n})` : ''}.pdf`, crc: crc32(data), size: data.length, blob: new Blob([data]) });
+      const key = `${title}|${list.length}`;
+      if (!zipCache.has(key)) {
+        const seen = {}, total = list.reduce((n, [, p]) => n + p.length, 0); let done = 0;
+        const named = list.map(([path, pages]) => { const n = (seen[path] = (seen[path] || 0) + 1); return [`${fileSafe(title)}/${path}${n > 1 ? ` (${n})` : ''}.pdf`, pages]; });
+        const files = await pool(2, named, async ([path, pages]) => {
+          const data = await pagesPdf(pages, null, () => toast(`ZIP wird erstellt (${++done} von ${total} Seiten)`));
+          return { path, crc: crc32(data), size: data.length, blob: new Blob([data]) };
+        });
+        zipCache.set(key, { blob: zipBlob(files), n: files.length });
       }
-      saveBlob(zipBlob(files), `${fileSafe(title)}.zip`);
-      toast(`ZIP mit ${files.length} PDFs heruntergeladen`);
+      const z = zipCache.get(key);
+      saveBlob(z.blob, `${fileSafe(title)}.zip`);
+      toast(`ZIP mit ${z.n} PDFs heruntergeladen`);
     } catch (e) { toast(e.message, true); }
     downloading = false;
   }

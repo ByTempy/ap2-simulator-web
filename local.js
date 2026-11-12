@@ -83,6 +83,12 @@
   // shortcut: kein ZIP64, also höchstens 4 GB und 65535 Dateien, ein Archivabschnitt liegt weit darunter
   const CRC = Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
   const crc32 = (b) => { let c = -1; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
+  // fn für alle items, höchstens n gleichzeitig (Laden, Entschlüsseln, Umwandeln laufen so parallel); Ergebnis in Eingabereihenfolge
+  async function pool(n, items, fn) {
+    const out = new Array(items.length); let next = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); } }));
+    return out;
+  }
   // files: [{ path, crc, size, blob, date? }]
   function zipBlob(files) {
     const enc = new TextEncoder(), parts = [], dir = []; let off = 0;
@@ -673,5 +679,5 @@
   assert(nextBox({ box: 2, dueAt: 10 * day }, 0.9, 2 * day) === 2 && nextBox({ box: 2, dueAt: 10 * day }, 0.9, 10 * day) === 3, 'Wiederholung: Aufstieg nur wenn fällig');
   assert(nextBox({ box: 4, dueAt: 0 }, 1, 0) === 5 && nextBox({ box: 5, dueAt: Infinity }, 0.2, 0) === 0, 'Wiederholung: gemeistert und Rückfall');
 
-  window.AP2Local = { init, unlock, lock, handle, pageSrc, originals, keyFor, decrypt, crc32, zipBlob, get encrypted() { return B.encrypted; }, get builtAt() { return B.data && B.data.built; } };
+  window.AP2Local = { init, unlock, lock, handle, pageSrc, originals, keyFor, decrypt, crc32, zipBlob, pool, get encrypted() { return B.encrypted; }, get builtAt() { return B.data && B.data.built; } };
 })();

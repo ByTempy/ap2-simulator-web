@@ -5,7 +5,7 @@
   const L = window.AP2Local, $ = (s) => document.querySelector(s), app = $('#app');
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const mb = (n) => `${(n / 1048576).toLocaleString('de-DE', { maximumFractionDigits: 1 })} MB`;
-  let busy = false;
+  let busy = false, out = null, zip = null;
 
   $('#s-form').onsubmit = async (ev) => {
     ev.preventDefault();
@@ -45,21 +45,23 @@
   async function download(key, man, total) {
     if (busy) return;
     busy = true; $('#s-dl').disabled = true;
-    const out = []; let bytes = 0;
+    let bytes = 0, n = 0;
     try {
-      for (const [i, f] of man.files.entries()) {
+      // fertige ZIP bleibt bis zum Neuladen, ein zweiter Klick speichert sofort; sonst 6 Dateien gleichzeitig laden
+      out = out || await L.pool(6, man.files, async (f, i) => {
         $('#s-now').textContent = `Lädt: ${f.path.slice(f.path.lastIndexOf('/') + 1)}`;
         const r = await fetch(`s/${f.f.slice(0, 2)}/${f.f}.bin`);
         if (!r.ok) throw new Error(`${f.path} konnte nicht geladen werden`);
         const data = new Uint8Array(await L.decrypt(await r.arrayBuffer(), key));
         if (data.length !== f.size) throw new Error(`${f.path} ist unvollständig`);
-        out.push({ path: `${man.root}/${f.path}`, crc: L.crc32(data), size: data.length, blob: new Blob([data]), date: f.mtime ? new Date(f.mtime * 1000) : undefined });
         bytes += f.size;
         const el = $(`#s-f${i}`); el.textContent = 'geladen'; el.classList.remove('muted');
-        $('#s-count').textContent = `${i + 1} von ${man.files.length} Dateien, ${mb(bytes)} von ${mb(total)}`;
+        $('#s-count').textContent = `${++n} von ${man.files.length} Dateien, ${mb(bytes)} von ${mb(total)}`;
         $('#s-bar').style.width = `${Math.round(100 * bytes / total)}%`;
-      }
-      const a = document.createElement('a'); a.href = URL.createObjectURL(L.zipBlob(out)); a.download = `${man.root}.zip`;
+        return { path: `${man.root}/${f.path}`, crc: L.crc32(data), size: data.length, blob: new Blob([data]), date: f.mtime ? new Date(f.mtime * 1000) : undefined };
+      });
+      zip = zip || L.zipBlob(out);
+      const a = document.createElement('a'); a.href = URL.createObjectURL(zip); a.download = `${man.root}.zip`;
       document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
       $('#s-now').textContent = '';
       $('#s-count').textContent = `Fertig: ${out.length} Dateien in ${man.root}.zip`; $('#s-count').parentElement.classList.add('done');
