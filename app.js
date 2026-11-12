@@ -344,6 +344,13 @@
   window.addEventListener('hashchange', route);
 
   // ---------- Reiter innerhalb eines Bereichs (statt eigener Menüpunkte) ----------
+  // Ankreuzlisten der Projektseite: große Zeilen zum Antippen, darüber der Stand „3 von 10“
+  const checklistHtml = (items, key, state) => `<div class="check-head"><span class="check-count" aria-live="polite"></span><span class="meter"><span></span></span></div><div class="checklist">${items.map((c, i) => `<label class="check"><input type="checkbox" data-${key}="${i}"${state[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>`;
+  const checkCounts = () => $$('.check-head', app).forEach((h) => {
+    const c = $$('input', h.nextElementSibling); const n = c.filter((x) => x.checked).length;
+    $('.check-count', h).textContent = n === c.length ? `Alles erledigt, ${n} von ${c.length}` : `${n} von ${c.length} erledigt`;
+    h.classList.toggle('done', n === c.length); $('.meter > span', h).style.width = `${Math.round(100 * n / c.length)}%`;
+  });
   const subnav = (items, cur) => `<nav class="subnav" aria-label="Bereich">${items.map(([k, label, href]) => `<a href="${href}"${k === cur ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
   const EXAM_TABS = [['exams', 'Prüfungen', '#/exams'], ['generate', 'Generator', '#/generate']];
   const WIKI_TABS = [['wiki', 'Themen und Artikel', '#/topics'], ['formeln', 'Formelsammlung', '#/formeln']];
@@ -967,13 +974,13 @@
       </div>
       <section class="section" data-pj="antrag"><h2 id="pj-antrag">Projektantrag prüfen</h2>
         <p class="prose small muted">Bevor du den Antrag einreichst: Erfüllt dein Vorhaben, was ein Prüfungsprojekt ausmacht? Fehlt Projektcharakter oder fachliche Tiefe, lehnt die IHK den Antrag oft ab.</p>
-        <div class="checklist">${T.ANTRAG.map((c, i) => `<label class="check"><input type="checkbox" data-antrag="${i}"${pr.antrag[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
+        ${checklistHtml(T.ANTRAG, 'antrag', pr.antrag)}
       </section>
       <section class="section" data-pj="doku"><h2 id="pj-doku">Checkliste Dokumentation</h2>
         <h3 class="today-sub">Inhalt</h3>
-        <div class="checklist">${T.DOC_CHECKLIST.map((c, i) => `<label class="check"><input type="checkbox" data-doc="${i}"${pr.checks[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
+        ${checklistHtml(T.DOC_CHECKLIST, 'doc', pr.checks)}
         <h3 class="today-sub">Form</h3>
-        <div class="checklist">${T.DOC_FORM.map((c, i) => `<label class="check"><input type="checkbox" data-form="${i}"${pr.form[i] ? ' checked' : ''}><span>${esc(c)}</span></label>`).join('')}</div>
+        ${checklistHtml(T.DOC_FORM, 'form', pr.form)}
         <h4 style="margin-top:var(--space-md)">Mehr dazu</h4>
         <ul class="links"><li><a href="https://www.digitalklempner.de/unterrichtsmaterial/technische_dokumentation/projektdoku/" target="_blank" rel="noopener">Digitalklempner: Projektdokumentation</a> <span class="small muted">ausführlicher Leitfaden eines IT-Ausbilders</span></li><li><a href="https://www.digitalklempner.de/kursinfos/besuchswoche/" target="_blank" rel="noopener">Digitalklempner: Projektfindung und Projektantrag</a> <span class="small muted">Projektcharakter und fachliche Tiefe</span></li></ul>
       </section>
@@ -994,9 +1001,10 @@
     const bindField = (id, key) => { $(id).oninput = (ev) => { pr[key] = ev.target.value; save(); }; };
     bindField('#pj-title', 'title'); bindField('#pj-desc', 'desc');
     $('#pj-date').onchange = (ev) => { pr.docDate = ev.target.value; save(); projectView(tab); };
-    $$('[data-doc]', app).forEach((c) => c.onchange = () => { pr.checks[c.dataset.doc] = c.checked; save(); });
-    $$('[data-form]', app).forEach((c) => c.onchange = () => { pr.form[c.dataset.form] = c.checked; save(); });
-    $$('[data-antrag]', app).forEach((c) => c.onchange = () => { pr.antrag[c.dataset.antrag] = c.checked; save(); });
+    $$('[data-doc]', app).forEach((c) => c.onchange = () => { pr.checks[c.dataset.doc] = c.checked; save(); checkCounts(); });
+    $$('[data-form]', app).forEach((c) => c.onchange = () => { pr.form[c.dataset.form] = c.checked; save(); checkCounts(); });
+    $$('[data-antrag]', app).forEach((c) => c.onchange = () => { pr.antrag[c.dataset.antrag] = c.checked; save(); checkCounts(); });
+    checkCounts();
     // Präsentationstimer
     const steps = $$('#pt-outline li', app); const bounds = [1, 3, 5, 7, 11, 13, 15].map((m) => m * 60);
     const sw = stopwatch($('#pt-clock'), 900, 780, (t) => { const k = bounds.findIndex((b) => t < b); steps.forEach((li, i) => li.classList.toggle('now', i === (k < 0 ? steps.length - 1 : k))); });
@@ -2277,15 +2285,16 @@
       return `<details class="disc" data-term="${esc(`${termin} ${[...new Set(terms[k].map((d) => d.pruefung))].join(' ')}`.toLowerCase())}"${open ? ' open' : ''}><summary>${esc(termin)}<span class="tag">${main.length} ${main.length === 1 ? 'Teil' : 'Teile'}</span>${solTag}</summary><div class="disc-body doc-rows">${main.map(docRow).join('')}${extra.length ? extraRow(extra) : ''}</div></details>`; };
     const groupOf = (k) => k.split('|')[2];
     const keys = Object.keys(terms).sort().reverse();
-    const SECTIONS = [['ap2', 'Abschlussprüfung Teil 2', 'Ordnung 2020'], ['ap1', 'Abschlussprüfung Teil 1', 'Ordnung 2020, für alle IT-Berufe gleich'], ['alt', 'Alte Ordnung', 'GA1, GA2 und WiSo']];
+    const SECTIONS = [['ap2', 'Abschlussprüfung Teil 2 (AP2)', 'Ordnung 2020'], ['ap1', 'Abschlussprüfung Teil 1 (AP1)', 'Ordnung 2020, für alle IT-Berufe gleich'], ['alt', 'Alte Ordnung', 'GA1, GA2 und WiSo']];
     const bookHtml = list.some((d) => bookNote(d)) ? '<details class="why"><summary>Bis Winter 2012/13 war ein Fachbuch erlaubt</summary><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></details>' : '';
     const present = SECTIONS.filter(([g]) => keys.some((k) => groupOf(k) === g));
-    const SEG = { ap2: 'Teil 2', ap1: 'Teil 1', alt: 'Alte Ordnung' };
+    const SEG = { ap2: 'AP2', ap1: 'AP1', alt: 'Alte Ordnung' };
+    const segCount = (g) => keys.filter((k) => g === 'all' || groupOf(k) === g).length;
     app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Originalprüfungen zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
         <label class="arch-beruf"><span>Beruf</span><select class="input" id="a-beruf">${[...main, ...others].filter((b) => counts[b]).map((b) => `<option value="${BERUF_SLUG(b)}" ${b === beruf ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label></div>
       <div class="arch-tools">
-        ${present.length > 1 ? `<div class="seg" role="group" aria-label="Prüfung">${[['all', 'Alle'], ...present.map(([g]) => [g, SEG[g]])].map(([g, l]) => `<button type="button" class="btn sm${g === 'all' ? ' primary' : ''}" data-aseg="${g}" aria-pressed="${g === 'all'}">${l}</button>`).join('')}</div>` : ''}
-        <input class="input" type="search" id="a-search" autocomplete="off" aria-label="Termin suchen" placeholder="Termin suchen, z. B. 2024 oder Winter">
+        ${present.length > 1 ? `<div class="arch-seg" role="group" aria-label="Prüfung">${[['all', 'Alle'], ...present.map(([g]) => [g, SEG[g]])].map(([g, l]) => `<button type="button" class="btn" data-aseg="${g}" aria-pressed="${g === 'all'}">${l}<span class="arch-n">${segCount(g)}</span></button>`).join('')}</div>` : ''}
+        <input class="input" type="search" id="a-search" autocomplete="off" aria-label="Termin suchen" placeholder="Termin suchen, z. B. 2024">
       </div>
       ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
       <div id="a-list">${SECTIONS.map(([g, h, sub]) => { const ks = keys.filter((k) => groupOf(k) === g); return ks.length ? `<section class="section" data-sec="${g}"><h2>${h} <span class="small muted sec-sub">${sub}, ${ks.length} Termine</span></h2>${g === 'alt' ? bookHtml : ''}${ks.map((k, i) => termHtml(k, i === 0 && g === groupOf(keys[0]))).join('')}</section>` : ''; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</div>
@@ -2306,7 +2315,7 @@
     $('#a-search').oninput = apply;
     $$('[data-aseg]', app).forEach((b) => b.onclick = () => {
       seg = b.dataset.aseg;
-      $$('[data-aseg]', app).forEach((x) => { x.classList.toggle('primary', x === b); x.setAttribute('aria-pressed', x === b); });
+      $$('[data-aseg]', app).forEach((x) => x.setAttribute('aria-pressed', x === b));
       apply();
     });
   }
