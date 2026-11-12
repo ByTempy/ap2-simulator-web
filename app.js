@@ -344,6 +344,7 @@
     [/^#\/noten$/, gradesView],
     [/^#\/rechnen$/, drillView],
     [/^#\/fragen$/, quizView],
+    [/^#\/fragen\/uebung(?:\/([a-z0-9-]+))?$/, uebungView],
     [/^#\/projekt(?:\/(antrag|doku|praes|fg))?$/, projectView],
     [/^#\/archive(?:\/([a-z0-9-]+))?$/, archiveView],
     [/^#\/learn\/([^/]+)$/, learnView],
@@ -381,6 +382,7 @@
   });
   const subnav = (items, cur) => `<nav class="subnav" aria-label="Bereich">${items.map(([k, label, href]) => `<a href="${href}"${k === cur ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`;
   const EXAM_TABS = [['exams', 'Prüfungen', '#/exams'], ['generate', 'Generator', '#/generate']];
+  const FRAGEN_TABS = [['fragen', 'Fachfragen', '#/fragen'], ['uebung', 'Prüfungsvorbereitung', '#/fragen/uebung']];
   const WIKI_TABS = [['wiki', 'Themen und Artikel', '#/topics'], ['formeln', 'Formelsammlung', '#/formeln']];
   const PJ_TABS = [['start', 'Überblick', '#/projekt'], ['antrag', 'Antrag', '#/projekt/antrag'], ['doku', 'Dokumentation', '#/projekt/doku'], ['praes', 'Präsentation', '#/projekt/praes'], ['fg', 'Fachgespräch', '#/projekt/fg']];
   const STATS_TABS = [['ueberblick', 'Überblick', '#/stats'], ['verlauf', 'Verlauf', '#/stats/verlauf'], ['noten', 'Notenrechner', '#/noten'], ['daten', 'Deine Daten', '#/stats/daten']];
@@ -1071,7 +1073,7 @@
     const ff = await api('/api/fachfragen'); const cats = ff.categories;
     let on = new Set(store.get('ap2.settings', {}).ffCats || cats);
     const count = (i) => ff.questions.filter((q) => q.cats.includes(i)).length;
-    app.innerHTML = `<div class="page-head"><div><h1>Fachfragen</h1><p class="lede">${ff.questions.length} Fragen wie im Fachgespräch und in den schriftlichen Teilen. Erst selbst antworten, dann die Lösung aufdecken.</p></div></div>
+    app.innerHTML = `${subnav(FRAGEN_TABS, 'fragen')}<div class="page-head"><div><h1>Fachfragen</h1><p class="lede">${ff.questions.length} Fragen wie im Fachgespräch und in den schriftlichen Teilen. Erst selbst antworten, dann die Lösung aufdecken.</p></div></div>
       <div class="sheet fg-card" id="ff-card"></div>
       <details class="disc" style="margin-top:var(--space-lg)"><summary>Kategorien</summary><div class="disc-body">
         <div class="actions"><button type="button" class="btn sm" data-ff-all="0">Keine</button><button type="button" class="btn sm" data-ff-all="1">Alle</button></div>
@@ -1093,6 +1095,44 @@
     $$('[data-ff]', app).forEach((c) => c.onchange = () => { const n = cats[c.dataset.ff]; if (c.checked) on.add(n); else on.delete(n); saveCats(); });
     $$('[data-ff-all]', app).forEach((b) => b.onclick = () => { const all = b.dataset.ffAll === '1'; on = new Set(all ? cats : []); $$('[data-ff]', app).forEach((c) => { c.checked = all; }); saveCats(); });
     show();
+  }
+
+  // ---------- Prüfungsvorbereitung: Aufgaben aus alten Prüfungen nach Thema (Ordner „Prüfungsvorbereitung APT 2“ vom Stick) ----------
+  const UEB_FIX = { 'Anwendungen wie DNS EMail usw': 'Anwendungen wie DNS und E-Mail', 'Spannig Tree': 'Spanning Tree', Programierung: 'Programmierung', Datenberechungen: 'Datenberechnungen', Fach: 'Gemischt', Kern: 'Gemischt' };
+  async function uebungen() {
+    const { docs, sols } = await archiveCatalog();
+    const topics = {};
+    docs.filter((d) => d.teil === 'Übung').forEach((d) => {
+      const i = d.title.indexOf(': '), raw = d.title.slice(0, i), area = /\/Kern\//.test(d.source) ? 'Kern' : 'Fach', name = UEB_FIX[raw] || raw;
+      const slug = BERUF_SLUG(`${area} ${name}`);
+      (topics[slug] || (topics[slug] = { slug, area, name, items: [] })).items.push({ d, name: d.title.slice(i + 2).replace(/_/g, ' ').trim() });
+    });
+    return { topics, sols };
+  }
+  const UEB_AREAS = [['Fach', 'Fachqualifikationen', 'Netze, Sicherheit und Dienste'], ['Kern', 'Kernqualifikationen', 'Hardware, Daten, Kaufmännisches und Projekt']];
+  async function uebungView(slug) {
+    setNav('quiz');
+    const { topics, sols } = await uebungen(); const t = slug && topics[slug];
+    if (slug && !t) { app.innerHTML = errorState('Thema nicht gefunden', 'Dieses Thema gibt es in der Prüfungsvorbereitung nicht.'); return; }
+    if (!t) {
+      const all = Object.values(topics).sort((a, b) => a.name.localeCompare(b.name, 'de')), n = all.reduce((s, x) => s + x.items.length, 0);
+      app.innerHTML = `${subnav(FRAGEN_TABS, 'uebung')}<div class="page-head"><div><h1>Prüfungsvorbereitung</h1><p class="lede">${n} Aufgaben aus alten Prüfungen, nach Thema sortiert. Thema wählen, Aufgabe ansehen oder bearbeiten.</p></div></div>
+        ${UEB_AREAS.map(([a, h, sub]) => { const list = all.filter((x) => x.area === a); return list.length ? `<section class="section"><h2>${h} <span class="small muted sec-sub">${sub}</span></h2><div class="wiki-grid">${list.map((x) => `<a class="wiki-card" href="#/fragen/uebung/${x.slug}"><span class="wc-title">${esc(x.name)}</span><span class="small muted">${x.items.length} ${x.items.length === 1 ? 'Aufgabe' : 'Aufgaben'}</span></a>`).join('')}</div></section>` : ''; }).join('') || '<p class="empty">Keine Aufgaben vorhanden.</p>'}`;
+      return;
+    }
+    const items = t.items.slice().sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    app.innerHTML = `${subnav(FRAGEN_TABS, 'uebung')}<div class="page-head"><div><p class="small muted"><a href="#/fragen/uebung">Prüfungsvorbereitung</a> / ${esc(UEB_AREAS.find(([a]) => a === t.area)[1])}</p><h1>${esc(t.name)}</h1><p class="lede">${items.length} ${items.length === 1 ? 'Aufgabe' : 'Aufgaben'} aus alten Prüfungen. Bearbeiten öffnet die Seiten mit Notizfeld und Zeit.</p></div></div>
+      <div class="doc-rows">${items.map(({ d, name }) => `<div class="doc-row"><p class="doc-name">${esc(name)} <span class="small muted">${d.pages} ${d.pages === 1 ? 'Seite' : 'Seiten'}</span></p><div class="actions">
+        <a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>
+        <button type="button" class="btn sm quiet" data-view="${d.id}">Ansehen</button>
+        <span class="doc-sols">${(sols[d.id] || []).map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">Lösung</button>`).join('')}</span>
+        ${moreMenu(`<button type="button" class="btn sm quiet" data-print="${d.id}">Drucken</button><button type="button" class="btn sm quiet" data-dl="${d.id}">Herunterladen (PDF)</button>`)}</div></div>`).join('')}</div>`;
+    bindMoreMenu();
+    const byId = Object.fromEntries(items.map(({ d }) => [d.id, d]));
+    Object.values(sols).flat().forEach((x) => { byId[x.id] = x; });
+    $$('[data-view]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.view]; pageViewer(docPages(d), 0, d.title); });
+    $$('[data-print]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.print]; printPages(docPages(d), d.title); });
+    $$('[data-dl]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.dl]; downloadPages(docPages(d), d.title); });
   }
 
   // ---------- Rechentrainer ----------
@@ -2371,7 +2411,7 @@
     const so = sols[id] || [];
     const pages = docPages(d);
     app.innerHTML = `<div class="work-head"><div class="where"><span class="mode">Original bearbeiten</span><h1>${esc(d.termin)}: ${esc(d.title)}</h1></div>
-        <div class="actions"><a class="btn sm quiet" href="#/archive/${BERUF_SLUG(d.beruf)}">Zurück zum Archiv</a></div></div>
+        <div class="actions">${d.teil === 'Übung' ? '<a class="btn sm quiet" href="#/fragen/uebung">Zurück zur Prüfungsvorbereitung</a>' : `<a class="btn sm quiet" href="#/archive/${BERUF_SLUG(d.beruf)}">Zurück zum Archiv</a>`}</div></div>
       ${bookNote(d) ? `<p class="note warn" style="margin-bottom:var(--space-md)">${bookNote(d)}: Nimm zum Üben ein Tabellenbuch oder eine Formelsammlung dazu.</p>` : ''}
       <div class="work">
         <aside class="navigator" style="display:grid;gap:var(--space-md);align-content:start">
