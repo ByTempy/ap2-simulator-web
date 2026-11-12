@@ -2230,25 +2230,25 @@
   async function archiveCatalog() {
     const cat = await api('/api/archive');
     const docs = (cat.docs || []).filter((d) => !d.duplicate_of && d.pages > 0);
-    const sols = {}; docs.filter((d) => d.rolle === 'loesung' && d.solution_of).forEach((d) => { (sols[d.solution_of] || (sols[d.solution_of] = [])).push(d); });
+    const sols = {}; docs.filter((d) => (d.rolle === 'loesung' || d.rolle === 'geloest') && d.solution_of).forEach((d) => { (sols[d.solution_of] || (sols[d.solution_of] = [])).push(d); });
     return { docs, sols };
   }
   async function archiveView(slug) {
     setNav('archive');
     const { docs, sols } = await archiveCatalog();
-    const counts = {}; docs.forEach((d) => { if (d.rolle !== 'loesung') counts[d.beruf] = (counts[d.beruf] || 0) + 1; });
+    const counts = {}; docs.forEach((d) => { if (d.rolle !== 'loesung' && d.rolle !== 'geloest') counts[d.beruf] = (counts[d.beruf] || 0) + 1; });
     const main = ['IT-System-Elektroniker', 'Alle IT-Berufe'];
     const others = Object.keys(counts).filter((b) => !main.includes(b)).sort();
     const beruf = [...main, ...others].find((b) => BERUF_SLUG(b) === slug) || 'IT-System-Elektroniker';
-    const list = docs.filter((d) => d.beruf === beruf && (d.rolle !== 'loesung' || !d.solution_of));
+    const list = docs.filter((d) => d.beruf === beruf && (d.rolle === 'geloest' || d.rolle !== 'loesung' || !d.solution_of));
     const terms = {}; list.forEach((d) => { (terms[d.sort + '|' + d.termin + '|' + d.ordnung] || (terms[d.sort + '|' + d.termin + '|' + d.ordnung] = [])).push(d); });
     const keys = Object.keys(terms).sort().reverse();
-    const docRow = (d) => { const so = sols[d.id] || []; return `<tr><td data-label="Teil">${esc(d.teil || '')}</td><td data-label="Dokument">${esc(d.title)}${d.rolle === 'loesung' ? ' <span class="tag">Lösung</span>' : ''}${d.note ? `<span class="sub tag warn">${esc(d.note)}</span>` : ''}${bookNote(d) ? `<span class="sub tag warn">${bookNote(d)}</span>` : ''}</td><td class="num" data-label="Seiten">${d.pages}</td><td class="acts"><div class="actions">
+    const docRow = (d) => { const so = sols[d.id] || []; return `<tr><td data-label="Teil">${esc(d.teil || '')}</td><td data-label="Dokument">${esc(d.title)}${d.rolle === 'loesung' ? ' <span class="tag">Lösung</span>' : d.rolle === 'geloest' ? ' <span class="tag accent">Gelöst</span>' : ''}${d.note ? `<span class="sub tag warn">${esc(d.note)}</span>` : ''}${bookNote(d) ? `<span class="sub tag warn">${bookNote(d)}</span>` : ''}</td><td class="num" data-label="Seiten">${d.pages}</td><td class="acts"><div class="actions">
         ${d.rolle === 'aufgaben' ? `<a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>` : ''}
         <button type="button" class="btn sm quiet" data-view="${d.id}">Ansehen</button>
         <button type="button" class="btn sm quiet" data-print="${d.id}">Drucken</button>
         <button type="button" class="btn sm quiet" data-dl="${d.id}">Herunterladen</button>
-        ${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">Lösung</button>`).join('')}</div></td></tr>`; };
+        ${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">${x.rolle === 'geloest' ? 'Gelöst' : 'Lösung'}</button>`).join('')}</div></td></tr>`; };
     app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Alle Originalprüfungen als Seiten zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
         <div class="actions" style="align-items:end">
           <label class="field" style="width:min(100%,20rem)"><span>Beruf</span><select class="input" id="a-beruf">${[...main, ...others].filter((b) => counts[b]).map((b) => `<option value="${BERUF_SLUG(b)}" ${b === beruf ? 'selected' : ''}>${esc(b)} (${counts[b]})</option>`).join('')}</select></label>
@@ -2256,7 +2256,7 @@
         </div></div>
       ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
       ${list.some((d) => bookNote(d)) ? '<div class="note warn"><h3>Bis Winter 2012/13 war ein Fachbuch erlaubt</h3><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></div>' : ''}
-      <section class="section" id="a-list">${keys.map((k) => { const [, termin, ordnung] = k.split('|'); const ap = [...new Set(terms[k].map((d) => d.pruefung))].filter((x) => x === 'AP1' || x === 'AP2'); return `<details class="disc" data-term="${esc(`${termin} ${ap.join(' ')}`.toLowerCase())}"><summary>${esc(termin)}${ap.map((x) => `<span class="tag chip${x === 'AP2' ? ' accent' : ''}">${x}</span>`).join('')}<span class="tag">${ordnung === 'AO1997' ? 'alte Ordnung' : 'Ordnung 2020'}, ${terms[k].length} ${terms[k].length === 1 ? 'Dokument' : 'Dokumente'}</span></summary><div class="disc-body"><table class="t stack"><thead><tr><th>Teil</th><th>Dokument</th><th class="num">Seiten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${terms[k].map(docRow).join('')}</tbody></table></div></details>`; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</section>
+      <section class="section" id="a-list">${keys.map((k) => { const [, termin, ordnung] = k.split('|'); const ap = [...new Set(terms[k].map((d) => d.pruefung))].filter((x) => x === 'AP1' || x === 'AP2'); return `<details class="disc" data-term="${esc(`${termin} ${ap.join(' ')}`.toLowerCase())}"><summary>${esc(termin)}${ap.map((x) => `<span class="tag chip${x === 'AP2' ? ' accent' : ''}">${x}</span>`).join('')}<span class="tag">${ordnung === 'AO1997' ? 'alte Ordnung' : 'Ordnung 2020'}, ${terms[k].length} ${terms[k].length === 1 ? 'Dokument' : 'Dokumente'}</span></summary><div class="disc-body"><table class="t stack"><thead><tr><th>Teil</th><th>Dokument</th><th class="num">Seiten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${terms[k].slice().sort((a, b) => (a.teil || '').localeCompare(b.teil || '')).map(docRow).join('')}</tbody></table></div></details>`; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</section>
       <p class="empty" id="a-none" hidden>Kein Termin passt zum Filter.</p>`;
     $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
     const byId = Object.fromEntries(docs.map((d) => [d.id, d]));
