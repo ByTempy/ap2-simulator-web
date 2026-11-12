@@ -31,7 +31,7 @@
     });
     const name = (i) => files[i].path.slice(files[i].path.lastIndexOf('/') + 1);
     const rows = (ix) => ix.map((i) => `<div class="doc-row"><p class="doc-name">${esc(name(i))}</p><span class="small muted" id="s-f${i}">${mb(files[i].size)}</span></div>`).join('');
-    app.innerHTML = `<div class="page-head"><div><h1>Stick Kopie - Schiefer</h1><p class="lede">${files.length} Dateien, ${mb(total)}, als eine ZIP mit denselben Ordnern wie auf dem Stick.</p></div></div>
+    app.innerHTML = `<div class="page-head"><div><h1>Stick Kopie - Schiefer</h1><p class="lede">${files.length} Dateien, ${mb(total)}</p></div></div>
       <div class="sheet" style="margin-bottom:var(--space-lg)">
         <div class="actions"><button type="button" class="btn primary" id="s-dl">ZIP herunterladen</button></div>
         <div class="check-head"><span class="check-count" id="s-count" aria-live="polite">Noch nicht gestartet</span><span class="meter"><span id="s-bar" style="width:0"></span></span></div>
