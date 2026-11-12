@@ -2252,7 +2252,9 @@
     const list = docs.filter((d) => (d.beruf === beruf || d.beruf === 'Alle IT-Berufe') && ((d.rolle !== 'loesung' && d.rolle !== 'geloest') || !d.solution_of));
     const RANK = ['Teil 1', 'Teil 2', 'Teil 3 WiSo', 'AP1', 'GA1', 'GA2', 'WiSo', 'Komplettsatz', 'Belegsatz', 'Formelsammlung', 'Lösungsbogen'];
     const rank = (d) => { const i = RANK.indexOf(d.teil); return i < 0 ? RANK.length : i; };
-    const terms = {}; list.forEach((d) => { const k = d.sort + '|' + d.termin + '|' + d.ordnung; (terms[k] || (terms[k] = [])).push(d); });
+    // Abschnitt je Dokument: im selben Termin können AP1 (z. B. Baden-Württemberg) und AP2 liegen
+    const docGroup = (d) => d.ordnung === 'AO1997' ? 'alt' : d.pruefung === 'AP2' ? 'ap2' : 'ap1';
+    const terms = {}; list.forEach((d) => { const k = d.sort + '|' + d.termin + '|' + docGroup(d); (terms[k] || (terms[k] = [])).push(d); });
     // je Teil eine Zeile, der Scan mit Lösung zuerst; weitere Scans desselben Teils kommen ins Menü „Mehr“
     const rowsOf = (ds) => { const g = {}; ds.slice().sort((x, y) => rank(x) - rank(y) || (sols[y.id] ? 1 : 0) - (sols[x.id] ? 1 : 0)).forEach((d) => { const k = d.teil + '|' + d.rolle; (g[k] || (g[k] = [])).push(d); }); return Object.values(g); };
     const docRow = ([d, ...more]) => {
@@ -2273,7 +2275,7 @@
       const solved = main.filter(([d]) => sols[d.id] || d.rolle === 'loesung').length;
       const solTag = !main.length ? '' : solved === main.length ? '<span class="tag ok">mit Lösungen</span>' : solved ? `<span class="tag">Lösung zu ${solved} von ${main.length} Teilen</span>` : '<span class="tag warn">ohne Lösungen</span>';
       return `<details class="disc" data-term="${esc(`${termin} ${[...new Set(terms[k].map((d) => d.pruefung))].join(' ')}`.toLowerCase())}"${open ? ' open' : ''}><summary>${esc(termin)}<span class="tag">${main.length} ${main.length === 1 ? 'Teil' : 'Teile'}</span>${solTag}</summary><div class="disc-body doc-rows">${main.map(docRow).join('')}${extra.length ? extraRow(extra) : ''}</div></details>`; };
-    const groupOf = (k) => k.endsWith('|AO1997') ? 'alt' : terms[k].some((d) => d.pruefung === 'AP2') ? 'ap2' : 'ap1';
+    const groupOf = (k) => k.split('|')[2];
     const keys = Object.keys(terms).sort().reverse();
     const SECTIONS = [['ap2', 'Abschlussprüfung Teil 2', 'Ordnung 2020'], ['ap1', 'Abschlussprüfung Teil 1', 'Ordnung 2020, für alle IT-Berufe gleich'], ['alt', 'Alte Ordnung', 'GA1, GA2 und WiSo']];
     const bookHtml = list.some((d) => bookNote(d)) ? '<details class="why"><summary>Bis Winter 2012/13 war ein Fachbuch erlaubt</summary><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></details>' : '';
