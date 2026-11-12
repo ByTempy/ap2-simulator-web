@@ -578,6 +578,12 @@
   // Schlüssel „Teil1:Fehlersuche“ geht vor „Fehlersuche“, weil manche Themennamen in zwei Prüfungsteilen vorkommen
   const diagramsOf = (t) => { const D = window.AP2Diagrams || {}; return D[`${t.part}:${t.name}`] || D[t.name] || []; };
   const figuresHtml = (t) => diagramsOf(t).map((d) => `<figure class="dia-fig"><div class="dia-wrap">${d.svg}</div><figcaption><strong>${esc(d.title)}.</strong> ${esc(d.caption)}</figcaption></figure>`).join('');
+  // Lernvideos: erst ein Knopf, das Video (youtube-nocookie.com) lädt erst nach Klick, vorher geht nichts an YouTube
+  const videosHtml = (t) => (t.videos || []).filter((v) => /^[\w-]{11}$/.test(v.id)).map((v) => `<div class="video" data-yt="${v.id}"><button type="button" class="video-start" aria-label="Video abspielen: ${esc(v.title)}"><span class="video-play" aria-hidden="true">${icon('<path d="M8 5v14l11-7z"/>')}</span><span><strong>${esc(v.title)}</strong><span class="small muted">${esc(v.channel)}, YouTube</span></span></button></div>`).join('');
+  const bindVideos = (root) => $$('[data-yt]', root).forEach((box) => { $('.video-start', box).onclick = () => {
+    box.classList.add('playing');
+    box.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${box.dataset.yt}?autoplay=1&rel=0" title="${esc($('strong', box) ? $('strong', box).textContent : 'Lernvideo')}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+  }; });
   const linksHtml = (t) => t.links && t.links.length ? `<h4>Mehr dazu</h4><ul class="links">${t.links.map((l) => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a> <span class="small muted">${esc(new URL(l.url).hostname.replace(/^www\./, ''))}</span></li>`).join('')}</ul>` : '';
   // ---------- Wiki: Themen der Wissensbasis und vertiefende Artikel (fidup-wiki, ISC-Lizenz) ----------
   const slugify = (x) => x.toLowerCase().replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -695,7 +701,7 @@
     const x = W.themen.find((e) => e.slug === slug) || W.themen.find((e) => slugify(`${e.part} ${e.name}`) === slug);
     if (!x) { app.innerHTML = errorState('Thema nicht gefunden', 'Dieses Thema gibt es im Wiki nicht.'); return; }
     const t = x.t, a = x.ana;
-    const sec = [['zusammenfassung', 'Zusammenfassung'], t.key_points && t.key_points.length && ['punkte', 'Das bringt Punkte'], diagramsOf(t).length && ['schaubilder', 'Schaubilder'], t.formulas && t.formulas.length && ['formeln', 'Formeln'], t.pitfalls && t.pitfalls.length && ['fehler', 'Typische Fehler'], a && ['pruefungen', 'In Prüfungen'], x.artikel.length && ['vertiefung', 'Vertiefung'], t.links && t.links.length && ['mehr', 'Mehr dazu']].filter(Boolean);
+    const sec = [['zusammenfassung', 'Zusammenfassung'], t.key_points && t.key_points.length && ['punkte', 'Das bringt Punkte'], diagramsOf(t).length && ['schaubilder', 'Schaubilder'], t.formulas && t.formulas.length && ['formeln', 'Formeln'], t.pitfalls && t.pitfalls.length && ['fehler', 'Typische Fehler'], a && ['pruefungen', 'In Prüfungen'], x.artikel.length && ['vertiefung', 'Vertiefung'], t.videos && t.videos.length && ['videos', 'Lernvideos'], t.links && t.links.length && ['mehr', 'Mehr dazu']].filter(Boolean);
     app.innerHTML = `${crumbs([['Wiki', '#/topics'], [kindLabel(x.part), '#/topics'], [x.name]])}
       <div class="page-head"><div><h1>${esc(x.name)}</h1><p class="small"><span class="tag${labelOf(x) === 'Prüfungskern' ? ' accent' : ''}">${labelOf(x)}${a ? `, ${a.termine} von ${a.of} Prüfungsterminen${a.trend ? `, ${a.trend}` : ''}` : ''}</span></p></div>
         ${x.items ? `<p class="actions"><button type="button" class="btn primary" data-train="${esc(x.name)}">Zu diesem Thema üben</button></p>` : ''}</div>
@@ -709,11 +715,13 @@
           ${t.pitfalls && t.pitfalls.length ? `<section id="w-fehler"><h2>Typische Fehler</h2><ul>${t.pitfalls.map((k) => `<li>${esc(k)}</li>`).join('')}</ul></section>` : ''}
           ${a ? `<section id="w-pruefungen"><h2>In Prüfungen</h2><p>Kam in ${a.termine} von ${a.of} Prüfungsterminen vor, im Schnitt mit ${a.avg_points} Punkten je Termin.</p><ul class="small">${a.found.map((f) => `<li>${esc(f.termin)}: ${esc(f.refs.join(', '))}</li>`).join('')}</ul></section>` : ''}
           ${x.artikel.length ? `<section id="w-vertiefung"><h2>Vertiefung</h2><div class="wiki-grid">${x.artikel.map(wikiCard).join('')}</div></section>` : ''}
+          ${t.videos && t.videos.length ? `<section id="w-videos"><h2>Lernvideos</h2><p class="small muted">Erklärvideos auf YouTube, ausgewählt passend zur Prüfung. Das Video läuft hier im Wiki; erst beim Abspielen werden Daten an YouTube (Google) übertragen.</p>${videosHtml(t)}</section>` : ''}
           ${t.links && t.links.length ? `<section id="w-mehr">${linksHtml(t).replace('<h4>Mehr dazu</h4>', '<h2>Mehr dazu</h2>')}</section>` : ''}
         </article>
       </div>`;
     $$('[data-train]', app).forEach((b) => b.onclick = () => trainTopic(b.dataset.train));
     $$('[data-toc]', app).forEach((l) => l.onclick = (ev) => { ev.preventDefault(); const el = document.getElementById(l.dataset.toc); if (el) el.scrollIntoView({ behavior: 'smooth' }); });
+    bindVideos(app);
   }
   async function wikiArtikel(slug) {
     setNav('topics');
