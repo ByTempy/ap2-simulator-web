@@ -492,7 +492,7 @@
       ${rows.map((e) => `<tr>
         <td data-label="Prüfung"><a class="row-title" href="#/exam-detail/${e.id}">${esc(examName(e))}</a>${examKind(e) === 'real' || examKind(e) === 'wiso' ? '' : `<span class="sub">${esc(e.id)}</span>`}</td>
         <td data-label="Teile">${e.parts.map((p) => `${kindShort(p.kind)} <span class="muted">(${p.items})</span>`).join(', ')}</td>
-        <td data-label="Lösungen">${e.official_solutions ? 'IHK-Lösungshinweise' : '<span class="tag warn">eigene Musterlösung</span>'}</td>
+        <td data-label="Lösungen">${e.official_solutions ? 'IHK-Lösungshinweise' : `<span class="tag warn">eigene Musterlösung</span>${e.parts.some((p) => p.solution_pages && p.solution_pages.length) ? ' <span class="tag">IHK-Lösung als Original</span>' : ''}`}</td>
         <td class="acts"><div class="actions"><button type="button" class="btn sm" data-start="${e.id}" data-mode="learn">Lernen</button><button type="button" class="btn sm" data-start="${e.id}" data-mode="exam">Prüfung</button><a class="btn sm quiet" href="#/exam-detail/${e.id}">Details</a></div></td>
       </tr>`).join('')}
       </tbody></table>` : `<p class="empty">${f === 'gen' ? 'Noch keine generierte Prüfung. Der Generator erstellt eine nach IHK-Schema.' : f === 'topic' ? 'Noch kein Themen-Training. Starte eines in der Wissensbasis über „Zu diesem Thema üben“.' : 'Keine Prüfungen in dieser Ansicht.'}</p>`}`;
@@ -530,7 +530,7 @@
     const kind = examKind(e);
     app.innerHTML = `<div class="page-head"><div>
         <h1>${esc(examName(e))}</h1>
-        <p class="meta"><span>${kind === 'real' || kind === 'wiso' ? 'IHK-Originalprüfung' : kind === 'topic' ? 'Themen-Training' : 'Generierte Prüfung'}</span><span>${e.official_solutions ? 'mit IHK-Lösungshinweisen' : 'mit eigenen Musterlösungen'}</span></p>
+        <p class="meta"><span>${kind === 'real' || kind === 'wiso' ? 'IHK-Originalprüfung' : kind === 'topic' ? 'Themen-Training' : 'Generierte Prüfung'}</span><span>${e.official_solutions ? 'mit IHK-Lösungshinweisen' : e.parts.some((p) => p.solution_pages && p.solution_pages.length) ? 'mit eigenen Musterlösungen, IHK-Lösungshinweise als Original' : 'mit eigenen Musterlösungen'}</span></p>
       </div>
       <div class="actions"><button type="button" class="btn primary" id="d-learn">Lernmodus</button><button type="button" class="btn" id="d-exam">Prüfung simulieren</button></div></div>
       ${examNote(e) ? `<p class="small muted prose">${esc(examNote(e))}</p>` : ''}
