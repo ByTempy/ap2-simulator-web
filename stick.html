@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Stick-Kopie herunterladen, AP2-Simulator</title>
+<title>Stick Kopie - Schiefer</title>
 <meta name="robots" content="noindex">
 <script>try { var m = localStorage.getItem('ap2-mode'); if (m === 'light' || m === 'dark') document.documentElement.dataset.mode = m; } catch (e) {}</script>
 <link rel="stylesheet" href="style.css">
@@ -11,8 +11,7 @@
 </head>
 <body>
 <main id="app" class="app container" tabindex="-1">
-  <div class="gate"><h1>Stick-Kopie vom 12.11.2026</h1>
-    <p class="lede">Alle Originaldateien vom Stick als eine ZIP-Datei, mit derselben Ordnerstruktur. Gib das Passwort ein, das du bekommen hast.</p>
+  <div class="gate"><h1>Stick Kopie - Schiefer</h1>
     <form id="s-form" class="sheet" style="margin-top:var(--space-lg)" novalidate>
       <label class="field"><span>Passwort</span><input class="input" type="password" id="s-pw" autocomplete="current-password" required autofocus></label>
       <p class="small" id="s-err" role="alert" style="min-height:1lh;color:var(--color-error);margin-top:var(--space-2xs)"></p>
@@ -20,7 +19,8 @@
     </form>
   </div>
 </main>
-<script src="local.js"></script>
-<script src="stick.js"></script>
+<!-- ?v= bei Änderungen an local.js oder stick.js hochzählen, sonst passt ein zwischengespeichertes local.js nicht zu stick.js -->
+<script src="local.js?v=2"></script>
+<script src="stick.js?v=2"></script>
 </body>
 </html>
