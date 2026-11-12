@@ -2248,24 +2248,35 @@
     const main = ['IT-System-Elektroniker', 'Alle IT-Berufe'];
     const others = Object.keys(counts).filter((b) => !main.includes(b)).sort();
     const beruf = [...main, ...others].find((b) => BERUF_SLUG(b) === slug) || 'IT-System-Elektroniker';
-    const list = docs.filter((d) => d.beruf === beruf && (d.rolle === 'geloest' || d.rolle !== 'loesung' || !d.solution_of));
-    const terms = {}; list.forEach((d) => { (terms[d.sort + '|' + d.termin + '|' + d.ordnung] || (terms[d.sort + '|' + d.termin + '|' + d.ordnung] = [])).push(d); });
-    const keys = Object.keys(terms).sort().reverse();
-    const docRow = (d) => { const so = sols[d.id] || []; return `<tr><td data-label="Teil">${esc(d.teil || '')}</td><td data-label="Dokument">${esc(d.title)}${d.rolle === 'loesung' ? ' <span class="tag">Lösung</span>' : d.rolle === 'geloest' ? ' <span class="tag accent">Gelöst</span>' : ''}${d.note ? `<span class="sub tag warn">${esc(d.note)}</span>` : ''}${bookNote(d) ? `<span class="sub tag warn">${bookNote(d)}</span>` : ''}</td><td class="num" data-label="Seiten">${d.pages}</td><td class="acts"><div class="actions">
-        ${d.rolle === 'aufgaben' ? `<a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>` : ''}
+    // gemeinsame Teile (WiSo/Teil 3, AP1, alte GA2) gehören zu jeder Berufsprüfung dazu; Lösungen und gelöste Fassungen hängen als Knopf am Aufgabensatz
+    const list = docs.filter((d) => (d.beruf === beruf || d.beruf === 'Alle IT-Berufe') && ((d.rolle !== 'loesung' && d.rolle !== 'geloest') || !d.solution_of));
+    const RANK = ['Teil 1', 'Teil 2', 'Teil 3 WiSo', 'AP1', 'GA1', 'GA2', 'WiSo', 'Komplettsatz', 'Belegsatz', 'Formelsammlung', 'Lösungsbogen'];
+    const rank = (d) => { const i = RANK.indexOf(d.teil); return i < 0 ? RANK.length : i; };
+    const terms = {}; list.forEach((d) => { const k = d.sort + '|' + d.termin + '|' + d.ordnung; (terms[k] || (terms[k] = [])).push(d); });
+    // je Teil eine Zeile, der Scan mit Lösung zuerst; weitere Scans desselben Teils kommen ins Menü „Mehr“
+    const rowsOf = (ds) => { const g = {}; ds.slice().sort((x, y) => rank(x) - rank(y) || (sols[y.id] ? 1 : 0) - (sols[x.id] ? 1 : 0)).forEach((d) => { const k = d.teil + '|' + d.rolle; (g[k] || (g[k] = [])).push(d); }); return Object.values(g); };
+    const docRow = ([d, ...more]) => {
+      const so = sols[d.id] || [];
+      const m = d.title.match(/^(Teil \d+|AP1|GA\d)[:\s]+(.*)$/);
+      return `<div class="doc-row"><p class="doc-name">${m ? `<strong>${esc(m[1])}</strong> ${esc(m[2])}` : esc(d.title)}${d.rolle === 'loesung' ? ' <span class="tag">Lösung</span>' : ''}${d.note ? ` <span class="tag warn">${esc(d.note)}</span>` : ''}</p><div class="actions">
+        ${d.rolle === 'aufgaben' && d.teil !== 'Sonstiges' ? `<a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>` : ''}
         <button type="button" class="btn sm quiet" data-view="${d.id}">Ansehen</button>
-        <button type="button" class="btn sm quiet" data-print="${d.id}">Drucken</button>
-        <button type="button" class="btn sm quiet" data-dl="${d.id}">Herunterladen</button>
-        ${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">${x.rolle === 'geloest' ? 'Gelöst' : 'Lösung'}</button>`).join('')}</div></td></tr>`; };
-    app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Alle Originalprüfungen als Seiten zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
+        ${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">${x.rolle === 'geloest' ? 'Gelöst' : 'Lösung'}</button>`).join('')}
+        ${moreMenu(`<button type="button" class="btn sm quiet" data-print="${d.id}">Drucken</button><button type="button" class="btn sm quiet" data-dl="${d.id}">Herunterladen (PDF)</button>${more.map((x, i) => `<button type="button" class="btn sm quiet" data-view="${x.id}">Weiterer Scan ${i + 2}, ${x.pages} Seiten</button>`).join('')}`)}</div></div>`; };
+    const termHtml = (k, open) => { const [, termin] = k.split('|'); const rows = rowsOf(terms[k]); return `<details class="disc" data-term="${esc(`${termin} ${[...new Set(terms[k].map((d) => d.pruefung))].join(' ')}`.toLowerCase())}"${open ? ' open' : ''}><summary>${esc(termin)}<span class="tag">${rows.length} ${rows.length === 1 ? 'Dokument' : 'Dokumente'}</span></summary><div class="disc-body">${rows.map(docRow).join('')}</div></details>`; };
+    const groupOf = (k) => k.endsWith('|AO1997') ? 'alt' : terms[k].some((d) => d.pruefung === 'AP2') ? 'ap2' : 'ap1';
+    const keys = Object.keys(terms).sort().reverse();
+    const SECTIONS = [['ap2', 'Abschlussprüfung Teil 2', 'Ordnung 2020'], ['ap1', 'Abschlussprüfung Teil 1', 'Ordnung 2020, für alle IT-Berufe gleich'], ['alt', 'Alte Ordnung', 'GA1, GA2 und WiSo']];
+    const bookHtml = list.some((d) => bookNote(d)) ? '<details class="why"><summary>Bis Winter 2012/13 war ein Fachbuch erlaubt</summary><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></details>' : '';
+    app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Alle Originalprüfungen zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
         <div class="actions" style="align-items:end">
-          <label class="field" style="width:min(100%,20rem)"><span>Beruf</span><select class="input" id="a-beruf">${[...main, ...others].filter((b) => counts[b]).map((b) => `<option value="${BERUF_SLUG(b)}" ${b === beruf ? 'selected' : ''}>${esc(b)} (${counts[b]})</option>`).join('')}</select></label>
-          <label class="field" style="width:min(100%,12rem)"><span>Termin filtern</span><input class="input" type="search" id="a-search" autocomplete="off" placeholder="2019 oder AP1"></label>
+          <label class="field" style="width:min(100%,20rem)"><span>Beruf</span><select class="input" id="a-beruf">${[...main, ...others].filter((b) => counts[b]).map((b) => `<option value="${BERUF_SLUG(b)}" ${b === beruf ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
+          <label class="field" style="width:min(100%,12rem)"><span>Termin filtern</span><input class="input" type="search" id="a-search" autocomplete="off" placeholder="2019 oder Winter"></label>
         </div></div>
       ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
-      ${list.some((d) => bookNote(d)) ? '<div class="note warn"><h3>Bis Winter 2012/13 war ein Fachbuch erlaubt</h3><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></div>' : ''}
-      <section class="section" id="a-list">${keys.map((k) => { const [, termin, ordnung] = k.split('|'); const ap = [...new Set(terms[k].map((d) => d.pruefung))].filter((x) => x === 'AP1' || x === 'AP2'); return `<details class="disc" data-term="${esc(`${termin} ${ap.join(' ')}`.toLowerCase())}"><summary>${esc(termin)}${ap.map((x) => `<span class="tag chip${x === 'AP2' ? ' accent' : ''}">${x}</span>`).join('')}<span class="tag">${ordnung === 'AO1997' ? 'alte Ordnung' : 'Ordnung 2020'}, ${terms[k].length} ${terms[k].length === 1 ? 'Dokument' : 'Dokumente'}</span></summary><div class="disc-body"><table class="t stack"><thead><tr><th>Teil</th><th>Dokument</th><th class="num">Seiten</th><th><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>${terms[k].slice().sort((a, b) => (a.teil || '').localeCompare(b.teil || '')).map(docRow).join('')}</tbody></table></div></details>`; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</section>
+      <div id="a-list">${SECTIONS.map(([g, h, sub]) => { const ks = keys.filter((k) => groupOf(k) === g); return ks.length ? `<section class="section" data-sec><h2>${h} <span class="small muted">${sub}, ${ks.length} Termine</span></h2>${g === 'alt' ? bookHtml : ''}${ks.map((k, i) => termHtml(k, i === 0 && g === groupOf(keys[0]))).join('')}</section>` : ''; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</div>
       <p class="empty" id="a-none" hidden>Kein Termin passt zum Filter.</p>`;
+    bindMoreMenu();
     $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
     const byId = Object.fromEntries(docs.map((d) => [d.id, d]));
     $$('[data-view]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.view]; pageViewer(docPages(d), 0, `${d.termin}: ${d.title}`); });
@@ -2274,6 +2285,7 @@
     $('#a-search').oninput = (ev) => {
       const q = ev.target.value.toLowerCase().trim();
       $$('[data-term]', app).forEach((c) => { c.hidden = !!q && !c.dataset.term.includes(q); });
+      $$('[data-sec]', app).forEach((x) => { x.hidden = !$$('[data-term]', x).some((c) => !c.hidden); });
       $('#a-none').hidden = $$('[data-term]', app).some((c) => !c.hidden);
     };
   }

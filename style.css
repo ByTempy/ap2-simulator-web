@@ -157,6 +157,12 @@ details.disc > summary::before { content: "+"; font-family: var(--font-outlier);
 details.disc[open] > summary::before { content: "−"; }
 details.disc > .disc-body { padding: 0 0 var(--space-md) calc(1ch + var(--space-md)); }
 @media (max-width: 40rem) { details.disc > .disc-body { padding-left: 0; } }
+/* Archiv: je Teil eine Zeile, Name links, Knöpfe rechts, auf schmalen Schirmen darunter */
+.doc-row .more-menu { position: static; } /* Menü hängt am Zeilenrand, ragt so auch bei 320 px nicht aus dem Bild */
+.doc-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) var(--space-md); padding: var(--space-sm) 0; border-top: var(--rule-hair) solid var(--color-rule); }
+.doc-row:first-child { border-top: 0; padding-top: 0; }
+.doc-name { flex: 1 1 18rem; min-width: 0; margin: 0; }
+.doc-name strong { margin-right: var(--space-2xs); }
 .topic-body ul { margin: var(--space-2xs) 0 var(--space-sm); padding-left: var(--space-lg); }
 .topic-body h4 { margin-top: var(--space-sm); }
 .formula { display: inline-block; font: 400 var(--text-sm)/1.4 var(--font-outlier); background: var(--color-well); padding: var(--space-3xs) var(--space-xs); margin: 0 var(--space-xs) var(--space-xs) 0; }
