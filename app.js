@@ -2258,23 +2258,35 @@
     const docRow = ([d, ...more]) => {
       const so = sols[d.id] || [];
       const m = d.title.match(/^(Teil \d+|AP1|GA\d)[:\s]+(.*)$/);
+      // immer vier Plätze (Bearbeiten, Ansehen, Lösungen, Mehr), damit die Knöpfe auf breiten Schirmen in Spalten stehen
       return `<div class="doc-row"><p class="doc-name">${m ? `<strong>${esc(m[1])}</strong> ${esc(m[2])}` : esc(d.title)}${d.rolle === 'loesung' ? ' <span class="tag">Lösung</span>' : ''}${d.note ? ` <span class="tag warn">${esc(d.note)}</span>` : ''}</p><div class="actions">
-        ${d.rolle === 'aufgaben' && d.teil !== 'Sonstiges' ? `<a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>` : ''}
+        ${d.rolle === 'aufgaben' ? `<a class="btn sm" href="#/original/${d.id}">Bearbeiten</a>` : '<span></span>'}
         <button type="button" class="btn sm quiet" data-view="${d.id}">Ansehen</button>
-        ${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">${x.rolle === 'geloest' ? 'Gelöst' : 'Lösung'}</button>`).join('')}
+        <span class="doc-sols">${so.map((x) => `<button type="button" class="btn sm quiet" data-view="${x.id}">${x.rolle === 'geloest' ? 'Gelöst' : 'Lösung'}</button>`).join('')}</span>
         ${moreMenu(`<button type="button" class="btn sm quiet" data-print="${d.id}">Drucken</button><button type="button" class="btn sm quiet" data-dl="${d.id}">Herunterladen (PDF)</button>${more.map((x, i) => `<button type="button" class="btn sm quiet" data-view="${x.id}">Weiterer Scan ${i + 2}, ${x.pages} Seiten</button>`).join('')}`)}</div></div>`; };
-    const termHtml = (k, open) => { const [, termin] = k.split('|'); const rows = rowsOf(terms[k]); return `<details class="disc" data-term="${esc(`${termin} ${[...new Set(terms[k].map((d) => d.pruefung))].join(' ')}`.toLowerCase())}"${open ? ' open' : ''}><summary>${esc(termin)}<span class="tag">${rows.length} ${rows.length === 1 ? 'Dokument' : 'Dokumente'}</span></summary><div class="disc-body">${rows.map(docRow).join('')}</div></details>`; };
+    // Belegsatz, Lösungsbogen, Deckblatt usw. gesammelt in einer Zeile
+    const extraRow = (rows) => { const name = (d) => d.teil === 'Sonstiges' ? d.title.split(' ')[0] : d.teil; return `<div class="doc-row extra"><p class="doc-name muted">Beilagen</p><div class="actions">${rows.map(([d]) => `<button type="button" class="btn sm quiet" data-view="${d.id}">${esc(name(d))}</button>`).join('')}
+        ${moreMenu(rows.map(([d]) => `<button type="button" class="btn sm quiet" data-print="${d.id}">${esc(name(d))} drucken</button><button type="button" class="btn sm quiet" data-dl="${d.id}">${esc(name(d))} herunterladen</button>`).join(''))}</div></div>`; };
+    const termHtml = (k, open) => {
+      const [, termin] = k.split('|'); const rows = rowsOf(terms[k]);
+      const main = rows.filter(([d]) => rank(d) < RANK.indexOf('Komplettsatz')); const extra = rows.filter((r) => !main.includes(r));
+      const solved = main.filter(([d]) => sols[d.id] || d.rolle === 'loesung').length;
+      const solTag = !main.length ? '' : solved === main.length ? '<span class="tag ok">mit Lösungen</span>' : solved ? `<span class="tag">Lösung zu ${solved} von ${main.length} Teilen</span>` : '<span class="tag warn">ohne Lösungen</span>';
+      return `<details class="disc" data-term="${esc(`${termin} ${[...new Set(terms[k].map((d) => d.pruefung))].join(' ')}`.toLowerCase())}"${open ? ' open' : ''}><summary>${esc(termin)}<span class="tag">${main.length} ${main.length === 1 ? 'Teil' : 'Teile'}</span>${solTag}</summary><div class="disc-body doc-rows">${main.map(docRow).join('')}${extra.length ? extraRow(extra) : ''}</div></details>`; };
     const groupOf = (k) => k.endsWith('|AO1997') ? 'alt' : terms[k].some((d) => d.pruefung === 'AP2') ? 'ap2' : 'ap1';
     const keys = Object.keys(terms).sort().reverse();
     const SECTIONS = [['ap2', 'Abschlussprüfung Teil 2', 'Ordnung 2020'], ['ap1', 'Abschlussprüfung Teil 1', 'Ordnung 2020, für alle IT-Berufe gleich'], ['alt', 'Alte Ordnung', 'GA1, GA2 und WiSo']];
     const bookHtml = list.some((d) => bookNote(d)) ? '<details class="why"><summary>Bis Winter 2012/13 war ein Fachbuch erlaubt</summary><p>In den Ganzheitlichen Aufgaben (GA1 und GA2) der alten Ordnung durften Prüflinge ein Tabellenbuch, ein IT-Handbuch oder eine Formelsammlung mitbringen, einen Belegsatz gab es nicht. Ohne Buch sind diese Sätze deutlich schwerer. In WiSo war nie ein Buch erlaubt.</p></details>' : '';
-    app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Alle Originalprüfungen zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
-        <div class="actions" style="align-items:end">
-          <label class="field" style="width:min(100%,20rem)"><span>Beruf</span><select class="input" id="a-beruf">${[...main, ...others].filter((b) => counts[b]).map((b) => `<option value="${BERUF_SLUG(b)}" ${b === beruf ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
-          <label class="field" style="width:min(100%,12rem)"><span>Termin filtern</span><input class="input" type="search" id="a-search" autocomplete="off" placeholder="2019 oder Winter"></label>
-        </div></div>
+    const present = SECTIONS.filter(([g]) => keys.some((k) => groupOf(k) === g));
+    const SEG = { ap2: 'Teil 2', ap1: 'Teil 1', alt: 'Alte Ordnung' };
+    app.innerHTML = `<div class="page-head"><div><h1>Archiv</h1><p class="lede">Originalprüfungen zum Durchblättern und Bearbeiten, mit Lösungen, wo vorhanden.</p></div>
+        <label class="arch-beruf"><span>Beruf</span><select class="input" id="a-beruf">${[...main, ...others].filter((b) => counts[b]).map((b) => `<option value="${BERUF_SLUG(b)}" ${b === beruf ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label></div>
+      <div class="arch-tools">
+        ${present.length > 1 ? `<div class="seg" role="group" aria-label="Prüfung">${[['all', 'Alle'], ...present.map(([g]) => [g, SEG[g]])].map(([g, l]) => `<button type="button" class="btn sm${g === 'all' ? ' primary' : ''}" data-aseg="${g}" aria-pressed="${g === 'all'}">${l}</button>`).join('')}</div>` : ''}
+        <input class="input" type="search" id="a-search" autocomplete="off" aria-label="Termin suchen" placeholder="Termin suchen, z. B. 2024 oder Winter">
+      </div>
       ${main.includes(beruf) ? '' : '<p class="note" style="margin-bottom:var(--space-lg)">Prüfungen eines anderen Berufs. Sie helfen beim Lernen gemeinsamer Themen, gehören aber nicht zur Prüfung IT-System-Elektroniker.</p>'}
-      <div id="a-list">${SECTIONS.map(([g, h, sub]) => { const ks = keys.filter((k) => groupOf(k) === g); return ks.length ? `<section class="section" data-sec><h2>${h} <span class="small muted">${sub}, ${ks.length} Termine</span></h2>${g === 'alt' ? bookHtml : ''}${ks.map((k, i) => termHtml(k, i === 0 && g === groupOf(keys[0]))).join('')}</section>` : ''; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</div>
+      <div id="a-list">${SECTIONS.map(([g, h, sub]) => { const ks = keys.filter((k) => groupOf(k) === g); return ks.length ? `<section class="section" data-sec="${g}"><h2>${h} <span class="small muted sec-sub">${sub}, ${ks.length} Termine</span></h2>${g === 'alt' ? bookHtml : ''}${ks.map((k, i) => termHtml(k, i === 0 && g === groupOf(keys[0]))).join('')}</section>` : ''; }).join('') || '<p class="empty">Für diesen Beruf liegen keine Dokumente vor.</p>'}</div>
       <p class="empty" id="a-none" hidden>Kein Termin passt zum Filter.</p>`;
     bindMoreMenu();
     $('#a-beruf').onchange = (ev) => { location.hash = `#/archive/${ev.target.value}`; };
@@ -2282,12 +2294,19 @@
     $$('[data-view]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.view]; pageViewer(docPages(d), 0, `${d.termin}: ${d.title}`); });
     $$('[data-print]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.print]; printPages(docPages(d), `${d.termin}: ${d.title}`); });
     $$('[data-dl]', app).forEach((b) => b.onclick = () => { const d = byId[b.dataset.dl]; downloadPages(docPages(d), `${d.termin} ${d.title}`); });
-    $('#a-search').oninput = (ev) => {
-      const q = ev.target.value.toLowerCase().trim();
+    let seg = 'all';
+    const apply = () => {
+      const q = $('#a-search').value.toLowerCase().trim();
       $$('[data-term]', app).forEach((c) => { c.hidden = !!q && !c.dataset.term.includes(q); });
-      $$('[data-sec]', app).forEach((x) => { x.hidden = !$$('[data-term]', x).some((c) => !c.hidden); });
-      $('#a-none').hidden = $$('[data-term]', app).some((c) => !c.hidden);
+      $$('[data-sec]', app).forEach((x) => { x.hidden = (seg !== 'all' && x.dataset.sec !== seg) || !$$('[data-term]', x).some((c) => !c.hidden); });
+      $('#a-none').hidden = $$('[data-sec]', app).some((x) => !x.hidden);
     };
+    $('#a-search').oninput = apply;
+    $$('[data-aseg]', app).forEach((b) => b.onclick = () => {
+      seg = b.dataset.aseg;
+      $$('[data-aseg]', app).forEach((x) => { x.classList.toggle('primary', x === b); x.setAttribute('aria-pressed', x === b); });
+      apply();
+    });
   }
 
   // ---------- Originalprüfung bearbeiten (Seiten, Notizen, Timer, Selbstbewertung) ----------

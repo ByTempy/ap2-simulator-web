@@ -158,11 +158,26 @@ details.disc[open] > summary::before { content: "−"; }
 details.disc > .disc-body { padding: 0 0 var(--space-md) calc(1ch + var(--space-md)); }
 @media (max-width: 40rem) { details.disc > .disc-body { padding-left: 0; } }
 /* Archiv: je Teil eine Zeile, Name links, Knöpfe rechts, auf schmalen Schirmen darunter */
+/* Archivkopf: Beruf klein rechts im Kopf, darunter Abschnittswahl und Suche in einer Zeile */
+.arch-beruf { display: flex; align-items: center; gap: var(--space-xs); font: 500 var(--text-sm)/1.3 var(--font-body); color: var(--color-ink-2); }
+.arch-beruf .input { width: auto; max-width: 100%; }
+.arch-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); margin-bottom: var(--space-lg); }
+.arch-tools .input { flex: 1 1 16rem; max-width: 26rem; }
+@media (max-width: 40rem) { .arch-beruf { width: 100%; } .arch-beruf .input { flex: 1; min-width: 0; } .arch-tools .input { max-width: none; } .sec-sub { display: block; } }
 .doc-row .more-menu { position: static; } /* Menü hängt am Zeilenrand, ragt so auch bei 320 px nicht aus dem Bild */
 .doc-row { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) var(--space-md); padding: var(--space-sm) 0; border-top: var(--rule-hair) solid var(--color-rule); }
 .doc-row:first-child { border-top: 0; padding-top: 0; }
 .doc-name { flex: 1 1 18rem; min-width: 0; margin: 0; }
 .doc-name strong { margin-right: var(--space-2xs); }
+.doc-sols { display: flex; gap: var(--space-xs); }
+.doc-sols:empty, .doc-row > .actions > span:empty { display: none; }
+@media (min-width: 48rem) { /* Knöpfe aller Zeilen eines Termins in gemeinsamen Spalten */
+  .doc-rows { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, max-content); column-gap: var(--space-xs); }
+  .doc-rows > .doc-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
+  .doc-rows > .doc-row > .actions { display: contents; }
+  .doc-rows > .doc-row > .actions > span:empty, .doc-sols:empty { display: block; }
+  .doc-rows > .doc-row.extra > .actions { display: flex; grid-column: 2 / -1; justify-content: flex-end; }
+}
 .topic-body ul { margin: var(--space-2xs) 0 var(--space-sm); padding-left: var(--space-lg); }
 .topic-body h4 { margin-top: var(--space-sm); }
 .formula { display: inline-block; font: 400 var(--text-sm)/1.4 var(--font-outlier); background: var(--color-well); padding: var(--space-3xs) var(--space-xs); margin: 0 var(--space-xs) var(--space-xs) 0; }
