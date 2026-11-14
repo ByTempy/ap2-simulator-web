@@ -387,7 +387,10 @@
     const rules = RULES.map((r) => ({ id: r.id, label: r.label, state: r.ok(fill(vals, 0)) ? 'ok' : !r.ok(fill(vals, 100)) ? 'fail' : 'open' }));
     let target = null;
     if (open.length) for (let x = 0; x <= 100; x++) if (RULES.every((r) => r.ok(fill(vals, x)))) { target = x; break; }
-    const res = { open: open.map((a) => a.id), rules, target, passed: rules.every((r) => r.state === 'ok') ? true : rules.some((r) => r.state === 'fail') ? false : null };
+    // Rechnung zum knappen Bestehen: alle offenen Bereiche mit target, dazu die Regeln, die bei einem Punkt weniger reißen
+    const plan = target === null ? null : fill(vals, target);
+    const limits = target ? RULES.filter((r) => !r.ok(fill(vals, target - 1))).map((r) => r.label) : [];
+    const res = { open: open.map((a) => a.id), rules, target, plan, planTotal: plan && total(plan), limits, passed: rules.every((r) => r.state === 'ok') ? true : rules.some((r) => r.state === 'fail') ? false : null };
     if (!open.length) { const t = total(vals); res.total = t; res.grade = decimalGrade(t); res.word = gradeWord(Math.round(t)); }
     // Mündliche Ergänzungsprüfung (§ 16): nur ein schriftlicher Bereich, Gewichtung 2:1
     if (!open.length && res.passed === false) {
@@ -555,6 +558,7 @@
   assert(decimalGrade(100) === '1,0' && decimalGrade(66.6) === '3,4' && decimalGrade(50) === '4,4' && decimalGrade(29) === '5,5' && decimalGrade(3) === '6,0', 'Dezimalnote');
   const all = (x) => fill({}, x);
   assert(assess(all(50)).passed === true && assess({ ...all(80), t2: 45 }).passed === false && assess({ ...all(80), t1: 40 }).passed === true && assess({ ...all(80), t1: 40, wiso: 45 }).passed === false && assess({ ...all(80), wiso: 25 }).passed === false, 'Bestehensregeln');
+  assert(assess({ ap1: 100 }).target === 50 && assess({ ap1: 100 }).limits.length === 2 && Math.round(assess({ ap1: 60, doc: 80, talk: 80 }).planTotal) === 67 && assess({ ap1: 40, doc: 40, talk: 40 }).target === 72 && assess({ ap1: 40, doc: 40, talk: 40 }).limits.length === 1, 'Rechnung knapp bestehen');
   assert(assess({ ap1: 60 }).target === 50 && assess({ ...all(70), t2: 40 }).oral[0].needed === 69, 'Ziel und Ergänzungsprüfung');
 
   const mo = markOps('Ermitteln Sie den Strom und vergleichen Sie. Die Nennung zählt nicht.');
