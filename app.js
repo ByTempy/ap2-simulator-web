@@ -1083,16 +1083,17 @@
         <div class="ff-cats">${cats.map((c, i) => !count(i) ? '' : `<label class="check"><input type="checkbox" data-ff="${i}"${on.has(c) ? ' checked' : ''}><span>${esc(c)} <span class="small muted">${count(i)}</span></span></label>`).join('')}</div></div></details>
       ${ff.source ? `<p class="small muted" style="margin-top:var(--space-lg)">Fragen und Antworten aus <a href="${esc(ff.source.url)}" target="_blank" rel="noopener">S.h.I.T.</a> von ${esc(ff.source.author)}, abgerufen am ${esc(ff.source.date)}. Die Verwendung ist laut Autor frei.</p>` : ''}`;
     let cur = null;
-    const show = () => {
+    const show = (pick) => {
       const pool = ff.questions.filter((q) => q.cats.some((i) => on.has(cats[i]))); const card = $('#ff-card');
       if (!pool.length) { card.innerHTML = '<p class="empty">Keine Kategorie gewählt. Wähle unter „Kategorien“ mindestens eine aus.</p>'; return; }
-      const rest = pool.length > 1 ? pool.filter((q) => q !== cur) : pool; cur = rest[Math.floor(Math.random() * rest.length)];
+      const rest = pool.length > 1 ? pool.filter((q) => q !== cur) : pool; cur = pool[pick - 1] || rest[Math.floor(Math.random() * rest.length)];
       card.innerHTML = `<p class="tag">${esc(cur.cats.map((i) => cats[i]).join(', '))}</p><p class="fg-q">${nl(cur.q)}</p>
         <div class="actions"><button type="button" class="btn primary" id="ff-show" aria-expanded="false" aria-controls="ff-a">Lösung zeigen</button><button type="button" class="btn" id="ff-next">Neue Frage</button></div>
         <div class="ff-answer prose" id="ff-a" hidden><p>${nl(cur.a)}</p></div>
-        <p class="small muted" style="margin-top:var(--space-md)">Frage ${pool.indexOf(cur) + 1} von ${pool.length} in deiner Auswahl</p>`;
+        <form class="actions" id="ff-go" style="margin-top:var(--space-md);align-items:end"><label class="field" style="width:7rem"><span>Frage Nr.</span><input class="input num" type="number" min="1" max="${pool.length}" step="1" id="ff-nr" value="${pool.indexOf(cur) + 1}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${pool.length} in deiner Auswahl</span><button type="submit" class="btn sm">Anzeigen</button></form>`;
       $('#ff-show').onclick = (ev) => { const a = $('#ff-a'); a.hidden = !a.hidden; ev.target.setAttribute('aria-expanded', !a.hidden); ev.target.textContent = a.hidden ? 'Lösung zeigen' : 'Lösung ausblenden'; };
-      $('#ff-next').onclick = show;
+      $('#ff-next').onclick = () => show();
+      $('#ff-go').onsubmit = (ev) => { ev.preventDefault(); const n = Math.round(+$('#ff-nr').value); if (n >= 1 && n <= pool.length) show(n); else toast(`Bitte eine Zahl von 1 bis ${pool.length} eingeben`); };
     };
     const saveCats = () => { const s = store.get('ap2.settings', {}); s.ffCats = [...on]; store.set('ap2.settings', s); show(); };
     $$('[data-ff]', app).forEach((c) => c.onchange = () => { const n = cats[c.dataset.ff]; if (c.checked) on.add(n); else on.delete(n); saveCats(); });
