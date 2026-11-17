@@ -1087,14 +1087,14 @@
       const pool = ff.questions.filter((q) => q.cats.some((i) => on.has(cats[i]))); const card = $('#ff-card');
       if (!pool.length) { card.innerHTML = '<p class="empty">Keine Kategorie gewählt. Wähle unter „Kategorien“ mindestens eine aus.</p>'; return; }
       const rest = pool.length > 1 ? pool.filter((q) => q !== cur) : pool; cur = pick || rest[Math.floor(Math.random() * rest.length)];
-      card.innerHTML = `<p class="tag" style="white-space:normal">${esc(cur.cats.map((i, k) => `${cats[i]}, Frage ${cur.nr[k]}`).join('; '))}</p><p class="fg-q">${nl(cur.q)}</p>
+      card.innerHTML = `<p class="tag" style="white-space:normal">${esc([`Frage ${cur.onr}`, ...cur.cats.map((i, k) => `${cats[i]}, Frage ${cur.nr[k]}`)].join('; '))}</p><p class="fg-q">${nl(cur.q)}</p>
         <div class="actions"><button type="button" class="btn primary" id="ff-show" aria-expanded="false" aria-controls="ff-a">Lösung zeigen</button><button type="button" class="btn" id="ff-next">Neue Frage</button></div>
         <div class="ff-answer prose" id="ff-a" hidden><p>${nl(cur.a)}</p></div>
-        <form class="actions" id="ff-go" style="margin-top:var(--space-md);align-items:end"><label class="field"><span>Kategorie im Original</span><select id="ff-cat">${cats.map((c, i) => count(i) ? `<option value="${i}"${i === cur.cats[0] ? ' selected' : ''}>${esc(c)}</option>` : '').join('')}</select></label><label class="field" style="width:7rem"><span>Frage Nr.</span><input class="input num" type="number" min="1" step="1" id="ff-nr" value="${cur.nr[0]}"></label><button type="submit" class="btn sm">Anzeigen</button></form>
+        <form class="actions" id="ff-go" style="margin-top:var(--space-md);align-items:end"><label class="field"><span>Kategorie im Original</span><select id="ff-cat"><option value="">Alle Kategorien</option>${cats.map((c, i) => count(i) ? `<option value="${i}">${esc(c)}</option>` : '').join('')}</select></label><label class="field" style="width:7rem"><span>Frage Nr.</span><input class="input num" type="number" min="1" step="1" id="ff-nr" value="${cur.onr}"></label><button type="submit" class="btn sm">Anzeigen</button></form>
         <p class="small muted" style="margin-top:var(--space-sm)">${pool.includes(cur) ? `Frage ${pool.indexOf(cur) + 1} von ${pool.length} in deiner Auswahl` : 'Diese Frage liegt außerhalb deiner Auswahl.'}</p>`;
       $('#ff-show').onclick = (ev) => { const a = $('#ff-a'); a.hidden = !a.hidden; ev.target.setAttribute('aria-expanded', !a.hidden); ev.target.textContent = a.hidden ? 'Lösung zeigen' : 'Lösung ausblenden'; };
       $('#ff-next').onclick = () => show();
-      $('#ff-go').onsubmit = (ev) => { ev.preventDefault(); const c = +$('#ff-cat').value, n = Math.round(+$('#ff-nr').value), q = ff.questions.find((x) => x.cats.some((i, k) => i === c && x.nr[k] === n)); if (q) show(q); else toast(`${cats[c]} hat keine Frage ${n}`); };
+      $('#ff-go').onsubmit = (ev) => { ev.preventDefault(); const v = $('#ff-cat').value, c = +v, n = Math.round(+$('#ff-nr').value), q = ff.questions.find((x) => v === '' ? x.onr === n : x.cats.some((i, k) => i === c && x.nr[k] === n)); if (q) show(q); else toast(`${v === '' ? 'Das Original' : cats[c]} hat keine Frage ${n}`); };
     };
     const saveCats = () => { const s = store.get('ap2.settings', {}); s.ffCats = [...on]; store.set('ap2.settings', s); show(); };
     $$('[data-ff]', app).forEach((c) => c.onchange = () => { const n = cats[c.dataset.ff]; if (c.checked) on.add(n); else on.delete(n); saveCats(); });
