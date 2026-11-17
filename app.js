@@ -1087,7 +1087,7 @@
       const pool = ff.questions.filter((q) => q.cats.some((i) => on.has(cats[i]))); const card = $('#ff-card');
       if (!pool.length) { card.innerHTML = '<p class="empty">Keine Kategorie gewählt. Wähle unter „Kategorien“ mindestens eine aus.</p>'; return; }
       const rest = pool.length > 1 ? pool.filter((q) => q !== cur) : pool; cur = pool[pick - 1] || rest[Math.floor(Math.random() * rest.length)];
-      card.innerHTML = `<p class="tag">${esc(cur.cats.map((i) => cats[i]).join(', '))}</p><p class="fg-q">${nl(cur.q)}</p>
+      card.innerHTML = `<p class="tag">${esc(cur.cats.map((i, k) => cur.nr ? `${cats[i]}, Frage ${cur.nr[k]}` : cats[i]).join('; '))}</p><p class="fg-q">${nl(cur.q)}</p>
         <div class="actions"><button type="button" class="btn primary" id="ff-show" aria-expanded="false" aria-controls="ff-a">Lösung zeigen</button><button type="button" class="btn" id="ff-next">Neue Frage</button></div>
         <div class="ff-answer prose" id="ff-a" hidden><p>${nl(cur.a)}</p></div>
         <form class="actions" id="ff-go" style="margin-top:var(--space-md);align-items:end"><label class="field" style="width:7rem"><span>Frage Nr.</span><input class="input num" type="number" min="1" max="${pool.length}" step="1" id="ff-nr" value="${pool.indexOf(cur) + 1}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${pool.length} in deiner Auswahl</span><button type="submit" class="btn sm">Anzeigen</button></form>`;
