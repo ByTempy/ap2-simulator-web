@@ -286,7 +286,7 @@
     const fill = (c, x, yy, w, h) => { g.fillStyle = c; g.fillRect(x, yy, w, h); };
     const say = (t, x, yy, w, px, c = ink, align = 'left') => { g.font = font(w, px); g.fillStyle = c; g.textAlign = align; g.fillText(t, x, yy); g.textAlign = 'left'; };
     const rich = (str) => String(str).split(/\*\*/).map((t, i) => ({ t, b: i % 2 === 1 })).filter((r) => r.t);
-    const drawLines = (lines, x, yy, px, c = ink, it = false) => { lines.forEach((ln, i) => { let cx = x; ln.forEach((r) => { g.font = font(r.b ? 560 : 400, px, it); g.fillStyle = c; g.fillText(r.t, cx, yy + (i + 1) * px * 1.36 - px * 0.32); cx += g.measureText(r.t).width; }); }); return yy + lines.length * px * 1.36; };
+    const drawLines = (lines, x, yy, px, c = ink, it = false) => { lines.forEach((ln, i) => { let cx = x; ln.forEach((r) => { g.font = font(r.b ? 560 : 300, px, it); g.fillStyle = c; g.fillText(r.t, cx, yy + (i + 1) * px * 1.36 - px * 0.32); cx += g.measureText(r.t).width; }); }); return yy + lines.length * px * 1.36; };
     // Seitenkennung unten: ungerade Seiten rechts im Korrekturrand, gerade links (wie „ZPA SE II 3“ im Heft)
     const footer = () => { const lab = `AP2-Übung ${wiso ? 'WiSo' : `Teil ${part.kind === 'Teil1' ? 1 : 2}`} ${pageNo}`; say(lab, pageNo % 2 ? W - 7 * K : ML, H - 7 * K, 400, F.tiny, ink, pageNo % 2 ? 'right' : 'left'); };
     const newPage = (cont, coverPage) => {
@@ -324,14 +324,19 @@
         say('Diese Kopfleiste bitte unbedingt ausfüllen!', L, mm(7.6), 600, 8.2 * PT, color);
         say('Familienname, Vorname (bitte durch eine Leerspalte trennen)', L, mm(10.6), 400, F.tiny);
         for (let i = 0; i < 27; i++) g.strokeRect(L + i * mm(4.3), mm(12.4), mm(4.3), mm(5));
-        [['Bereich', 2], ['Berufsnummer', 4], ['IHK-Nummer', 3], ['Prüflingsnummer', 5]].reduce((x, [l, n]) => { say(l, x, mm(20.6), 400, F.tiny); for (let i = 0; i < n; i++) g.strokeRect(x + i * mm(4.3), mm(21.8), mm(4.3), mm(5)); return x + n * mm(4.3) + mm(6); }, L);
+        const pre = { Bereich: kind === 'Teil1' ? '78' : '79', Berufsnummer: '1205' };
+        [['Bereich', 2, 'Sp. 1-2'], ['Berufsnummer', 4, 'Sp. 3-6'], ['IHK-Nummer', 3, 'Sp. 7-9'], ['Prüflingsnummer', 5, 'Sp. 10-14']].reduce((x, [l, n, sp], gi) => {
+          say(l, x, mm(20.6), 400, F.tiny, color); say(sp, x, mm(29.2), 400, F.tiny * 0.85);
+          for (let i = 0; i < n; i++) { g.strokeStyle = color; g.strokeRect(x + i * mm(4.3), mm(21.8), mm(4.3), mm(5)); if (pre[l]) say(pre[l][i], x + i * mm(4.3) + mm(2.15), mm(25.6), 400, 9 * PT, ink, 'center'); }
+          if (gi < 3) fill(color, x + n * mm(4.3) + mm(1), mm(24), mm(4), mm(0.7));
+          return x + n * mm(4.3) + mm(6); }, L);
         say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, mm(99), mm(26), 600, 9.5 * PT);
       } else say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, L, mm(32), 300, 15 * PT);
       // an der Stelle des IHK-Logos: Kennzeichnung als Übung
       fill(color, mm(173), 0, W - mm(173), mm(27)); say('Übung', mm(191.5), mm(16.5), 600, 15 * PT, paper, 'center');
       const top = wiso ? mm(8) : 0;
       say(`Abschlussprüfung ${season}`, L, top + mm(40.6), 300, 26 * PT, c2);
-      say(exam.origin === 'generated' ? 'Generierte Übungsprüfung' : '', L, top + mm(50), 300, 13 * PT, c2);
+      say('1205', L, top + mm(50), 300, 14 * PT, c2);
       say(num, mm(10), top + mm(85.6), 700, 106 * PT, color);
       const tx = Math.max(mm(30), mm(10) + width(num, 700, 106 * PT) + mm(4));  // Titel rechts neben der großen Ziffer
       wrap([{ t: part.title, b: false }], mm(97) - tx, 12.5 * PT).slice(0, 4).forEach((ln, i) => say(ln.map((r) => r.t).join(''), tx, top + mm(63) + i * mm(7.4), 300, 12.5 * PT, c2));
@@ -348,10 +353,10 @@
         say('Für die Bewertung gilt die Vorgabe der Punkte in den Lösungshinweisen.', mm(13), mm(223.3), 400, 8.6 * PT);
         fill(color, L, mm(225.4), mm(190), 0.3 * K);
         g.strokeStyle = color; g.lineWidth = 0.3 * K;
-        part.tasks.forEach((t, i) => { const x = mm(13) + i * mm(45); say(`${t.number}. Aufg.`, x, mm(233), 400, 8.6 * PT); g.strokeRect(x + mm(13), mm(228), mm(5.2), mm(6.6)); g.strokeRect(x + mm(18.2), mm(228), mm(5.2), mm(6.6)); say('Punkte', x + mm(25), mm(233), 400, 8.6 * PT); });
+        part.tasks.forEach((t, i) => { const x = mm(13) + i * mm(45); say(`${t.number}. Aufg.`, x, mm(233), 400, 8.6 * PT); g.strokeRect(x + mm(13), mm(228), mm(5.2), mm(6.6)); g.strokeRect(x + mm(18.2), mm(228), mm(5.2), mm(6.6)); say('Punkte', x + mm(25), mm(233), 400, 8.6 * PT); say(`${15 + i * 2}   ${16 + i * 2}`, x + mm(15.6), mm(237.5), 400, F.tiny * 0.85); });
         g.strokeRect(L, mm(252), mm(37), mm(19)); say('Prüfungszeit', L + mm(1.5), mm(255.5), 400, 7.4 * PT); g.strokeRect(L + mm(21), mm(252.8), mm(5.2), mm(6.6));
         drawLines(wrap([{ t: 'Die zutreffende Ziffer (1, 2 oder 3) aus der Abfrage am Ende des Hefts eintragen.', b: false }], mm(34), F.tiny), L + mm(1.5), mm(260), F.tiny);
-        say('Gesamtpunktzahl', mm(66), mm(262.5), 600, 10 * PT, color); [0, 1, 2].forEach((k) => g.strokeRect(mm(99) + k * mm(5.2), mm(257.5), mm(5.2), mm(6.6)));
+        say('Gesamtpunktzahl', mm(66), mm(262.5), 600, 10 * PT, color); [0, 1, 2].forEach((k) => { g.strokeRect(mm(99) + k * mm(5.2), mm(257.5), mm(5.2), mm(6.6)); say(String(24 + k), mm(101.6) + k * mm(5.2), mm(267), 400, F.tiny * 0.85, ink, 'center'); });
         fill(rule, mm(136), mm(256.5), mm(67), 0.25 * K); say('Prüfungsort, Datum', mm(136), mm(259.2), 400, F.tiny);
         fill(rule, mm(136), mm(267.5), mm(67), 0.25 * K); say('Unterschrift', mm(136), mm(270.2), 400, F.tiny);
       }
@@ -374,7 +379,12 @@
           const a = answerOf(pt.id, it.id), lab = (it.label || '').replace(/\)$/, ''), ind = wiso ? 0 : lab.length > 1 ? 9 * K : 4 * K, bl = [];
           const pts = wiso ? '' : ptsLabel(it.points);
           if (wiso) bl.push(...T([{ t: it.text, b: false }]));
-          else bl.push(...T([{ t: `${it.label} `, b: false }, { t: it.text, b: false }], F.body, ind - 4.5 * K, { right: width(pts, 400, F.body) + 3 * K, pts }));
+          else {
+            const lx = lab.length > 1 ? 4.5 * K : 0, tx = Math.max(lx + 6.5 * K, lx + width(`${it.label} `, 400, F.body)), pw = width(pts, 400, F.body) + 3 * K;
+            const ls = wrap([{ t: it.text, b: false }], CW - tx, F.body), last = ls[ls.length - 1], fits = width(last.map((r) => r.t).join(''), 400, F.body) + pw <= CW - tx;
+            ls.forEach((ln, li) => bl.push({ h: F.body * 1.36, draw: () => { if (!li) say(it.label, X0 + lx, y + F.body * 1.04, 300, F.body); drawLines([ln], X0 + tx, y, F.body); if (li === ls.length - 1 && fits) say(pts, X0 + CW, y + F.body * 1.04, 300, F.body, ink, 'right'); y += F.body * 1.36; } }));
+            if (!fits) bl.push({ h: F.body * 1.36, draw: () => { say(pts, X0 + CW, y + F.body * 1.04, 300, F.body, ink, 'right'); y += F.body * 1.36; } });
+          }
           // Antwortmöglichkeiten mit Ziffernkästchen wie im Heft; stehen sie schon im Aufgabentext, nicht doppelt
           const inText = it.options && it.options.length && String(it.text).includes(String(it.options[0].text).slice(0, 25));
           if (it.options && it.options.length && !inText) it.options.forEach((o) => { const oi = ind + (wiso ? 0 : 1 * K), ls = wrap([{ t: o.text, b: false }], CW - oi - 6 * K, F.body);
@@ -384,7 +394,7 @@
           if (own) bl.push(gap(1), ...T([{ t: own, b: false }], F.body, ind + 2 * K, { it: true }));
           else if (!wiso && it.answer_type !== 'table') {
             const n = Math.min(9, Math.max(2, Math.ceil(it.points * (it.answer_type === 'number' ? 1.1 : 1.3))));
-            if (it.answer_type === 'sketch') bl.push(box(55, ind)); else if (it.answer_type === 'number') bl.push(grid(n * 6, ind)); else bl.push(gap(1), ...lines(n, ind));
+            if (it.answer_type === 'sketch') bl.push(gap(1), grid(70, 0)); else if (it.answer_type === 'number') bl.push(gap(1), grid(n * 6, 0)); else bl.push(gap(1), ...lines(n, 0));
           }
           if (wiso) bl.push(gap(1.5), ...T([{ t: `Lösung zu Aufgabe ${t.number} in den Lösungsbogen eintragen.`, b: false }], F.small, 0, { it: true }));
           if (withSol) bl.push(gap(1.5), ...T([{ t: `Lösung${it.expected ? `: ${it.expected} ${it.unit || ''}` : ''}`, b: true }], F.body, ind + 2 * K, { color }), ...T([{ t: it.solution || '', b: false }], F.body, ind + 2 * K), ...(it.grading ? T([{ t: `Bewertung: ${it.grading}`, b: false }], F.small, ind + 2 * K, { it: true }) : []));
