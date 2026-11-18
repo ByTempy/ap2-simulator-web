@@ -7,6 +7,7 @@
   --color-rule: oklch(88% 0.008 235); --color-rule-2: oklch(76% 0.012 235);
   --color-accent: oklch(32.3% 0.103 254); --color-accent-2: oklch(25.5% 0.077 252); --color-accent-ink: oklch(97% 0.006 245); --color-focus: oklch(40% 0.120 254);
   --color-error: oklch(47% 0.17 27); --color-success: oklch(46% 0.11 150); --color-warn: oklch(48% 0.10 70);
+  --color-area-t1: oklch(45% 0.13 254); --color-area-t2: oklch(53% 0.15 48); --color-area-wiso: oklch(47% 0.12 155);
   --color-backdrop: oklch(19% 0.016 240 / 0.55);
   --font-display: "Geologica", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Geologica", ui-sans-serif, system-ui, sans-serif;
@@ -15,6 +16,7 @@
   --tracking-display: -0.035em; --display-weight: 300; --body-weight: 300;
   --rule-hair: 1px; --rule-bar: 2px; --shadow-card: none;
   --color-scan: oklch(98% 0.004 245); --color-print-ink: oklch(18% 0.016 240); --color-pen: oklch(40% 0.16 262); --color-print-rule: oklch(72% 0.010 240);
+  --color-print-area-t1: oklch(42% 0.14 254); --color-print-area-t2: oklch(52% 0.16 45); --color-print-area-wiso: oklch(45% 0.12 155);
   --color-mark-ok: oklch(46% 0.13 150); --color-mark-part: oklch(52% 0.13 65); --color-mark-bad: oklch(48% 0.18 27);
   --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
   --text-xs: 0.75rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.2rem; --text-xl: 1.44rem; --text-2xl: 1.728rem; --text-3xl: 2.074rem;
@@ -31,7 +33,7 @@
   --color-ink: oklch(95% 0.006 230); --color-ink-2: oklch(82% 0.012 230); --color-muted: oklch(66% 0.016 230);
   --color-rule: oklch(27% 0.014 235); --color-rule-2: oklch(38% 0.016 235);
   --color-accent: oklch(74% 0.090 254); --color-accent-2: oklch(80% 0.080 254); --color-accent-ink: oklch(15% 0.020 245); --color-focus: oklch(78% 0.100 254);
-  --color-error: oklch(72% 0.14 27); --color-success: oklch(74% 0.12 150); --color-warn: oklch(80% 0.11 75);
+  --color-error: oklch(72% 0.14 27); --color-success: oklch(74% 0.12 150); --color-warn: oklch(80% 0.11 75); --color-area-t1: oklch(76% 0.10 254); --color-area-t2: oklch(78% 0.12 55); --color-area-wiso: oklch(76% 0.11 155);
   --color-backdrop: oklch(6% 0.010 235 / 0.75);
   --body-weight: 300;
 }
@@ -43,7 +45,7 @@
     --color-ink: oklch(95% 0.006 230); --color-ink-2: oklch(82% 0.012 230); --color-muted: oklch(66% 0.016 230);
     --color-rule: oklch(27% 0.014 235); --color-rule-2: oklch(38% 0.016 235);
     --color-accent: oklch(74% 0.090 254); --color-accent-2: oklch(80% 0.080 254); --color-accent-ink: oklch(15% 0.020 245); --color-focus: oklch(78% 0.100 254);
-    --color-error: oklch(72% 0.14 27); --color-success: oklch(74% 0.12 150); --color-warn: oklch(80% 0.11 75);
+    --color-error: oklch(72% 0.14 27); --color-success: oklch(74% 0.12 150); --color-warn: oklch(80% 0.11 75); --color-area-t1: oklch(76% 0.10 254); --color-area-t2: oklch(78% 0.12 55); --color-area-wiso: oklch(76% 0.11 155);
     --color-backdrop: oklch(6% 0.010 235 / 0.75);
     --body-weight: 300;
   }

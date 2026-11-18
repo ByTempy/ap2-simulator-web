@@ -759,13 +759,20 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .tr-heft { display: grid; gap: var(--space-lg); }
 .tr-heft figure { margin: 0; max-width: 60rem; }
 .tr-heft canvas { display: block; outline: var(--rule-hair) solid var(--color-rule-2); }
+/* Merkzettel: je Bereich eine Farbe (--area), Thema mit farbiger Unterlinie, Begriff vor dem Doppelpunkt fett */
+.tr-merk-g { --area: var(--color-area-t1); }
+.tr-merk-g.t2 { --area: var(--color-area-t2); } .tr-merk-g.wiso { --area: var(--color-area-wiso); }
 .tr-merk { columns: 2 22rem; column-gap: var(--space-xl); }
 .tr-merk-g + .tr-merk-g { margin-top: var(--space-xl); }
+.tr-merk-g h2 { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-sm); padding: var(--space-xs) var(--space-sm); margin-bottom: var(--space-md); color: var(--color-paper); background: var(--area); border-radius: var(--radius-card); }
+.tr-merk-g h2 span { font: 400 var(--text-sm)/1 var(--font-body); }
 .tr-merk-title { display: none; }
 .tr-merk-opts { margin-bottom: var(--space-lg); align-items: center; }
 .tr-merk-t { break-inside: avoid; margin-bottom: var(--space-md); }
+.tr-merk-t h3 { color: var(--area); padding-bottom: var(--space-3xs); border-bottom: var(--rule-bar) solid var(--area); }
 .tr-merk-t ul { margin: var(--space-2xs) 0 0; padding-left: 1.1rem; font-size: var(--text-sm); }
-@media (max-width: 52rem) { .tr-wiso { grid-template-columns: 1fr; } .tr-wiso .dv, .tr-bogen { height: auto; max-height: none; } }
+.tr-merk-t li::marker { color: var(--area); }
+.tr-merk-t li b { font-weight: 600; }
 @media print { .tr-foot { display: none; } }
 /* Merkzettel gedruckt: dicht, drei Spalten, Themen dürfen über Spalten und Seiten laufen (sonst leere Seiten in Firefox) */
 @page merk { size: A4; margin: 0; }  /* ohne Rand druckt der Browser keine Kopf- und Fußzeilen */
@@ -774,16 +781,18 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
   body:has(.tr-merk-doc) { page: merk; }  /* ganzer Körper auf derselben Seitenart, sonst bricht danach eine leere Seite um */
   body:has(.tr-merk-doc) .skip, body:has(.tr-merk-doc) #toast, body:has(.tr-merk-doc) #modal { display: none !important; }
   body:has(.tr-merk-doc) main.app { margin: 0; max-width: none; padding: 0; }
-  .tr-merk-doc { color: var(--color-print-ink); font: 400 6.6pt/1.14 var(--font-body); padding: 8mm 8mm 9mm; -webkit-box-decoration-break: clone; box-decoration-break: clone; }  /* Rand auf jeder Seite */
-  .tr-merk-title { display: block; margin: 0 0 1.5mm; font: 600 9pt/1.2 var(--font-display); }
-  .tr-merk-doc h2, .tr-merk-doc h3, .tr-merk-doc li, .tr-merk-title { color: var(--color-print-ink); }
-  .tr-merk-g + .tr-merk-g { margin-top: 2.5mm; }
-  .tr-merk-g h2 { margin: 0 0 1mm; padding-bottom: 0.6mm; font: 600 8.6pt/1.2 var(--font-display); border-bottom: 0.3mm solid var(--color-print-rule); break-after: avoid; }
-  .tr-merk { columns: 3; column-gap: 3.5mm; column-rule: 0.2mm solid var(--color-print-rule); }
-  .tr-merk-t { break-inside: auto; margin: 0 0 0.8mm; }
-  .tr-merk-t h3 { margin: 0; font: 600 7pt/1.15 var(--font-display); break-after: avoid; }
-  .tr-merk-t ul { margin: 0.2mm 0 0; padding-left: 2mm; font-size: 6.6pt; }
-  .tr-merk-t li { margin: 0; break-inside: avoid; }
+  .tr-merk-doc { color: var(--color-print-ink); font: 400 6.6pt/1.15 var(--font-body); padding: 8mm 8mm 9mm; -webkit-box-decoration-break: clone; box-decoration-break: clone; print-color-adjust: exact; -webkit-print-color-adjust: exact; }  /* Rand auf jeder Seite, Farben mitdrucken */
+  .tr-merk-g { --area: var(--color-print-area-t1); } .tr-merk-g.t2 { --area: var(--color-print-area-t2); } .tr-merk-g.wiso { --area: var(--color-print-area-wiso); }
+  .tr-merk-title { display: block; margin: 0 0 2mm; padding-bottom: 1mm; font: 600 10pt/1.2 var(--font-display); color: var(--color-print-ink); border-bottom: 0.5mm solid var(--color-print-ink); }
+  .tr-merk-g + .tr-merk-g { margin-top: 3mm; }
+  .tr-merk-g h2 { margin: 0 0 1.6mm; padding: 0.9mm 2mm; font: 600 8.6pt/1.2 var(--font-display); color: var(--color-scan); background: var(--area); border-radius: 0.8mm; break-after: avoid; }
+  .tr-merk-g h2 span { font-size: 6.6pt; }
+  .tr-merk { columns: 3; column-gap: 4mm; column-rule: 0.2mm solid color-mix(in oklch, var(--area) 35%, var(--color-scan)); }
+  .tr-merk-t { break-inside: auto; margin: 0 0 1.4mm; }
+  .tr-merk-t h3 { margin: 0 0 0.4mm; padding: 0 0 0.25mm; font: 700 7.2pt/1.15 var(--font-display); color: var(--area); border-bottom: 0.35mm solid var(--area); break-after: avoid; }
+  .tr-merk-t ul { margin: 0; padding-left: 2.2mm; font-size: 6.6pt; }
+  .tr-merk-t li { margin: 0 0 0.25mm; break-inside: avoid; color: var(--color-print-ink); }
+  .tr-merk-t li b { font-weight: 700; color: var(--color-print-ink); }
 }
 
 /* Training: Lösung wie eingetragen auf dem Originalblatt (über dem Scan, daher Scan-Farben) */
