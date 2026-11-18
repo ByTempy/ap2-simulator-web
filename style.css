@@ -760,11 +760,29 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .tr-heft figure { margin: 0; max-width: 60rem; }
 .tr-heft canvas { display: block; outline: var(--rule-hair) solid var(--color-rule-2); }
 .tr-merk { columns: 2 22rem; column-gap: var(--space-xl); }
-.tr-merk h2 { column-span: all; }
+.tr-merk-g + .tr-merk-g { margin-top: var(--space-xl); }
+.tr-merk-title { display: none; }
+.tr-merk-opts { margin-bottom: var(--space-lg); align-items: center; }
 .tr-merk-t { break-inside: avoid; margin-bottom: var(--space-md); }
 .tr-merk-t ul { margin: var(--space-2xs) 0 0; padding-left: 1.1rem; font-size: var(--text-sm); }
 @media (max-width: 52rem) { .tr-wiso { grid-template-columns: 1fr; } .tr-wiso .dv, .tr-bogen { height: auto; max-height: none; } }
-@media print { .tr-merk { columns: 2; } .tr-foot, #m-print { display: none; } }
+@media print { .tr-foot { display: none; } }
+/* Merkzettel gedruckt: dicht, drei Spalten, Themen dürfen über Spalten und Seiten laufen (sonst leere Seiten in Firefox) */
+@page merk { size: A4; margin: 8mm 8mm 9mm; }
+@media print {
+  body:has(.tr-merk-doc) .page-head, .tr-merk-opts { display: none !important; }
+  .tr-merk-doc { page: merk; color: var(--color-print-ink); font: 400 6.6pt/1.14 var(--font-body); }
+  .tr-merk-title { display: block; margin: 0 0 1.5mm; font: 600 9pt/1.2 var(--font-display); }
+  .tr-merk-doc h2, .tr-merk-doc h3, .tr-merk-doc li, .tr-merk-title { color: var(--color-print-ink); }
+  .tr-merk-g + .tr-merk-g { margin-top: 2.5mm; }
+  .tr-merk-g h2 { margin: 0 0 1mm; padding-bottom: 0.6mm; font: 600 8.6pt/1.2 var(--font-display); border-bottom: 0.3mm solid var(--color-print-rule); break-after: avoid; }
+  .tr-merk { columns: 3; column-gap: 3.5mm; column-rule: 0.2mm solid var(--color-print-rule); }
+  .tr-merk-t { break-inside: auto; margin: 0 0 0.8mm; }
+  .tr-merk-t h3 { margin: 0; font: 600 7pt/1.15 var(--font-display); break-after: avoid; }
+  .tr-merk-t ul { margin: 0.2mm 0 0; padding-left: 2mm; font-size: 6.6pt; }
+  .tr-merk-t li { margin: 0; break-inside: avoid; }
+}
+
 /* Training: Lösung wie eingetragen auf dem Originalblatt (über dem Scan, daher Scan-Farben) */
 .tr-solover { position: absolute; z-index: 1; overflow: auto; padding: 0 0.6%; white-space: pre-wrap; overflow-wrap: anywhere; font: 500 calc(var(--u) * 2) / 1.3 var(--font-body); color: var(--color-mark-ok); background: color-mix(in oklch, var(--color-scan) 90%, transparent); outline: var(--rule-hair) solid var(--color-mark-ok); pointer-events: none; }
 .tr-solover[hidden] { display: none; }

@@ -132,12 +132,30 @@
   }
   async function merkView() {
     A().setNav('train');
+    const { $, $$, esc } = A();
     const topics = await A().loadTopics();
     const groups = [['Teil2', 'Teil 2: Stromversorgung'], ['Teil1', 'Teil 1: Installation und Service'], ['WiSo', 'WiSo']];
-    app().innerHTML = `${head('Merkzettel', 'Die Merksätze aller Themen auf einer Seite. Zum schnellen Wiederholen am Abend vor der Prüfung, auch zum Ausdrucken.', back)}
-      <p class="actions" style="margin-bottom:var(--space-md)"><button type="button" class="btn" id="m-print">Drucken</button></p>
-      ${groups.map(([k, h]) => { const l = topics.filter((x) => x.part === k && (x.key_points || []).length); return l.length ? `<section class="section tr-merk"><h2>${h}</h2>${l.map((x) => `<div class="tr-merk-t"><h3>${A().esc(x.name)}</h3><ul>${x.key_points.map((p) => `<li>${A().esc(p)}</li>`).join('')}</ul></div>`).join('')}</section>` : ''; }).join('')}`;
-    document.getElementById('m-print').onclick = () => window.print();
+    const st = A().store.get('ap2.settings', {}), cfg = Object.assign({ parts: ['Teil2', 'Teil1', 'WiSo'], kurz: false }, st.merk || {});
+    const of = (k) => topics.filter((x) => x.part === k && (x.key_points || []).length);
+    const pts = (x) => (cfg.kurz ? x.key_points.slice(0, 3) : x.key_points);
+    app().innerHTML = `${head('Merkzettel', 'Die Merksätze aller Themen. Gedruckt dicht in drei Spalten auf A4. Zum Papiersparen im Druckdialog „Beidseitig“ wählen und die Kopf- und Fußzeilen des Browsers ausschalten.', back)}
+      <div class="tr-merk-opts actions">${groups.map(([k, h]) => `<label class="check"><input type="checkbox" data-mp="${k}"${cfg.parts.includes(k) ? ' checked' : ''}><span>${esc(h)} <span class="small muted">${of(k).length} Themen</span></span></label>`).join('')}
+        <label class="check"><input type="checkbox" id="m-kurz"${cfg.kurz ? ' checked' : ''}><span>Kurzfassung: 3 Merksätze je Thema</span></label>
+        <button type="button" class="btn primary" id="m-print">Drucken</button><span class="small muted" id="m-pages"></span></div>
+      <div class="tr-merk-doc" id="m-doc"></div>`;
+    const draw = () => {
+      const sel = groups.filter(([k]) => cfg.parts.includes(k));
+      $('#m-doc').innerHTML = `<p class="tr-merk-title">Merkzettel AP2 IT-System-Elektroniker${cfg.kurz ? ', Kurzfassung' : ''}, Stand ${new Date().toLocaleDateString('de-DE')}</p>
+        ${sel.map(([k, h]) => `<section class="tr-merk-g"><h2>${h}</h2><div class="tr-merk">${of(k).map((x) => `<div class="tr-merk-t"><h3>${esc(x.name)}</h3><ul>${pts(x).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`).join('')}</div></section>`).join('') || '<p class="empty">Keinen Bereich gewählt.</p>'}`;
+      // shortcut: grobe Seitenzahl aus den Zeichen (gemessen etwa 11 000 Zeichen je A4-Seite bei 6,6 pt in drei Spalten)
+      const chars = sel.reduce((n, [k]) => n + of(k).reduce((m, x) => m + pts(x).join(' ').length + 60, 0), 0);
+      $('#m-pages').textContent = chars ? `etwa ${Math.max(1, Math.round(chars / 11000))} Seiten, beidseitig ${Math.max(1, Math.ceil(chars / 22000))} Blatt` : '';
+      const s2 = A().store.get('ap2.settings', {}); s2.merk = cfg; A().store.set('ap2.settings', s2);
+    };
+    $$('[data-mp]').forEach((c) => c.onchange = () => { cfg.parts = $$('[data-mp]').filter((x) => x.checked).map((x) => x.dataset.mp); draw(); });
+    $('#m-kurz').onchange = (ev) => { cfg.kurz = ev.target.checked; draw(); };
+    $('#m-print').onclick = () => window.print();
+    draw();
   }
 
   // ---------- Teilaufgabe lernen ----------
