@@ -277,7 +277,7 @@
   async function examPdf(exam, parts, answerOf, withSol) {
     const { K, PT, font, width, wrap } = await pdfText(200);
     const W = Math.round(210 * K), H = Math.round(297 * K), ML = 10.5 * K, MT = 13 * K, MB = 10 * K;
-    const RAND_X = 180 * K, CW = 177 * K - ML, X0 = ML, BOTTOM = H - MB - 6 * K;
+    const RAND_X = 189 * K, CW = 186 * K - ML, X0 = ML, BOTTOM = H - MB - 6 * K;
     const tok = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
     const ink = tok('--color-print-ink'), rule = tok('--color-print-rule'), paper = '#ffffff', grey = tok('--color-ihk-rand');
     const F = { body: 9.2 * PT, small: 7 * PT, tiny: 5.6 * PT, h3: 10.5 * PT }, LH = F.body * 1.36;
@@ -301,7 +301,13 @@
     const T = (runs, px = F.body, ind = 0, opt = {}) => wrap(runs, CW - ind - (opt.right || 0), px).map((ln, i) => ({ h: px * 1.36, draw: () => { drawLines([ln], X0 + ind, y, px, opt.color || ink, opt.it); if (!i && opt.pts) say(opt.pts, X0 + CW, y + px * 1.36 - px * 0.32, 400, px, ink, 'right'); y += px * 1.36; } }));
     const gap = (mm) => ({ h: mm * K, draw: () => { y += mm * K; } });
     const lines = (n, ind) => Array.from({ length: n }, () => ({ h: 7.5 * K, draw: () => { y += 7.5 * K; fill(rule, X0 + ind, y - 0.2 * K, CW - ind, 0.2 * K); } }));
-    const grid = (mm, ind) => ({ h: (mm + 2) * K, draw: () => { y += 1 * K; const x0 = X0 + ind, w = CW - ind, s = 5 * K; g.strokeStyle = rule; g.lineWidth = 0.18 * K; g.beginPath(); for (let x = x0; x <= x0 + w + 0.1; x += s) { g.moveTo(x, y); g.lineTo(x, y + mm * K); } for (let yy = y; yy <= y + mm * K + 0.1; yy += s) { g.moveTo(x0, yy); g.lineTo(x0 + Math.floor(w / s) * s, yy); } g.stroke(); y += (mm + 1) * K; } });
+    // Rechenkästchen 5 mm, Höhe und Breite auf ganze Kästchen, damit das Raster ringsum geschlossen ist
+    const grid = (mm0, ind) => { const rows = Math.max(2, Math.round(mm0 / 5)), mm = rows * 5; return { h: (mm + 2) * K, draw: () => {
+      y += 1 * K; const s = 5 * K, x0 = X0 + ind, cols = Math.floor((CW - ind) / s), x1 = x0 + cols * s, y1 = y + rows * s;
+      g.strokeStyle = rule; g.lineWidth = 0.18 * K; g.beginPath();
+      for (let c = 0; c <= cols; c++) { g.moveTo(x0 + c * s, y); g.lineTo(x0 + c * s, y1); }
+      for (let r = 0; r <= rows; r++) { g.moveTo(x0, y + r * s); g.lineTo(x1, y + r * s); }
+      g.stroke(); y += (mm + 1) * K; } }; };
     const box = (mm, ind) => ({ h: (mm + 2) * K, draw: () => { y += 1 * K; g.strokeStyle = ink; g.lineWidth = 0.25 * K; g.strokeRect(X0 + ind, y, CW - ind, mm * K); y += (mm + 1) * K; } });
     const table = (tab, cellsOf, ind) => {
       const n = tab.columns.length, cw = (CW - ind) / n, pad = 1.4 * K;
@@ -369,7 +375,8 @@
       newPage(false);
       if (pt.situation) {
         if (wiso) { const ls = wrap([{ t: 'Situation:', b: true }, { t: '\n' + pt.situation, b: false }], CW - 6 * K, F.body), y0 = y; y = drawLines(ls, X0 + 3 * K, y + 1.5 * K, F.body) + 2 * K; g.strokeStyle = ink; g.lineWidth = 0.25 * K; g.strokeRect(X0, y0, CW, y - y0); y += 5 * K; }
-        else { place([...T([{ t: `Die Aufgaben 1 bis ${pt.tasks.length} beziehen sich auf die folgende Ausgangssituation:`, b: false }]), gap(2), ...T([{ t: pt.situation, b: false }])], false); newPage(false); }
+        // den Einleitungssatz nur, wenn die Ausgangssituation ihn nicht schon selbst enthält
+        else { const own = /^\s*Die Aufgaben\b/.test(pt.situation); place([...(own ? [] : [...T([{ t: `Die Aufgaben 1 bis ${pt.tasks.length} beziehen sich auf die folgende Ausgangssituation:`, b: false }]), gap(2)]), ...T([{ t: pt.situation, b: false }])], false); newPage(false); }
       }
       pt.tasks.forEach((t, ti) => {
         task = t;
