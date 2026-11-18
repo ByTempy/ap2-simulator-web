@@ -288,7 +288,8 @@
     const rich = (str) => String(str).split(/\*\*/).map((t, i) => ({ t, b: i % 2 === 1 })).filter((r) => r.t);
     const drawLines = (lines, x, yy, px, c = ink, it = false) => { lines.forEach((ln, i) => { let cx = x; ln.forEach((r) => { g.font = font(r.b ? 560 : 300, px, it); g.fillStyle = c; g.fillText(r.t, cx, yy + (i + 1) * px * 1.36 - px * 0.32); cx += g.measureText(r.t).width; }); }); return yy + lines.length * px * 1.36; };
     // Seitenkennung unten: ungerade Seiten rechts im Korrekturrand, gerade links (wie „ZPA SE II 3“ im Heft)
-    const footer = () => { const lab = `AP2-Übung ${wiso ? 'WiSo' : `Teil ${part.kind === 'Teil1' ? 1 : 2}`} ${pageNo}`; say(lab, pageNo % 2 ? W - 7 * K : ML, H - 7 * K, 400, F.tiny, ink, pageNo % 2 ? 'right' : 'left'); };
+    // kurz wie im Heft, damit sie auch im schmalen Korrekturrand Platz hat
+    const footer = () => { const lab = `${wiso ? 'WiSo' : `Teil ${part.kind === 'Teil1' ? 1 : 2}`}, S. ${pageNo}`; say(lab, pageNo % 2 ? W - 4 * K : ML, H - 7 * K, 400, F.tiny, ink, pageNo % 2 ? 'right' : 'left'); };
     const newPage = (cont, coverPage) => {
       if (g && cont && task && !wiso) say(`Fortsetzung ${task.number}. Aufgabe →`, RAND_X - 4 * K, BOTTOM + 5 * K, 600, F.body, ink, 'right');
       const c = document.createElement('canvas'); c.width = W; c.height = H; g = c.getContext('2d'); fill(paper, 0, 0, W, H); pages.push(c); pageNo++; y = MT;
