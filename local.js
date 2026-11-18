@@ -291,7 +291,9 @@
       const part = exam.parts.find((p) => p.id === pid);
       if (!part) continue;
       const items = []; let sum = 0, open = 0, unrated = 0;
-      for (const t of part.tasks) for (const it of t.items) {
+      const tasks = s.task === undefined ? part.tasks : part.tasks.filter((t) => t.number === s.task);
+      const maxP = s.task === undefined ? part.max_points : tasks.reduce((n, t) => n + t.items.reduce((m, it) => m + it.points, 0), 0);
+      for (const t of tasks) for (const it of t.items) {
         const a = ans(s, pid, it.id); const ink = hasInk(a); const answered = !isEmpty(a) || ink;
         const ir = { part_id: pid, task_number: t.number, item_id: it.id, label: it.label, max_points: it.points, points: null, auto: AUTO.has(it.answer_type), answered, ink, topics: it.topics || [], check: null };
         // Handschrift: eigene Punkte gehen vor (das Lesen kann irren); ungelesen bleibt sie offen statt 0 Punkte
@@ -306,8 +308,8 @@
       }
       const st = partState(s, pid);
       const used = st && st.started_at ? Math.max(0, ((st.finished_at ? Date.parse(st.finished_at) : Date.now()) - Date.parse(st.started_at)) / 60000) : 0;
-      const grade = gradeFor(sum / part.max_points * 100);
-      parts.push({ part_id: pid, title: part.title, kind: part.kind, max_points: part.max_points, points: sum, open_points: open, unrated_items: unrated, grade, grade_label: GRADE[grade], used_minutes: used, items });
+      const grade = gradeFor(sum / maxP * 100);
+      parts.push({ part_id: pid, title: part.title, kind: part.kind, max_points: maxP, points: sum, open_points: open, unrated_items: unrated, grade, grade_label: GRADE[grade], used_minutes: used, items });
     }
     const total_points = parts.reduce((a, p) => a + p.points, 0);
     const total_max = parts.reduce((a, p) => a + p.max_points, 0);
@@ -581,12 +583,15 @@
       return summarize(buildTopic(r));
     }
     if (p === '/api/archive') return B.data.archive || { docs: [] };
-    if (p === '/api/sessions' && method === 'GET') return Object.values(sessionsAll()).map((s) => ({ id: s.id, exam_id: s.exam_id, exam_title: s.exam_title, mode: s.mode, created_at: s.created_at, finished: s.finished, part_order: s.part_order, answered: Object.values(s.answers).filter((a) => !isEmpty(a)).length, total_points: s.result ? s.result.total_points : null, total_max: s.result ? s.result.total_max : null, passed: s.result ? s.result.passed : null })).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    if (p === '/api/sessions' && method === 'GET') return Object.values(sessionsAll()).map((s) => ({ id: s.id, exam_id: s.exam_id, exam_title: s.exam_title, mode: s.mode, created_at: s.created_at, finished: s.finished, part_order: s.part_order, answered: Object.values(s.answers).filter((a) => !isEmpty(a)).length, total_points: s.result ? s.result.total_points : null, total_max: s.result ? s.result.total_max : null, passed: s.result ? s.result.passed : null, source: s.source, task: s.task })).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     if (p === '/api/sessions' && method === 'POST') {
       const e = examById(body.exam_id); if (!e) fail('Prüfung nicht gefunden');
       const parts = (body.parts || []).filter((x) => e.parts.some((pp) => pp.id === x));
       const order = parts.length ? parts : e.parts.map((pp) => pp.id);
       const s = { id: uuid(), exam_id: e.id, exam_title: e.title, mode: body.mode || 'learn', created_at: nowIso(), part_order: order, parts: order.map((x) => ({ part_id: x, started_at: null, deadline: null, finished_at: null })), answers: {}, finished: false, finished_at: null, result: null };
+      if (body.task !== undefined && body.task !== null) s.task = +body.task;
+      if (body.minutes) s.minutes = Math.max(1, Math.round(+body.minutes));
+      if (body.source) s.source = String(body.source).slice(0, 20);
       sessionPut(s); return viewOf(s);
     }
     if ((m = p.match(/^\/api\/sessions\/([^/]+)(?:\/([a-z-]+))?$/))) {
@@ -595,7 +600,7 @@
       const s = getSession(id);
       const exam = () => examById(s.exam_id) || fail('Prüfung nicht gefunden');
       if (!action) return viewOf(s);
-      if (action === 'start') { const st = partState(s, body.part) || fail('Teil nicht in dieser Sitzung'); if (!st.started_at) { st.started_at = nowIso(); if (s.mode === 'exam') { const dur = exam().parts.find((x) => x.id === body.part).duration_min; st.deadline = new Date(Date.now() + dur * 60000).toISOString(); } } sessionPut(s); return viewOf(s); }
+      if (action === 'start') { const st = partState(s, body.part) || fail('Teil nicht in dieser Sitzung'); if (!st.started_at) { st.started_at = nowIso(); if (s.mode === 'exam') { const dur = s.minutes || exam().parts.find((x) => x.id === body.part).duration_min; st.deadline = new Date(Date.now() + dur * 60000).toISOString(); } } sessionPut(s); return viewOf(s); }
       if (action === 'finish-part') { const st = partState(s, body.part) || fail('Teil nicht in dieser Sitzung'); if (!st.started_at) st.started_at = nowIso(); if (!st.finished_at) st.finished_at = nowIso(); if (s.parts.every((x) => x.finished_at)) finalize(s); sessionPut(s); return viewOf(s); }
       if (action === 'finish') { finalize(s); sessionPut(s); return viewOf(s); }
       if (action === 'answer') {

@@ -359,7 +359,7 @@
     const hash = location.hash || '#/';
     stopTimer();
     closeMenu();
-    for (const [re, fn] of routes) {
+    for (const [re, fn] of [...routes, ...((window.AP2Train && window.AP2Train.routes) || [])]) {
       const m = hash.match(re);
       if (m) {
         app.innerHTML = '<div class="state" aria-busy="true"><div class="skeleton" style="width:40%"></div><div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:55%"></div></div>';
@@ -884,7 +884,7 @@
   }
 
   // ---------- Datensicherung ----------
-  const BACKUP_KEYS = ['ap2.sessions', 'ap2.generated', 'ap2.originals', 'ap2.grades', 'ap2.settings', 'ap2.drill', 'ap2.project'];
+  const BACKUP_KEYS = ['ap2.sessions', 'ap2.generated', 'ap2.originals', 'ap2.grades', 'ap2.settings', 'ap2.drill', 'ap2.project', 'ap2.train'];
   const backupJson = () => JSON.stringify({ app: 'ap2-simulator', version: 2, saved: new Date().toISOString(), data: Object.fromEntries(BACKUP_KEYS.map((k) => [k, store.get(k, {})])) });
   const markBackup = () => { try { localStorage.setItem('ap2.lastBackup', new Date().toISOString()); } catch (e) { /* Speicher voll: Hinweis bleibt aus */ } };
   // Speicherdatei: Chrome und Edge schreiben nach jeder Änderung in eine gewählte Datei (File System Access API)
@@ -1533,7 +1533,7 @@
   // verändert; others sind die Einträge anderer Teilaufgaben auf derselben Seite und werden nur angezeigt.
   // fields = [{ area, value }] sind die Eingabefelder der Teilaufgabe (Zellen, Antwortlinien); others = [{ marks, fields }]
   // pen = { target(x, y) -> { strokes, changed }, all() -> [strokes ...] }: Stiftmodus, jeder Strich gehört zum Feld, in dem er beginnt
-  function markPage(host, src, own, others, onChange, fields = [], pen = null) {
+  function markPage(host, src, own, others, onChange, fields = [], pen = null, route = null) {
     host.innerHTML = `${padBar(pen ? [] : [['text', 'Text schreiben', '<path d="M5 7V5h14v2"/><path d="M12 5v14"/><path d="M9 19h6"/>']], 'Auf der Seite ausfüllen')}
       <div class="mark-page${pen ? ' pen' : ''}"><img alt="Originalseite der Aufgabe" draggable="false"><canvas aria-hidden="true"></canvas><canvas aria-hidden="true"></canvas></div>
       <p class="small muted">${pen ? 'Mit dem Stift direkt in die Felder schreiben, mit dem Finger scrollen. Die Handschrift wird bei der Auswertung gelesen.' : fields.length ? 'In die umrandeten Felder klicken und die Antwort schreiben. Mit „Text schreiben“ geht es zusätzlich an jeder anderen Stelle der Seite.' : '„Text schreiben“ wählen, in die Seite klicken, zum Beispiel auf eine Antwortlinie, und tippen. Leere Felder verschwinden wieder.'}</p>`;
@@ -1564,7 +1564,7 @@
       page.style.setProperty('--u', `${page.clientWidth / 100}px`); page.style.setProperty('--ph', `${page.clientHeight}px`);
       [cvO, cv].forEach((c) => { c.width = page.clientWidth * (window.devicePixelRatio || 1); c.height = page.clientHeight * (window.devicePixelRatio || 1); });
       others.forEach((o) => ((o.marks || {}).strokes || []).forEach((s) => line(cvO, s, 0)));
-      (pen ? pen.all() : [own.strokes]).forEach((list) => list.forEach((s) => line(cv, s, 0)));
+      (pen || route ? (pen || route).all() : [own.strokes]).forEach((list) => list.forEach((s) => line(cv, s, 0)));
     };
     others.forEach((o) => ((o.marks || {}).boxes || []).forEach((b) => box(b, true))); own.boxes.forEach((b) => box(b));
     // Antwortlinien (lh): Zeilenhöhe = Linienabstand, damit die Schrift auf den gedruckten Linien steht; Zellen: eine Zeile mittig
@@ -1612,7 +1612,7 @@
         const b = { x, y: Math.max(0, y - 0.012), t: '', n: Date.now() }; own.boxes.push(b); box(b).focus(); return;
       }
       const p0 = at(ev);
-      curTarget = pen ? pen.target(p0[0], p0[1]) : { strokes: own.strokes, changed: onChange };
+      curTarget = pen ? pen.target(p0[0], p0[1]) : route ? route.target(p0[0], p0[1]) : { strokes: own.strokes, changed: onChange };
       try { page.setPointerCapture(ev.pointerId); } catch (e) { /* ohne Capture weiterzeichnen */ }
       cur = { erase: tool === 'erase' || ev.button === 5, pts: [p0], n: Date.now() }; curTarget.strokes.push(cur); line(cv, cur, 0);
     };
@@ -1632,8 +1632,12 @@
           else { const lists = pen.all(); let best = null; lists.forEach((l) => { const s = l[l.length - 1]; if (s && (!best || s.n > best[1].n)) best = [l, s]; }); if (best) { best[0].pop(); const t = pen.target(...best[1].pts[0]); if (t) t.changed(); } }
           paint(); onChange(); return;
         }
-        if (a === 'clear') { own.boxes.length = 0; own.strokes.length = 0; }
-        else { const lb = own.boxes[own.boxes.length - 1], ls = own.strokes[own.strokes.length - 1]; if (lb && (!ls || lb.n > ls.n)) own.boxes.pop(); else own.strokes.pop(); }
+        if (a === 'clear') { own.boxes.length = 0; own.strokes.length = 0; if (route) route.clear(); }
+        else if (route) {  // ganze Seite: der letzte Strich irgendeiner Teilaufgabe oder der letzte Texteintrag
+          let best = null; route.all().forEach((l) => { const x = l[l.length - 1]; if (x && (!best || x.n > best[1].n)) best = [l, x]; });
+          const lb = own.boxes[own.boxes.length - 1];
+          if (lb && (!best || lb.n > best[1].n)) own.boxes.pop(); else if (best) { best[0].pop(); route.target(...best[1].pts[0]).changed(); }
+        } else { const lb = own.boxes[own.boxes.length - 1], ls = own.strokes[own.strokes.length - 1]; if (lb && (!ls || lb.n > ls.n)) own.boxes.pop(); else own.strokes.pop(); }
         $$('textarea.mark-text', page).forEach((t) => t.remove()); own.boxes.forEach((x) => box(x)); paint(); onChange();
       } else { tool = a; page.dataset.tool = a; $$('[aria-pressed]', host).forEach((x) => x.setAttribute('aria-pressed', x === b)); }
     });
@@ -1693,6 +1697,35 @@
     const collect = (prev) => (me.dirty ? build(me, prev) : prev);
     const changed = () => groups.filter((g) => g !== me && g.dirty).map((g) => { g.dirty = false; return [g.it.id, build(g, getA(g.it.id))]; });
     return { collect, others: changed, field: el };
+  }
+
+  // Ganze Heftseite (Training, Simulation): alle Teilaufgaben der Seite zugleich. Ein Strich gehört zum Feld, in dem er beginnt,
+  // sonst zur Teilaufgabe, deren Felder ihm senkrecht am nächsten liegen. changed() liefert [[itemId, Antwort]] der geänderten Teilaufgaben.
+  function pageAnswer(host, part, pg, items, getA, onChange) {
+    const pen = penMode();
+    const groups = items.filter((it) => origPage(it) === pg || (it.fields || []).some((f) => f.page === pg)).map((it) => {
+      const a = getA(it.id), vals = fieldValues(it, a), optText = (k) => ((it.options || []).find((o) => o.key === k) || {}).text;
+      return { it, dirty: false, marks: JSON.parse(JSON.stringify(a.marks || { boxes: [], strokes: [] })), all: (it.fields || []).map((f, i) => ({ area: f, value: vals[i], text: f.key ? optText(f.key) : f.label })) };
+    });
+    if (!groups.length) { host.innerHTML = ''; docViewer(host, [part.page_images[pg - 1]], { inline: true, zoom: 'width' }); return { changed: () => [] }; }
+    const fields = [];
+    groups.forEach((g) => g.all.filter((f) => f.area.page === pg).forEach((f) => { f.onChange = () => { g.dirty = true; onChange(); }; fields.push(f); }));
+    const inside = (f, x, y) => x >= f.area.x && x <= f.area.x + f.area.w && y >= f.area.y && y <= f.area.y + f.area.h;
+    // Senkrechter Bereich je Teilaufgabe: ihre Felder; ohne Felder der Raum zwischen den Nachbarn, gleich verteilt
+    const ivs = groups.map((g) => { const fs = g.all.filter((f) => f.area.page === pg); return fs.length ? [Math.min(...fs.map((f) => f.area.y)), Math.max(...fs.map((f) => f.area.y + f.area.h))] : null; });
+    for (let k = 0; k < ivs.length; k++) if (!ivs[k]) {
+      let j = k; while (j < ivs.length && !ivs[j]) j++;
+      const lo = k ? ivs[k - 1][1] : 0.03, hi = j < ivs.length ? ivs[j][0] : 0.97, n = j - k;
+      for (let q = 0; q < n; q++) ivs[k + q] = [lo + (hi - lo) * q / n, lo + (hi - lo) * (q + 1) / n];
+      k = j - 1;
+    }
+    const dist = (k, y) => (y < ivs[k][0] ? ivs[k][0] - y : y > ivs[k][1] ? y - ivs[k][1] : 0);
+    const groupAt = (x, y) => { const f = fields.find((ff) => inside(ff, x, y)); if (f) return groups.find((g) => g.all.includes(f)); let b = 0; groups.forEach((_, k) => { if (dist(k, y) < dist(b, y)) b = k; }); return groups[b]; };
+    const penCfg = pen ? { target: (x, y) => { const g = groupAt(x, y); return { strokes: g.marks.strokes, changed: () => { g.dirty = true; onChange(); } }; }, all: () => groups.map((g) => g.marks.strokes) } : null;
+    // Ohne Stift: freie Texteinträge gehören zur ersten Teilaufgabe der Seite, Felder zu ihrer eigenen
+    const route = { target: (x, y) => { const g = groupAt(x, y); return { strokes: g.marks.strokes, changed: () => { g.dirty = true; onChange(); } }; }, all: () => groups.map((g) => g.marks.strokes), clear: () => groups.forEach((g) => { g.marks.strokes.length = 0; g.dirty = true; }) };
+    markPage(host, part.page_images[pg - 1], groups[0].marks, [], () => { groups[0].dirty = true; onChange(); }, fields, penCfg, route);
+    return { changed: () => groups.filter((g) => g.dirty).map((g) => { g.dirty = false; return [g.it.id, answerFrom(g.it, g.all, g.marks, getA(g.it.id))]; }) };
   }
 
   // ---------- Handschrift lesen (Stiftmodus) ----------
@@ -2265,6 +2298,45 @@ Regeln:
 Für jede Teilaufgabe: gelesen = was du vom Prüfling gelesen hast, höchstens 60 Wörter, Unleserliches als [unleserlich], bei einer nur getippten Antwort „getippt“. kommentar = zwei bis vier kurze Sätze in der Du-Form: was richtig war, was fehlte oder falsch war und die richtige Antwort in Kurzform. sicher = false, wenn du Handschrift nicht lesen konntest oder die Punktzahl auf der Kippe steht.`;
   const GRADE_SCHEMA = { type: 'object', additionalProperties: false, required: ['teile'], properties: { teile: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'gelesen', 'punkte', 'kommentar', 'sicher'],
     properties: { id: { type: 'string' }, gelesen: { type: 'string' }, punkte: { type: 'number' }, kommentar: { type: 'string' }, sicher: { type: 'boolean' } } } } } };
+  // Ausschnitt der Originalseite mit der Handschrift einer Antwort, über die ganze Breite (null ohne Handschrift)
+  async function inkCrop(part, it, a) {
+    const st = a && a.marks && (a.marks.strokes || []).length ? a.marks.strokes : null, src = st && part.page_images && part.page_images[origPage(it) - 1];
+    if (!src) return null;
+    const ys = st.flatMap((x) => x.pts.map((q) => q[1])).concat((it.fields || []).flatMap((f) => [f.y, f.y + f.h]));
+    const y0 = Math.max(0, Math.min(...ys) - 0.02), y1 = Math.min(1, Math.max(...ys) + 0.02);
+    const img = await loadImg(await window.AP2Local.pageSrc(src)); const W = img.naturalWidth, H = img.naturalHeight;
+    const c = document.createElement('canvas'); c.width = W; c.height = Math.max(8, Math.round((y1 - y0) * H));
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(img, 0, y0 * H, W, c.height, 0, 0, W, c.height); g.drawImage(inkLayer(st, W, H), 0, y0 * H, W, c.height, 0, 0, W, c.height);
+    return c;
+  }
+  // Claude bewertet Teilaufgaben einer Aufgabe: entries = [{ item, a }], Antwort als Text und Handschrift-Ausschnitt. Liefert [{ entry, pts, ai }]
+  async function claudeTask(part, t, entries) {
+    const content = [{ type: 'text', text: `Prüfungsbereich: ${part.title}\n${part.situation ? `Ausgangssituation: ${String(part.situation).slice(0, 1500)}\n` : ''}Aufgabe ${t.number}${t.title ? `: ${t.title}` : ''}\n${t.intro ? `Vorspann: ${String(t.intro).slice(0, 1500)}` : ''}` }];
+    for (const [i, { item, a }] of entries.entries()) {
+      content.push({ type: 'text', text: [`### Teilaufgabe id "${i}": ${t.number} ${item.label || ''}, höchstens ${item.points} Punkte`, `Aufgabenstellung: ${item.text}`,
+        item.options && item.options.length ? `Auswahl: ${item.options.map((o) => `${o.key}) ${o.text}`).join('; ')}` : '', item.table ? `Tabelle der Aufgabe: ${JSON.stringify(item.table)}` : '',
+        `Lösungshinweise: ${item.solution || '(keine)'}`, item.expected ? `Erwartetes Ergebnis: ${item.expected} ${item.unit || ''}` : '', item.grading ? `Bewertungshinweis: ${item.grading}` : '',
+        `Getippte Antwort des Prüflings: ${ansText(a || {}) || '(keine)'}`].filter(Boolean).join('\n') });
+      const c = await inkCrop(part, item, a).catch(() => null);
+      if (c) content.push({ type: 'text', text: `Handschriftliche Eintragungen zu Teilaufgabe id "${i}":` }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] } });
+    }
+    const out = JSON.parse(await claude({ system: GRADE_SYS, messages: [{ role: 'user', content }], output_config: { effort: 'high', format: { type: 'json_schema', schema: GRADE_SCHEMA } } }));
+    return out.teile.filter((x) => entries[+x.id]).map((x) => { const e = entries[+x.id]; const pts = Math.max(0, Math.min(e.item.points, Math.round(x.punkte * 2) / 2));
+      return { entry: e, pts, ai: { points: pts, comment: x.kommentar, read: x.gelesen, sure: x.sicher, at: new Date().toISOString() } }; });
+  }
+  // Ganze Sitzung: gradable = [{ part, t, item, a }], je Aufgabe eine Anfrage (drei zugleich). Liefert die Zahl der Aufgaben mit Fehler
+  async function claudeGrade(sid, gradable, progress) {
+    const groups = [...gradable.reduce((m, g) => { const k = `${g.part.id}|${g.t.number}`; (m.get(k) || m.set(k, []).get(k)).push(g); return m; }, new Map()).values()];
+    let done = 0, failed = 0; progress(0, groups.length);
+    await pool(3, groups, async (gs) => {
+      try {
+        for (const r of await claudeTask(gs[0].part, gs[0].t, gs)) await post(`/api/sessions/${sid}/self-grade`, { part: r.entry.part.id, item: r.entry.item.id, points: r.pts, criteria: r.entry.a.criteria, ai: r.ai });
+      } catch (e) { failed++; if (failed === 1) toast(`Claude: ${e.message}`, true); }
+      progress(++done, groups.length);
+    });
+    return failed;
+  }
   async function resultView(sid) {
     setNav('exams');
     const view = await api(`/api/sessions/${sid}`);
@@ -2352,51 +2424,18 @@ Für jede Teilaufgabe: gelesen = was du vom Prüfling gelesen hast, höchstens 6
       $$('[data-sgfull]', app).forEach((b) => b.onclick = () => { const [part, itemId] = b.dataset.sgfull.split('|'); const inp = app.querySelector(`input[data-sg="${part}|${itemId}"]`); sg(part, itemId, +inp.max); });
       $$('[data-sgzero]', app).forEach((b) => b.onclick = () => { const [part, itemId] = b.dataset.sgzero.split('|'); sg(part, itemId, 0); });
       if ($('#r-inkpdf')) $('#r-inkpdf').onclick = () => downloadPages(inkPages, `${s.exam_title} ausgefüllt`, inkPages.map((src) => inkMap.get(src)));
-      // Ausschnitt der Originalseite mit der eigenen Handschrift, über die ganze Breite (null ohne Handschrift)
-      const inkCanvas = async (part, it) => {
-        const st = inkOf(part.id, it), src = st && part.page_images && part.page_images[origPage(it) - 1];
-        if (!src) return null;
-        const ys = st.flatMap((x) => x.pts.map((q) => q[1])).concat((it.fields || []).flatMap((f) => [f.y, f.y + f.h]));
-        const y0 = Math.max(0, Math.min(...ys) - 0.02), y1 = Math.min(1, Math.max(...ys) + 0.02);
-        const img = await loadImg(await window.AP2Local.pageSrc(src)); const W = img.naturalWidth, H = img.naturalHeight;
-        const c = document.createElement('canvas'); c.width = W; c.height = Math.max(8, Math.round((y1 - y0) * H));
-        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-        g.drawImage(img, 0, y0 * H, W, c.height, 0, 0, W, c.height); g.drawImage(inkLayer(st, W, H), 0, y0 * H, W, c.height, 0, 0, W, c.height);
-        return c;
-      };
       const rcBtn = $('#r-claude'), rcBox = $('#r-claude-box');
       if (rcBtn) rcBtn.onclick = async () => {
         if (!claudeKey()) { rcBox.hidden = false; rcBox.innerHTML = claudeKeyHtml(); bindClaudeKey(rcBox, () => { rcBox.hidden = true; rcBtn.click(); }); $('[data-ckey]', rcBox).focus(); return; }
-        // je Aufgabe eine Anfrage, damit keine einzelne zu lang wird
-        const groups = [...gradable.reduce((m, g) => { const k = `${g.part.id}|${g.t.number}`; (m.get(k) || m.set(k, []).get(k)).push(g); return m; }, new Map()).values()];
-        rcBtn.disabled = true; let done = 0, failed = 0; const say = () => { rcBtn.textContent = `Claude bewertet (${done} von ${groups.length} Aufgaben)`; }; say();
-        await pool(3, groups, async (gs) => {
-          try {
-            const { part, t } = gs[0]; const content = [{ type: 'text', text: `Prüfungsbereich: ${part.title}\n${part.situation ? `Ausgangssituation: ${String(part.situation).slice(0, 1500)}\n` : ''}Aufgabe ${t.number}${t.title ? `: ${t.title}` : ''}\n${t.intro ? `Vorspann: ${String(t.intro).slice(0, 1500)}` : ''}` }];
-            for (const [i, { item, a }] of gs.entries()) {
-              content.push({ type: 'text', text: [`### Teilaufgabe id "${i}": ${t.number} ${item.label || ''}, höchstens ${item.points} Punkte`, `Aufgabenstellung: ${item.text}`,
-                item.options && item.options.length ? `Auswahl: ${item.options.map((o) => `${o.key}) ${o.text}`).join('; ')}` : '', item.table ? `Tabelle der Aufgabe: ${JSON.stringify(item.table)}` : '',
-                `Lösungshinweise: ${item.solution || '(keine)'}`, item.expected ? `Erwartetes Ergebnis: ${item.expected} ${item.unit || ''}` : '', item.grading ? `Bewertungshinweis: ${item.grading}` : '',
-                `Getippte Antwort des Prüflings: ${ansText(a) || '(keine)'}`].filter(Boolean).join('\n') });
-              const c = await inkCanvas(part, item).catch(() => null);
-              if (c) content.push({ type: 'text', text: `Handschriftliche Eintragungen zu Teilaufgabe id "${i}":` }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] } });
-            }
-            const out = JSON.parse(await claude({ system: GRADE_SYS, messages: [{ role: 'user', content }], output_config: { effort: 'high', format: { type: 'json_schema', schema: GRADE_SCHEMA } } }));
-            for (const x of out.teile) {
-              const g = gs[+x.id]; if (!g) continue;
-              const pts = Math.max(0, Math.min(g.item.points, Math.round(x.punkte * 2) / 2));
-              await post(`/api/sessions/${sid}/self-grade`, { part: g.part.id, item: g.item.id, points: pts, criteria: g.a.criteria, ai: { points: pts, comment: x.kommentar, read: x.gelesen, sure: x.sicher, at: new Date().toISOString() } });
-            }
-          } catch (e) { failed++; if (failed === 1) toast(`Claude: ${e.message}`, true); }
-          done++; say();
-        });
-        if (failed) toast(`${failed} von ${groups.length} Aufgaben konnten nicht bewertet werden`, true);
+        rcBtn.disabled = true;
+        const failed = await claudeGrade(sid, gradable, (done, n) => { rcBtn.textContent = `Claude bewertet (${done} von ${n} Aufgaben)`; });
+        if (failed) toast(`${failed} Aufgaben konnten nicht bewertet werden`, true);
         const y = window.scrollY; await render(); window.scrollTo(0, y);
       };
       for (const el of $$('[data-ink]', app)) {
         const [pid, iid] = el.dataset.ink.split('|'); const part = exam.parts.find((x) => x.id === pid); const it = part.tasks.flatMap((t) => t.items).find((x) => x.id === iid);
         try {
-          const c = await inkCanvas(part, it); if (!c) { el.remove(); continue; }
+          const c = await inkCrop(part, it, s.answers[answerKey(pid, it.id)]); if (!c) { el.remove(); continue; }
           c.setAttribute('role', 'img'); c.setAttribute('aria-label', 'Deine handschriftliche Antwort'); el.append(c);
         } catch (e) { el.textContent = 'Seite konnte nicht geladen werden.'; }
       }
@@ -2605,5 +2644,10 @@ Für jede Teilaufgabe: gelesen = was du vom Prüfling gelesen hast, höchstens 6
       catch (e) { $('#gate-err').textContent = e.message + '.'; $('#gate-pw').setAttribute('aria-invalid', 'true'); $('#gate-pw').focus(); $('#gate-go').disabled = false; $('#gate-go').textContent = 'Öffnen'; }
     };
   }
+  // Schnittstelle für das Training (train.js)
+  window.AP2App = { $, $$, esc, nl, fmtPts, ptsLabel, api, post, store, toast, setNav, subnav, errorState, icon, kindLabel, meterRow, fmtDate,
+    openModal, closeModal, docViewer, pageViewer, loadImg, inkLayer, inkCrop, origPage, pageAnswer, penMode, answerKey, ansText, renderAnswerInput, collectAnswer,
+    claude, claudeKey, claudeKeyHtml, bindClaudeKey, claudeTask, claudeGrade, aiPanel, pool, loadTopics,
+    stopTimer, startTimer: (fn) => { stopTimer(); fn(); state.timer = setInterval(fn, 1000); } };
   boot();
 })();
