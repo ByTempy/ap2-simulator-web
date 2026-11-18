@@ -140,24 +140,120 @@
     const pts = (x) => (cfg.kurz ? x.key_points.slice(0, 3) : x.key_points);
     // „Begriff: Erklärung“ – den Begriff hervorheben, damit das Auge beim Wiederholen Halt findet
     const point = (p) => { const m = String(p).match(/^([^:]{2,48}):\s(.+)$/s); return m ? `<b>${esc(m[1])}:</b> ${esc(m[2])}` : esc(p); };
-    app().innerHTML = `${head('Merkzettel', 'Die Merksätze aller Themen. Gedruckt dicht in drei Spalten auf A4. Im Druckdialog „Beidseitig“ wählen und unter „Weitere Einstellungen“ die Kopf- und Fußzeilen ausschalten.', back)}
+    app().innerHTML = `${head('Merkzettel', 'Die Merksätze aller Themen. „PDF zum Drucken“ setzt alles dicht in drei Spalten auf A4, ohne Kopf- und Fußzeilen des Browsers, kein Thema wird über eine Seite getrennt. Das PDF öffnen und beidseitig drucken.', back)}
       <div class="tr-merk-opts actions">${groups.map(([k, h]) => `<label class="check"><input type="checkbox" data-mp="${k}"${cfg.parts.includes(k) ? ' checked' : ''}><span>${esc(h)} <span class="small muted">${of(k).length} Themen</span></span></label>`).join('')}
         <label class="check"><input type="checkbox" id="m-kurz"${cfg.kurz ? ' checked' : ''}><span>Kurzfassung: 3 Merksätze je Thema</span></label>
-        <button type="button" class="btn primary" id="m-print">Drucken</button><span class="small muted" id="m-pages"></span></div>
+        <button type="button" class="btn primary" id="m-pdf">PDF zum Drucken</button><span class="small muted" id="m-pages"></span></div>
       <div class="tr-merk-doc" id="m-doc"></div>`;
     const draw = () => {
       const sel = groups.filter(([k]) => cfg.parts.includes(k));
       $('#m-doc').innerHTML = `<p class="tr-merk-title">Merkzettel AP2 IT-System-Elektroniker${cfg.kurz ? ', Kurzfassung' : ''}, Stand ${new Date().toLocaleDateString('de-DE')}</p>
         ${sel.map(([k, h, c]) => `<section class="tr-merk-g ${c}"><h2>${h} <span>${of(k).length} Themen</span></h2><div class="tr-merk">${of(k).map((x) => `<div class="tr-merk-t"><h3>${esc(x.name)}</h3><ul>${pts(x).map((p) => `<li>${point(p)}</li>`).join('')}</ul></div>`).join('')}</div></section>`).join('') || '<p class="empty">Keinen Bereich gewählt.</p>'}`;
-      // shortcut: grobe Seitenzahl aus den Zeichen (gemessen etwa 11 000 Zeichen je A4-Seite bei 6,6 pt in drei Spalten)
+      // shortcut: grobe Seitenzahl aus den Zeichen (gemessen im PDF etwa 9 000 Zeichen je Seite, weil kein Thema geteilt wird)
       const chars = sel.reduce((n, [k]) => n + of(k).reduce((m, x) => m + pts(x).join(' ').length + 60, 0), 0);
-      $('#m-pages').textContent = chars ? `etwa ${Math.max(1, Math.round(chars / 11000))} Seiten, beidseitig ${Math.max(1, Math.ceil(chars / 22000))} Blatt` : '';
+      $('#m-pages').textContent = chars ? `etwa ${Math.max(1, Math.round(chars / 9000))} Seiten, beidseitig ${Math.max(1, Math.ceil(chars / 18000))} Blatt` : '';
       const s2 = A().store.get('ap2.settings', {}); s2.merk = cfg; A().store.set('ap2.settings', s2);
     };
     $$('[data-mp]').forEach((c) => c.onchange = () => { cfg.parts = $$('[data-mp]').filter((x) => x.checked).map((x) => x.dataset.mp); draw(); });
     $('#m-kurz').onchange = (ev) => { cfg.kurz = ev.target.checked; draw(); };
-    $('#m-print').onclick = () => window.print();
+    $('#m-pdf').onclick = async (ev) => {
+      const b = ev.target; if (b.disabled) return; b.disabled = true; b.textContent = 'PDF wird gesetzt …';
+      try {
+        const sel = groups.filter(([k]) => cfg.parts.includes(k)).map(([k, h, c]) => ({ title: h, cls: c, topics: of(k).map((x) => ({ name: x.name, points: pts(x) })) }));
+        const pdf = await merkPdf(sel, `Merkzettel AP2 IT-System-Elektroniker${cfg.kurz ? ', Kurzfassung' : ''}, Stand ${new Date().toLocaleDateString('de-DE')}`);
+        A().saveBlob(new Blob([pdf.data], { type: 'application/pdf' }), `Merkzettel AP2${cfg.kurz ? ' Kurzfassung' : ''}.pdf`);
+        A().toast(`PDF mit ${pdf.pages} Seiten heruntergeladen, beidseitig ${Math.ceil(pdf.pages / 2)} Blatt`);
+      } catch (e) { A().toast(`PDF konnte nicht erstellt werden: ${e.message}`, true); }
+      b.disabled = false; b.textContent = 'PDF zum Drucken';
+    };
     draw();
+  }
+
+  // ---------- Merkzettel als PDF: selbst gesetzt (Canvas, 200 dpi), drei Spalten, kein Thema über eine Spalte oder Seite getrennt ----------
+  // groups = [{ title, cls, topics: [{ name, points }] }]. Liefert { data: Uint8Array, pages }
+  async function merkPdf(groups, title) {
+    const DPI = 200, K = DPI / 25.4, PT = 0.3528 * K;  // px je mm, px je Punkt
+    const W = Math.round(210 * K), H = Math.round(297 * K), M = 8 * K, GAP = 4 * K, COLS = 3, CW = (W - 2 * M - (COLS - 1) * GAP) / COLS, BOTTOM = H - M;
+    const css = getComputedStyle(document.documentElement), tok = (n) => css.getPropertyValue(n).trim();
+    const FONT = 'Geologica, ui-sans-serif, system-ui, sans-serif';
+    await Promise.all(['400', '560', '600'].map((w) => document.fonts.load(`${w} 20px Geologica`).catch(() => null)));
+    const ink = tok('--color-print-ink') || '#111', paper = '#ffffff', area = { t1: tok('--color-print-area-t1'), t2: tok('--color-print-area-t2'), wiso: tok('--color-print-area-wiso') };
+    const S = { body: 6.6 * PT, h3: 7.2 * PT, band: 8.6 * PT, title: 10 * PT };
+    const LH = S.body * 1.2, IND = 2.4 * K;
+    const mctx = document.createElement('canvas').getContext('2d');
+    const font = (w, px) => `${w} ${px}px ${FONT}`;
+    const width = (t, w, px) => { mctx.font = font(w, px); return mctx.measureText(t).width; };
+    // Zeilenumbruch mit fettem Begriff am Anfang: runs = [{ t, b }]
+    const wrap = (runs, maxW, px) => {
+      const words = runs.flatMap((r) => r.t.split(/(\s+)/).filter((x) => x !== '').map((t) => ({ t, b: r.b })));
+      const lines = []; let cur = [], cw = 0;
+      const push = () => { while (cur.length && /^\s+$/.test(cur[cur.length - 1].t)) cur.pop(); lines.push(cur); cur = []; cw = 0; };
+      for (const wd of words) {
+        if (/^\s+$/.test(wd.t)) { if (cur.length) { cur.push({ t: ' ', b: wd.b }); cw += width(' ', wd.b ? 560 : 400, px); } continue; }
+        let w = width(wd.t, wd.b ? 560 : 400, px);
+        if (cw + w > maxW && cur.length) push();
+        // sehr lange Wörter (Adressen, Formeln) zeichenweise umbrechen
+        let t = wd.t;
+        while (w > maxW) { let n = t.length; while (n > 1 && width(t.slice(0, n), wd.b ? 560 : 400, px) > maxW) n--; cur.push({ t: t.slice(0, n), b: wd.b }); push(); t = t.slice(n); w = width(t, wd.b ? 560 : 400, px); }
+        cur.push({ t, b: wd.b }); cw += w;
+      }
+      if (cur.length) push();
+      return lines;
+    };
+    const runsOf = (p) => { const m = String(p).match(/^([^:]{2,48}):\s(.+)$/s); return m ? [{ t: m[1] + ':', b: true }, { t: ' ' + m[2], b: false }] : [{ t: String(p), b: false }]; };
+    // Thema vorbereiten: Überschrift und Punkte als Zeilen, Gesamthöhe
+    const layout = (tp) => {
+      const head = wrap([{ t: tp.name, b: true }], CW, S.h3);
+      const items = tp.points.map((p) => wrap(runsOf(p), CW - IND, S.body));
+      const h = head.length * S.h3 * 1.18 + 0.5 * K + 0.6 * K + items.reduce((n, l) => n + l.length * LH + 0.25 * K, 0) + 1.8 * K;
+      return { tp, head, items, h };
+    };
+    const pages = []; let g = null, col = 0, colTop = M, ys = [];
+    const newPage = (first) => {
+      const c = document.createElement('canvas'); c.width = W; c.height = H; g = c.getContext('2d'); g.fillStyle = paper; g.fillRect(0, 0, W, H); g.textBaseline = 'alphabetic';
+      pages.push(c); colTop = M; col = 0;
+      if (first) { g.fillStyle = ink; g.font = font(600, S.title); g.fillText(title, M, M + S.title); colTop = M + S.title + 1.6 * K; g.fillRect(M, colTop, W - 2 * M, 0.5 * K); colTop += 2.4 * K; }
+      ys = Array(COLS).fill(colTop);
+    };
+    const drawRuns = (line, x, y, px, color) => { let cx = x; line.forEach((r) => { g.font = font(r.b ? 560 : 400, px); g.fillStyle = color; g.fillText(r.t, cx, y); cx += g.measureText(r.t).width; }); };
+    const drawTopic = (L, x, y, color) => {
+      g.font = font(600, S.h3); g.fillStyle = color;
+      L.head.forEach((ln) => { y += S.h3 * 1.18; g.fillText(ln.map((r) => r.t).join(''), x, y - S.h3 * 0.18); });
+      y += 0.3 * K; g.fillRect(x, y, CW, 0.35 * K); y += 0.8 * K;
+      L.items.forEach((lines) => {
+        lines.forEach((ln, i) => {
+          y += LH;
+          if (!i) { g.fillStyle = color; g.beginPath(); g.arc(x + 0.8 * K, y - S.body * 0.33, 0.45 * K, 0, 7); g.fill(); }
+          drawRuns(ln, x + IND, y - LH * 0.18, S.body, ink);
+        });
+        y += 0.25 * K;
+      });
+      return y + 1.8 * K;
+    };
+    newPage(true);
+    for (const grp of groups) {
+      const color = area[grp.cls] || ink, bandH = S.band * 1.7;
+      const Ls = grp.topics.map(layout);
+      // Band über die ganze Breite unter dem bisher Belegten; passt danach kein erstes Thema mehr hin: neue Seite
+      let yb = Math.max(...ys); if (yb > colTop) yb += 1.2 * K;
+      if (yb + bandH + 1.6 * K + (Ls[0] ? Ls[0].h : 0) > BOTTOM) { newPage(false); yb = colTop; }
+      g.fillStyle = color; g.beginPath(); g.roundRect(M, yb, W - 2 * M, bandH, 0.8 * K); g.fill();
+      g.fillStyle = paper; g.font = font(600, S.band); g.fillText(grp.title, M + 2 * K, yb + bandH * 0.68);
+      const cnt = `${grp.topics.length} Themen`; g.font = font(400, S.body); g.fillText(cnt, W - M - 2 * K - g.measureText(cnt).width, yb + bandH * 0.68);
+      colTop = yb + bandH + 1.6 * K; ys = Array(COLS).fill(colTop); col = 0;
+      for (const L of Ls) {
+        // in die aktuelle Spalte, sonst nächste Spalte, sonst neue Seite; nie ein Thema teilen
+        while (ys[col] + L.h > BOTTOM) {
+          if (col < COLS - 1) col++;
+          else if (colTop === M && ys.every((v) => v === M)) break;  // höher als eine ganze Spalte: ausnahmsweise überstehen lassen
+          else newPage(false);
+        }
+        ys[col] = drawTopic(L, M + col * (CW + GAP), ys[col], color);
+      }
+    }
+    const imgs = [];
+    for (const c of pages) { const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.72)); imgs.push({ w: c.width, h: c.height, data: new Uint8Array(await blob.arrayBuffer()) }); }
+    return { data: A().pdfFromJpegs(imgs), pages: pages.length };
   }
 
   // ---------- Teilaufgabe lernen ----------

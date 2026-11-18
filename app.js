@@ -2646,7 +2646,7 @@ Für jede Teilaufgabe: gelesen = was du vom Prüfling gelesen hast, höchstens 6
     };
   }
   // Schnittstelle für das Training (train.js)
-  window.AP2App = { $, $$, esc, nl, fmtPts, ptsLabel, api, post, store, toast, setNav, subnav, errorState, icon, kindLabel, meterRow, fmtDate,
+  window.AP2App = { $, $$, esc, nl, fmtPts, ptsLabel, api, post, store, toast, setNav, subnav, errorState, icon, kindLabel, meterRow, fmtDate, pdfFromJpegs, saveBlob,
     openModal, closeModal, docViewer, pageViewer, loadImg, inkLayer, inkCrop, origPage, pageAnswer, penMode, answerKey, ansText, renderAnswerInput, collectAnswer,
     claude, claudeKey, claudeKeyHtml, bindClaudeKey, claudeTask, claudeGrade, aiPanel, pool, loadTopics,
     stopTimer, startTimer: (fn) => { stopTimer(); fn(); state.timer = setInterval(fn, 1000); } };
