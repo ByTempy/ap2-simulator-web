@@ -154,26 +154,29 @@
     const firstOfTask = task.items[0] === it;
     const beleg = (part.attachments || []).find((a) => a.pages && a.pages.length);
     const getA = () => t.ans[key] || {};
+    const src0 = part.page_images && part.page_images[pg - 1];
+    document.body.classList.add('tr-wide');
     app().innerHTML = `<div class="tr-work">
       <div class="page-head"><div><p class="small muted">${back} / ${q ? `<a href="#/training/q/${encodeURIComponent(q)}">${esc(qName(q))}</a>` : `<a href="#/training/lernen">Prüfungen</a>`} / ${esc(examShort(o.ex))}, ${esc(SIM_KINDS[part.kind])}</p>
         <h1>Aufgabe ${task.number} ${esc(it.label || '')} <span class="small muted">${esc(task.title || '')}, ${A().ptsLabel(it.points)}</span></h1></div>
         <div class="actions">${beleg ? '<button type="button" class="btn sm" id="i-beleg">Belegsatz</button>' : ''}${(it.figure_pages || []).some((n) => n !== pg) ? '<button type="button" class="btn sm" id="i-fig">Abbildung</button>' : ''}<button type="button" class="btn sm" id="i-page">Ganze Seite</button></div></div>
       <nav class="tr-steps" aria-label="Teilaufgaben">${list.map((k, n) => { const x = d.byKey[k], rr = t.r[k]; return `<a href="${itemHref(k, q)}" class="${rr ? 's' + rr.v : ''}"${k === key ? ' aria-current="true"' : ''} title="${esc(examShort(x.ex))}, ${esc(itemName(x))}">${q ? n + 1 : esc(itemName(x).replace(/\s+/g, ''))}</a>`; }).join('')}</nav>
       ${task.intro ? `<details class="disc"${firstOfTask ? ' open' : ''}><summary>Ausgangslage zu Aufgabe ${task.number}</summary><div class="disc-body prose"><p>${nl(task.intro)}</p></div></details>` : ''}
-      <div class="tr-crop" id="i-crop" aria-label="Ausschnitt aus dem Prüfungsheft"></div>
+      <div class="tr-cols"><div class="tr-main"><div class="tr-crop" id="i-crop" aria-label="Ausschnitt aus dem Prüfungsheft"></div></div><div class="tr-side">
       <details class="disc"><summary>Aufgabentext zum Lesen</summary><div class="disc-body prose"><p>${nl(it.text)}</p></div></details>
       <label class="field" style="margin-top:var(--space-sm)"><span>Getippte Antwort</span><textarea class="input" id="i-typed" rows="3">${esc(getA().typed || '')}</textarea></label>
       <div class="actions" style="margin-top:var(--space-md)"><button type="button" class="btn primary" id="i-sol" aria-expanded="false" aria-controls="i-solbox">Lösung zeigen</button>${(part.solution_pages || []).length ? '<button type="button" class="btn" id="i-ihk">IHK-Lösung im Original</button>' : ''}<button type="button" class="btn" id="i-check">Mit Claude prüfen</button></div>
       <div id="i-claude"></div>
-      <div class="panel solution" id="i-solbox" hidden>${nl(it.solution || 'Zu dieser Teilaufgabe gibt es keinen Lösungstext.')}${it.expected ? `<p><strong>Ergebnis: ${esc(it.expected)} ${esc(it.unit || '')}</strong></p>` : ''}${it.grading ? `<p class="grading">Bewertung: ${esc(it.grading)}</p>` : ''}</div>
+      <div class="panel solution" id="i-solbox" hidden>${src0 && it.solution ? `<details><summary>Lösung als Text</summary><p>${nl(it.solution)}</p></details>` : nl(it.solution || 'Zu dieser Teilaufgabe gibt es keinen Lösungstext.')}${it.expected ? `<p><strong>Ergebnis: ${esc(it.expected)} ${esc(it.unit || '')}</strong></p>` : ''}${it.grading ? `<p class="grading">Bewertung: ${esc(it.grading)}</p>` : ''}</div>
       <section class="section"><h2>Wie gut sitzt das?</h2><div class="actions tr-rate">${RATE.map(([v, l, c]) => `<button type="button" class="btn ${c}" data-rate="${v}" aria-pressed="${!!r && r.v === v}">${l} <span class="small muted">${v}</span></button>`).join('')}</div>
         <p class="small muted">Ehrlich einschätzen: Unsicheres kommt in zwei Tagen wieder, was noch nicht sitzt, schon morgen. Tasten 1, 2, 3; Pfeile links und rechts blättern, Pfeil runter zeigt die Lösung.</p></section>
       <details class="disc" id="i-ki"><summary>Lernpartner (KI): erklären, abfragen, Fragen stellen</summary><div class="disc-body" id="i-kibox"></div></details>
+      </div></div>
       <div class="tr-foot">${prev ? `<a class="btn" href="${itemHref(prev, q)}">Zurück</a>` : '<span></span>'}<span class="small muted">${i + 1} von ${list.length}</span>${next ? `<a class="btn primary" href="${itemHref(next, q)}">Weiter</a>` : `<a class="btn primary" href="${q ? `#/training/q/${encodeURIComponent(q)}` : '#/training/lernen'}">Fertig</a>`}</div>
     </div>`;
     // Ausschnitt: von unter der vorigen Teilaufgabe auf derselben Seite bis unter die eigenen Felder
     const host = $('#i-crop'), src = part.page_images && part.page_images[pg - 1];
-    let pa = null, timer = null;
+    let pa = null, timer = null, over = null;
     const persist = () => { clearTimeout(timer); timer = setTimeout(() => { const tt = tload(); const cur = Object.assign({}, tt.ans[key] || {}); if (pa) pa.changed().forEach(([, ans]) => Object.assign(cur, ans)); cur.typed = $('#i-typed') ? $('#i-typed').value : cur.typed; tt.ans[key] = cur; tsave(tt); t.ans[key] = cur; }, 400); };
     if (src) {
       const own = (it.fields || []).filter((f) => f.page === pg);
@@ -183,6 +186,8 @@
       const prevB = onPage.slice(0, k).map(fb).filter(Boolean).pop(), nextB = onPage.slice(k + 1).map(fb).find(Boolean);
       let y0 = Math.max(0, (prevB ? prevB[1] : 0.02) - 0.005);
       let y1 = own.length ? Math.min(1, Math.max(...own.map((f) => f.y + f.h)) + 0.015) : nextB ? Math.max(y0 + 0.05, nextB[0] - 0.035) : 1;
+      // davor stehen Teilaufgaben ohne Felder: nicht bis zu deren Anfang zurück, nur bis kurz über die eigene Frage
+      if (own.length && k > 0 && !fb(onPage[k - 1])) y0 = Math.max(y0, Math.min(...own.map((f) => f.y)) - 0.075);
       if (!own.length) { // mehrere Teilaufgaben ohne Felder hintereinander: die Lücke gleichmäßig aufteilen
         let a = k, b = k; while (a > 0 && !fb(onPage[a - 1])) a--; while (b < onPage.length - 1 && !fb(onPage[b + 1])) b++;
         // nach Punkten gewichtet: mehr Punkte, mehr Antwortlinien
@@ -193,6 +198,27 @@
       pa = A().pageAnswer(host, part, pg, [it], () => getA(), persist, { noFields: true });
       // nur die Seite beschneiden, die Werkzeugleiste darüber bleibt sichtbar
       const mp = $('.mark-page', host);
+      // Lösung wie eingetragen: in den Antwortfeldern, eine Zeile je Feld, wenn das aufgeht; sonst im Antwortbereich
+      if (mp && it.solution) {
+        const lines = String(it.solution).split('\n').filter((x) => x.trim());
+        const box = (fs) => ({ x: Math.min(...fs.map((f) => f.x)), y: Math.min(...fs.map((f) => f.y)), r: Math.max(...fs.map((f) => f.x + f.w)), b: Math.max(...fs.map((f) => f.y + f.h)) });
+        const zones = own.length > 1 && lines.length === own.length ? own.map((f, n) => [box([f]), lines[n]]) : [[own.length ? box(own) : { x: 0.04, y: y0 + 0.035, r: 0.86, b: y1 }, lines.join('\n')]];
+        // Zeilenabstand: auf den gedruckten Antwortlinien (lh) oder je Tabellenzeile eine Lösungszeile
+        const lhOf = (z, txt) => it.table && zones.length === 1 && it.table.rows && it.table.rows.length === txt.split('\n').length ? (z.b - z.y) / it.table.rows.length : (own[0] && own[0].lh) || 0;
+        over = zones.map(([z, txt]) => { const el = document.createElement('div'); el.className = 'tr-solover'; el.hidden = true; el.textContent = txt; el.dataset.lh = lhOf(z, txt);
+          Object.assign(el.style, { left: `${z.x * 100}%`, top: `${z.y * 100}%`, width: `${(z.r - z.x) * 100}%`, height: `${(z.b - z.y) * 100}%` }); mp.append(el); return el; });
+        // Schrift so groß wie möglich, aber der Text muss ins Feld passen
+        const fit = () => over.forEach((el) => {
+          if (el.hidden) return;
+          const u = mp.clientWidth / 100, lh = +el.dataset.lh * mp.clientHeight;
+          let f = lh ? Math.min(2.2 * u, lh * 0.72) : 2.2 * u, l = lh || f * 1.3;
+          const set = () => { el.style.fontSize = `${f}px`; el.style.lineHeight = `${l}px`; };
+          set();
+          // passt nicht: Schrift und Zeilenabstand gemeinsam verkleinern
+          while (el.scrollHeight > el.clientHeight + 1 && f > 1.1 * u) { f *= 0.94; l = Math.max(f * 1.2, l * 0.94); set(); }
+        });
+        over.fit = fit; new ResizeObserver(fit).observe(mp);
+      }
       if (mp && cropped) {
         const win = document.createElement('div'); win.className = 'tr-cropwin'; mp.before(win); win.append(mp);
         A().loadImg(await window.AP2Local.pageSrc(src)).then((img) => { const ar = img.naturalHeight / img.naturalWidth; win.style.aspectRatio = `1 / ${(y1 - y0) * ar}`; mp.style.marginTop = `${-y0 * ar * 100}%`; }).catch(() => {});
@@ -204,7 +230,8 @@
     if ($('#i-beleg')) $('#i-beleg').onclick = () => A().pageViewer(beleg.pages, 0, beleg.title || 'Belegsatz');
     if ($('#i-ihk')) $('#i-ihk').onclick = () => A().pageViewer(part.solution_pages, 0, `IHK-Lösungshinweise ${examShort(o.ex)}, ${SIM_KINDS[part.kind]}`);
     const solBtn = $('#i-sol'), solBox = $('#i-solbox');
-    const toggleSol = (show) => { solBox.hidden = show === undefined ? !solBox.hidden : !show; solBtn.setAttribute('aria-expanded', String(!solBox.hidden)); solBtn.textContent = solBox.hidden ? 'Lösung zeigen' : 'Lösung ausblenden'; };
+    const toggleSol = (show) => { solBox.hidden = show === undefined ? !solBox.hidden : !show;
+      if (over) { over.forEach((el) => { el.hidden = solBox.hidden; }); over.fit(); } solBtn.setAttribute('aria-expanded', String(!solBox.hidden)); solBtn.textContent = solBox.hidden ? 'Lösung zeigen' : 'Lösung ausblenden'; };
     solBtn.onclick = () => toggleSol();
     const rate = (v) => { const tt = tload(); tt.r[key] = { v, at: new Date().toISOString() }; tsave(tt); location.hash = next ? itemHref(next, q) : (q ? `#/training/q/${encodeURIComponent(q)}` : '#/training/lernen'); };
     $$('[data-rate]').forEach((b) => b.onclick = () => rate(+b.dataset.rate));
@@ -307,11 +334,12 @@
     const answers = () => view.session.answers;
     const getA = (id) => answers()[A().answerKey(pid, id)] || {};
     const hasInk = (n) => items.some((it) => A().origPage(it) === n && (((getA(it.id).marks || {}).strokes || []).length || (getA(it.id).fields || []).some(Boolean) || !!getA(it.id).value));
+    document.body.classList.add('tr-wide');
     app().innerHTML = `<div class="tr-sim">
       <div class="tr-simbar"><div><p class="small muted">${where}</p></div>
         <div class="actions">${beleg ? '<button type="button" class="btn sm" id="s-beleg">Belegsatz</button>' : ''}<button type="button" class="btn sm primary" id="s-end">Abgeben</button></div></div>
       <nav class="tr-steps" aria-label="Seiten"${isWiso ? ' hidden' : ''}>${pages.map((n, k) => `<a href="#/training/sim/${sid}/${k + 1}" class="${hasInk(n) ? 'done' : ''}"${k + 1 === pg ? ' aria-current="true"' : ''}>S. ${n}</a>`).join('')}</nav>
-      <div class="${isWiso ? 'tr-wiso' : ''}"><div id="s-page" class="tr-page"></div>${isWiso ? '<aside class="tr-bogen" aria-label="Antwortbogen"><h2>Antwortbogen</h2><div id="s-bogen"></div></aside>' : ''}</div>
+      <div class="${isWiso ? 'tr-wiso' : beleg ? 'tr-simgrid' : ''}"><div id="s-page" class="tr-page"></div>${isWiso ? '<aside class="tr-bogen" aria-label="Antwortbogen"><h2>Antwortbogen</h2><div id="s-bogen"></div></aside>' : beleg ? '<aside class="tr-belside" aria-label="Belegsatz"><div id="s-belside"></div></aside>' : ''}</div>
       <div class="tr-foot">${pg > 1 ? `<a class="btn" href="#/training/sim/${sid}/${pg - 1}">Vorige Seite</a>` : '<span></span>'}<span class="small muted">${isWiso ? 'Antworten rechts im Antwortbogen' : `Seite ${pg} von ${pages.length}`}</span>${pg < pages.length ? `<a class="btn primary" href="#/training/sim/${sid}/${pg + 1}">Nächste Seite</a>` : '<button type="button" class="btn primary" id="s-end2">Abgeben</button>'}</div>
     </div>`;
     // Speichern: geänderte Teilaufgaben nach kurzer Pause an die Sitzung
@@ -326,6 +354,8 @@
       bog.innerHTML = items.map((it) => `<form class="tr-bq" data-item="${esc(it.id)}"><p><strong>${esc(itemName({ part, t: tasks.find((t) => t.items.includes(it)), it }))}</strong> <span class="small muted">${A().ptsLabel(it.points)}</span></p><p class="small">${esc(String(it.text || '').slice(0, 220))}</p>${A().renderAnswerInput(it, Object.assign({ text: '', value: '', selected: [], cells: [] }, getA(it.id)), false)}</form>`).join('');
       $$('form.tr-bq', bog).forEach((f) => { const it = items.find((x) => x.id === f.dataset.item); f.onsubmit = (ev) => ev.preventDefault(); f.oninput = f.onchange = () => { pending.set(it.id, A().collectAnswer(f, it, getA(it.id))); changed(); }; });
     } else pa = A().pageAnswer($('#s-page'), part, page, items, getA, changed);
+    // Belegsatz daneben nur, wenn Platz ist (sonst über den Knopf)
+    if (beleg && $('#s-belside') && matchMedia('(min-width: 75rem)').matches) A().docViewer($('#s-belside'), beleg.pages, { inline: true, zoom: 'width', title: 'Belegsatz' });
     // Seitenwechsel erst nach dem Speichern, sonst zeigt die neue Seite einen alten Stand
     $$('.tr-steps a, .tr-foot a').forEach((a) => a.addEventListener('click', async (ev) => { ev.preventDefault(); await flush(); location.hash = a.getAttribute('href'); }));
     if ($('#s-beleg')) $('#s-beleg').onclick = () => A().pageViewer(beleg.pages, 0, beleg.title || 'Belegsatz');
@@ -412,6 +442,7 @@
     A().setNav('train');
     const { $, esc } = A();
     const view = await A().api(`/api/sessions/${sid}`), s = view.session, exam = view.exam, r = await A().api(`/api/sessions/${sid}/result`);
+    document.body.classList.add('tr-wide');
     app().innerHTML = `${head('Korrigiertes Heft', 'Deine Eintragungen auf den Originalseiten. Rechts im Korrekturrand stehen die Punkte je Teilaufgabe.', `${back} / <a href="#/training/ergebnis/${sid}">Auswertung</a>`)}<div id="h-pages" class="tr-heft"></div>`;
     const host = $('#h-pages');
     for (const p of r.parts) {

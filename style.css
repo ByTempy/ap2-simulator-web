@@ -765,3 +765,21 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .tr-merk-t ul { margin: var(--space-2xs) 0 0; padding-left: 1.1rem; font-size: var(--text-sm); }
 @media (max-width: 52rem) { .tr-wiso { grid-template-columns: 1fr; } .tr-wiso .dv, .tr-bogen { height: auto; max-height: none; } }
 @media print { .tr-merk { columns: 2; } .tr-foot, #m-print { display: none; } }
+/* Training: Lösung wie eingetragen auf dem Originalblatt (über dem Scan, daher Scan-Farben) */
+.tr-solover { position: absolute; z-index: 1; overflow: auto; padding: 0 0.6%; white-space: pre-wrap; overflow-wrap: anywhere; font: 500 calc(var(--u) * 2) / 1.3 var(--font-body); color: var(--color-mark-ok); background: color-mix(in oklch, var(--color-scan) 90%, transparent); outline: var(--rule-hair) solid var(--color-mark-ok); pointer-events: none; }
+.tr-solover[hidden] { display: none; }
+/* Training auf großen Bildschirmen (ab 75rem): ganze Breite, Heft links, Bedienung oder Belegsatz rechts */
+body.tr-wide main.app { max-width: none; }
+@media (min-width: 75rem) {
+  body.tr-wide main.app { padding-inline: var(--space-xl); }
+  .tr-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(22rem, 1fr); gap: var(--space-xl); align-items: start; }
+  .tr-side { position: sticky; top: calc(var(--nav-h) + var(--space-sm)); max-height: calc(100dvh - var(--nav-h) - 5.5rem); overflow-y: auto; padding-right: var(--space-2xs); }
+  .tr-side > .field:first-of-type, .tr-side > details:first-child { margin-top: var(--space-sm); }
+  .tr-simgrid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(24rem, 1fr); gap: var(--space-lg); align-items: start; }
+  .tr-belside { position: sticky; top: calc(var(--nav-h) + var(--space-sm)); }
+  .tr-belside .dv { height: calc(100dvh - var(--nav-h) - 7rem); }
+  .tr-wiso { grid-template-columns: minmax(0, 1.4fr) minmax(26rem, 1fr); }
+  .tr-heft { grid-template-columns: repeat(auto-fill, minmax(min(100%, 40rem), 1fr)); }
+  .tr-heft h2 { grid-column: 1 / -1; }
+}
+@media (max-width: 74.99rem) { .tr-belside { display: none; } }

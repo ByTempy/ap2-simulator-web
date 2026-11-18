@@ -359,6 +359,7 @@
     const hash = location.hash || '#/';
     stopTimer();
     closeMenu();
+    document.body.classList.remove('tr-wide');  // breite Ansicht nur für Training-Seiten, die sie selbst setzen
     for (const [re, fn] of [...routes, ...((window.AP2Train && window.AP2Train.routes) || [])]) {
       const m = hash.match(re);
       if (m) {
