@@ -768,10 +768,13 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 @media (max-width: 52rem) { .tr-wiso { grid-template-columns: 1fr; } .tr-wiso .dv, .tr-bogen { height: auto; max-height: none; } }
 @media print { .tr-foot { display: none; } }
 /* Merkzettel gedruckt: dicht, drei Spalten, Themen dürfen über Spalten und Seiten laufen (sonst leere Seiten in Firefox) */
-@page merk { size: A4; margin: 8mm 8mm 9mm; }
+@page merk { size: A4; margin: 0; }  /* ohne Rand druckt der Browser keine Kopf- und Fußzeilen */
 @media print {
   body:has(.tr-merk-doc) .page-head, .tr-merk-opts { display: none !important; }
-  .tr-merk-doc { page: merk; color: var(--color-print-ink); font: 400 6.6pt/1.14 var(--font-body); }
+  body:has(.tr-merk-doc) { page: merk; }  /* ganzer Körper auf derselben Seitenart, sonst bricht danach eine leere Seite um */
+  body:has(.tr-merk-doc) .skip, body:has(.tr-merk-doc) #toast, body:has(.tr-merk-doc) #modal { display: none !important; }
+  body:has(.tr-merk-doc) main.app { margin: 0; max-width: none; padding: 0; }
+  .tr-merk-doc { color: var(--color-print-ink); font: 400 6.6pt/1.14 var(--font-body); padding: 8mm 8mm 9mm; -webkit-box-decoration-break: clone; box-decoration-break: clone; }  /* Rand auf jeder Seite */
   .tr-merk-title { display: block; margin: 0 0 1.5mm; font: 600 9pt/1.2 var(--font-display); }
   .tr-merk-doc h2, .tr-merk-doc h3, .tr-merk-doc li, .tr-merk-title { color: var(--color-print-ink); }
   .tr-merk-g + .tr-merk-g { margin-top: 2.5mm; }
