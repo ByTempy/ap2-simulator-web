@@ -775,24 +775,24 @@ textarea.mark-text:focus { outline-color: var(--color-pen); }
 .tr-merk-t li b { font-weight: 600; }
 @media print { .tr-foot { display: none; } }
 /* Merkzettel gedruckt: dicht, drei Spalten, Themen dürfen über Spalten und Seiten laufen (sonst leere Seiten in Firefox) */
-@page merk { size: A4; margin: 0; }  /* ohne Rand druckt der Browser keine Kopf- und Fußzeilen */
+@page merk { size: A4; margin: 7mm 8mm 8mm; }  /* Kopf- und Fußzeilen des Browsers lassen sich nur im Druckdialog abschalten */
 @media print {
   body:has(.tr-merk-doc) .page-head, .tr-merk-opts { display: none !important; }
   body:has(.tr-merk-doc) { page: merk; }  /* ganzer Körper auf derselben Seitenart, sonst bricht danach eine leere Seite um */
   body:has(.tr-merk-doc) .skip, body:has(.tr-merk-doc) #toast, body:has(.tr-merk-doc) #modal { display: none !important; }
   body:has(.tr-merk-doc) main.app { margin: 0; max-width: none; padding: 0; }
-  .tr-merk-doc { color: var(--color-print-ink); font: 400 6.6pt/1.15 var(--font-body); padding: 8mm 8mm 9mm; -webkit-box-decoration-break: clone; box-decoration-break: clone; print-color-adjust: exact; -webkit-print-color-adjust: exact; }  /* Rand auf jeder Seite, Farben mitdrucken */
+  .tr-merk-doc { color: var(--color-print-ink); font: 400 6.6pt/1.15 var(--font-body); padding: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }  /* Farben mitdrucken */
   .tr-merk-g { --area: var(--color-print-area-t1); } .tr-merk-g.t2 { --area: var(--color-print-area-t2); } .tr-merk-g.wiso { --area: var(--color-print-area-wiso); }
   .tr-merk-title { display: block; margin: 0 0 2mm; padding-bottom: 1mm; font: 600 10pt/1.2 var(--font-display); color: var(--color-print-ink); border-bottom: 0.5mm solid var(--color-print-ink); }
   .tr-merk-g + .tr-merk-g { margin-top: 3mm; }
-  .tr-merk-g h2 { margin: 0 0 1.6mm; padding: 0.9mm 2mm; font: 600 8.6pt/1.2 var(--font-display); color: var(--color-scan); background: var(--area); border-radius: 0.8mm; break-after: avoid; }
+  .tr-merk-g h2 { margin: 0 0 1.6mm; padding: 0.9mm 2mm; font: 600 8.6pt/1.2 var(--font-display); letter-spacing: 0; color: var(--color-scan); background: var(--area); border-radius: 0.8mm; break-after: avoid; }
   .tr-merk-g h2 span { font-size: 6.6pt; }
   .tr-merk { columns: 3; column-gap: 4mm; column-rule: 0.2mm solid color-mix(in oklch, var(--area) 35%, var(--color-scan)); }
   .tr-merk-t { break-inside: auto; margin: 0 0 1.4mm; }
-  .tr-merk-t h3 { margin: 0 0 0.4mm; padding: 0 0 0.25mm; font: 700 7.2pt/1.15 var(--font-display); color: var(--area); border-bottom: 0.35mm solid var(--area); break-after: avoid; }
+  .tr-merk-t h3 { margin: 0 0 0.4mm; padding: 0 0 0.25mm; font: 600 7.2pt/1.15 var(--font-display); letter-spacing: 0; color: var(--area); border-bottom: 0.35mm solid var(--area); break-after: avoid; }
   .tr-merk-t ul { margin: 0; padding-left: 2.2mm; font-size: 6.6pt; }
   .tr-merk-t li { margin: 0 0 0.25mm; break-inside: avoid; color: var(--color-print-ink); }
-  .tr-merk-t li b { font-weight: 700; color: var(--color-print-ink); }
+  .tr-merk-t li b { font-weight: 560; color: var(--color-print-ink); }  /* kräftiger wirkt bei 6,6 pt im Druck verschmiert */
 }
 
 /* Training: Lösung wie eingetragen auf dem Originalblatt (über dem Scan, daher Scan-Farben) */

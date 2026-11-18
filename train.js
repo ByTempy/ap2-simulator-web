@@ -140,7 +140,7 @@
     const pts = (x) => (cfg.kurz ? x.key_points.slice(0, 3) : x.key_points);
     // „Begriff: Erklärung“ – den Begriff hervorheben, damit das Auge beim Wiederholen Halt findet
     const point = (p) => { const m = String(p).match(/^([^:]{2,48}):\s(.+)$/s); return m ? `<b>${esc(m[1])}:</b> ${esc(m[2])}` : esc(p); };
-    app().innerHTML = `${head('Merkzettel', 'Die Merksätze aller Themen. Gedruckt dicht in drei Spalten auf A4. Zum Papiersparen im Druckdialog „Beidseitig“ wählen.', back)}
+    app().innerHTML = `${head('Merkzettel', 'Die Merksätze aller Themen. Gedruckt dicht in drei Spalten auf A4. Im Druckdialog „Beidseitig“ wählen und unter „Weitere Einstellungen“ die Kopf- und Fußzeilen ausschalten.', back)}
       <div class="tr-merk-opts actions">${groups.map(([k, h]) => `<label class="check"><input type="checkbox" data-mp="${k}"${cfg.parts.includes(k) ? ' checked' : ''}><span>${esc(h)} <span class="small muted">${of(k).length} Themen</span></span></label>`).join('')}
         <label class="check"><input type="checkbox" id="m-kurz"${cfg.kurz ? ' checked' : ''}><span>Kurzfassung: 3 Merksätze je Thema</span></label>
         <button type="button" class="btn primary" id="m-print">Drucken</button><span class="small muted" id="m-pages"></span></div>
