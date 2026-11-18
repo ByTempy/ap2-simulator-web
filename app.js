@@ -1083,19 +1083,32 @@
         <div class="ff-cats">${cats.map((c, i) => !count(i) ? '' : `<label class="check"><input type="checkbox" data-ff="${i}"${on.has(c) ? ' checked' : ''}><span>${esc(c)} <span class="small muted">${count(i)}</span></span></label>`).join('')}</div></div></details>
       ${ff.source ? `<p class="small muted" style="margin-top:var(--space-lg)">Fragen und Antworten aus <a href="${esc(ff.source.url)}" target="_blank" rel="noopener">S.h.I.T.</a> von ${esc(ff.source.author)}, abgerufen am ${esc(ff.source.date)}. Die Verwendung ist laut Autor frei.</p>` : ''}`;
     let cur = null;
-    const show = (pick) => {
+    const hist = []; let hp = -1; // gezeigte Fragen für Pfeil links/rechts
+    const show = (pick, back) => {
       const pool = ff.questions.filter((q) => q.cats.some((i) => on.has(cats[i]))); const card = $('#ff-card');
       if (!pool.length) { card.innerHTML = '<p class="empty">Keine Kategorie gewählt. Wähle unter „Kategorien“ mindestens eine aus.</p>'; return; }
       const rest = pool.length > 1 ? pool.filter((q) => q !== cur) : pool; cur = pick || rest[Math.floor(Math.random() * rest.length)];
+      if (!back) { hist.splice(hp + 1, Infinity, cur); hp = hist.length - 1; }
       card.innerHTML = `<p class="tag" style="white-space:normal">${esc([`Frage ${cur.onr}`, ...cur.cats.map((i, k) => `${cats[i]}, Frage ${cur.nr[k]}`)].join('; '))}</p><p class="fg-q">${nl(cur.q)}</p>
         <div class="actions"><button type="button" class="btn primary" id="ff-show" aria-expanded="false" aria-controls="ff-a">Lösung zeigen</button><button type="button" class="btn" id="ff-next">Neue Frage</button></div>
         <div class="ff-answer prose" id="ff-a" hidden><p>${nl(cur.a)}</p></div>
         <form class="actions" id="ff-go" style="margin-top:var(--space-md);align-items:end"><label class="field"><span>Kategorie im Original</span><select id="ff-cat"><option value="">Alle Kategorien</option>${cats.map((c, i) => count(i) ? `<option value="${i}">${esc(c)}</option>` : '').join('')}</select></label><label class="field" style="width:7rem"><span>Frage Nr.</span><input class="input num" type="number" min="1" step="1" id="ff-nr" value="${cur.onr}"></label><button type="submit" class="btn sm">Anzeigen</button></form>
-        <p class="small muted" style="margin-top:var(--space-sm)">${pool.includes(cur) ? `Frage ${pool.indexOf(cur) + 1} von ${pool.length} in deiner Auswahl` : 'Diese Frage liegt außerhalb deiner Auswahl.'}</p>`;
+        <p class="small muted" style="margin-top:var(--space-sm)">${pool.includes(cur) ? `Frage ${pool.indexOf(cur) + 1} von ${pool.length} in deiner Auswahl` : 'Diese Frage liegt außerhalb deiner Auswahl.'} Tastatur: Pfeil rechts nächste Frage, Pfeil links vorherige, Pfeil runter Lösung.</p>`;
       $('#ff-show').onclick = (ev) => { const a = $('#ff-a'); a.hidden = !a.hidden; ev.target.setAttribute('aria-expanded', !a.hidden); ev.target.textContent = a.hidden ? 'Lösung zeigen' : 'Lösung ausblenden'; };
       $('#ff-next').onclick = () => show();
       $('#ff-go').onsubmit = (ev) => { ev.preventDefault(); const v = $('#ff-cat').value, c = +v, n = Math.round(+$('#ff-nr').value), q = ff.questions.find((x) => v === '' ? x.onr === n : x.cats.some((i, k) => i === c && x.nr[k] === n)); if (q) show(q); else toast(`${v === '' ? 'Das Original' : cats[c]} hat keine Frage ${n}`); };
     };
+    const card0 = $('#ff-card'); // nach Seitenwechsel ist diese Karte weg, dann Listener entfernen
+    const keys = (ev) => {
+      if (!document.contains(card0)) { document.removeEventListener('keydown', keys); return; }
+      if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey || /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName) || !$('#modal').hidden) return;
+      if (ev.key === 'ArrowRight') hp < hist.length - 1 ? show(hist[++hp], true) : show();
+      else if (ev.key === 'ArrowLeft') { if (hp > 0) show(hist[--hp], true); }
+      else if (ev.key === 'ArrowDown' && $('#ff-show')) $('#ff-show').click();
+      else return;
+      ev.preventDefault();
+    };
+    document.addEventListener('keydown', keys);
     const saveCats = () => { const s = store.get('ap2.settings', {}); s.ffCats = [...on]; store.set('ap2.settings', s); show(); };
     $$('[data-ff]', app).forEach((c) => c.onchange = () => { const n = cats[c.dataset.ff]; if (c.checked) on.add(n); else on.delete(n); saveCats(); });
     $$('[data-ff-all]', app).forEach((b) => b.onclick = () => { const all = b.dataset.ffAll === '1'; on = new Set(all ? cats : []); $$('[data-ff]', app).forEach((c) => { c.checked = all; }); saveCats(); });
