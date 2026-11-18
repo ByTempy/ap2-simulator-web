@@ -172,34 +172,12 @@
   // ---------- Merkzettel als PDF: selbst gesetzt (Canvas, 200 dpi), drei Spalten, kein Thema über eine Spalte oder Seite getrennt ----------
   // groups = [{ title, cls, topics: [{ name, points }] }]. Liefert { data: Uint8Array, pages }
   async function merkPdf(groups, title) {
-    const DPI = 200, K = DPI / 25.4, PT = 0.3528 * K;  // px je mm, px je Punkt
+    const { K, PT, font, wrap } = await A().pdfText(200);
     const W = Math.round(210 * K), H = Math.round(297 * K), M = 8 * K, GAP = 4 * K, COLS = 3, CW = (W - 2 * M - (COLS - 1) * GAP) / COLS, BOTTOM = H - M;
     const css = getComputedStyle(document.documentElement), tok = (n) => css.getPropertyValue(n).trim();
-    const FONT = 'Geologica, ui-sans-serif, system-ui, sans-serif';
-    await Promise.all(['400', '560', '600'].map((w) => document.fonts.load(`${w} 20px Geologica`).catch(() => null)));
     const ink = tok('--color-print-ink') || '#111', paper = '#ffffff', area = { t1: tok('--color-print-area-t1'), t2: tok('--color-print-area-t2'), wiso: tok('--color-print-area-wiso') };
     const S = { body: 6.6 * PT, h3: 7.2 * PT, band: 8.6 * PT, title: 10 * PT };
     const LH = S.body * 1.2, IND = 2.4 * K;
-    const mctx = document.createElement('canvas').getContext('2d');
-    const font = (w, px) => `${w} ${px}px ${FONT}`;
-    const width = (t, w, px) => { mctx.font = font(w, px); return mctx.measureText(t).width; };
-    // Zeilenumbruch mit fettem Begriff am Anfang: runs = [{ t, b }]
-    const wrap = (runs, maxW, px) => {
-      const words = runs.flatMap((r) => r.t.split(/(\s+)/).filter((x) => x !== '').map((t) => ({ t, b: r.b })));
-      const lines = []; let cur = [], cw = 0;
-      const push = () => { while (cur.length && /^\s+$/.test(cur[cur.length - 1].t)) cur.pop(); lines.push(cur); cur = []; cw = 0; };
-      for (const wd of words) {
-        if (/^\s+$/.test(wd.t)) { if (cur.length) { cur.push({ t: ' ', b: wd.b }); cw += width(' ', wd.b ? 560 : 400, px); } continue; }
-        let w = width(wd.t, wd.b ? 560 : 400, px);
-        if (cw + w > maxW && cur.length) push();
-        // sehr lange Wörter (Adressen, Formeln) zeichenweise umbrechen
-        let t = wd.t;
-        while (w > maxW) { let n = t.length; while (n > 1 && width(t.slice(0, n), wd.b ? 560 : 400, px) > maxW) n--; cur.push({ t: t.slice(0, n), b: wd.b }); push(); t = t.slice(n); w = width(t, wd.b ? 560 : 400, px); }
-        cur.push({ t, b: wd.b }); cw += w;
-      }
-      if (cur.length) push();
-      return lines;
-    };
     const runsOf = (p) => { const m = String(p).match(/^([^:]{2,48}):\s(.+)$/s); return m ? [{ t: m[1] + ':', b: true }, { t: ' ' + m[2], b: false }] : [{ t: String(p), b: false }]; };
     // Thema vorbereiten: Überschrift und Punkte als Zeilen, Gesamthöhe
     const layout = (tp) => {
@@ -251,9 +229,7 @@
         ys[col] = drawTopic(L, M + col * (CW + GAP), ys[col], color);
       }
     }
-    const imgs = [];
-    for (const c of pages) { const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.72)); imgs.push({ w: c.width, h: c.height, data: new Uint8Array(await blob.arrayBuffer()) }); }
-    return { data: A().pdfFromJpegs(imgs), pages: pages.length };
+    return { data: await A().canvasPdf(pages), pages: pages.length };
   }
 
   // ---------- Teilaufgabe lernen ----------
