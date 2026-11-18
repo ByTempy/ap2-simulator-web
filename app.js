@@ -224,7 +224,7 @@
   // Selbst gesetzte PDFs (Merkzettel, Prüfung drucken): Seiten als Canvas, damit der Browser keine Kopf- und Fußzeilen dazudruckt
   async function pdfText(dpi) {
     const K = dpi / 25.4, PT = 0.3528 * K, FONT = 'Geologica, ui-sans-serif, system-ui, sans-serif';
-    await Promise.all(['300', '400', '560', '600', '700'].map((w) => document.fonts.load(`${w} 20px Geologica`).catch(() => null)));
+    await Promise.all(['200', '300', '400', '560', '600', '700'].map((w) => document.fonts.load(`${w} 20px Geologica`).catch(() => null)));
     const m = document.createElement('canvas').getContext('2d');
     const font = (w, px, it) => `${it ? 'italic ' : ''}${w} ${px}px ${FONT}`;
     const width = (t, w, px) => { m.font = font(w, px); return m.measureText(t).width; };
@@ -323,28 +323,28 @@
       if (!wiso) {
         say('Diese Kopfleiste bitte unbedingt ausfüllen!', L, mm(7.6), 600, 8.2 * PT, color);
         say('Familienname, Vorname (bitte durch eine Leerspalte trennen)', L, mm(10.6), 400, F.tiny);
-        for (let i = 0; i < 27; i++) g.strokeRect(L + i * mm(4.3), mm(12.4), mm(4.3), mm(5));
+        g.strokeStyle = color; for (let i = 0; i < 23; i++) g.strokeRect(L + i * mm(5), mm(12.4), mm(5), mm(5.8));
         const pre = { Bereich: kind === 'Teil1' ? '78' : '79', Berufsnummer: '1205' };
         [['Bereich', 2, 'Sp. 1-2'], ['Berufsnummer', 4, 'Sp. 3-6'], ['IHK-Nummer', 3, 'Sp. 7-9'], ['Prüflingsnummer', 5, 'Sp. 10-14']].reduce((x, [l, n, sp], gi) => {
           say(l, x, mm(20.6), 400, F.tiny, color); say(sp, x, mm(29.2), 400, F.tiny * 0.85);
-          for (let i = 0; i < n; i++) { g.strokeStyle = color; g.strokeRect(x + i * mm(4.3), mm(21.8), mm(4.3), mm(5)); if (pre[l]) say(pre[l][i], x + i * mm(4.3) + mm(2.15), mm(25.6), 400, 9 * PT, ink, 'center'); }
-          if (gi < 3) fill(color, x + n * mm(4.3) + mm(1), mm(24), mm(4), mm(0.7));
-          return x + n * mm(4.3) + mm(6); }, L);
-        say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, mm(99), mm(26), 600, 9.5 * PT);
+          for (let i = 0; i < n; i++) { g.strokeStyle = color; g.strokeRect(x + i * mm(4.6), mm(21.8), mm(4.6), mm(5.6)); if (pre[l]) say(pre[l][i], x + i * mm(4.6) + mm(2.3), mm(26.1), 400, 10 * PT, ink, 'center'); }
+          if (gi < 3) fill(color, x + n * mm(4.6) + mm(0.4), mm(23.6), mm(3.4), mm(1.9));
+          return x + n * mm(4.6) + mm(4.2); }, L);
+        say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, mm(99), mm(26.4), 600, 12 * PT, color);
       } else say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, L, mm(32), 300, 15 * PT);
       // an der Stelle des IHK-Logos: Kennzeichnung als Übung
-      fill(color, mm(173), 0, W - mm(173), mm(27)); say('Übung', mm(191.5), mm(16.5), 600, 15 * PT, paper, 'center');
+      g.fillStyle = color; g.beginPath(); g.roundRect(mm(172), -mm(20), W - mm(172) + mm(20), mm(44), [0, 0, 0, mm(13)]); g.fill(); say('Übung', mm(192), mm(15.5), 600, 21 * PT, paper, 'center');
       const top = wiso ? mm(8) : 0;
-      say(`Abschlussprüfung ${season}`, L, top + mm(40.6), 300, 26 * PT, c2);
-      say('1205', L, top + mm(50), 300, 14 * PT, c2);
-      say(num, mm(10), top + mm(85.6), 700, 106 * PT, color);
-      const tx = Math.max(mm(30), mm(10) + width(num, 700, 106 * PT) + mm(4));  // Titel rechts neben der großen Ziffer
-      wrap([{ t: part.title, b: false }], mm(97) - tx, 12.5 * PT).slice(0, 4).forEach((ln, i) => say(ln.map((r) => r.t).join(''), tx, top + mm(63) + i * mm(7.4), 300, 12.5 * PT, c2));
-      say('IT-System-Elektroniker', mm(99), top + mm(65), 300, 17 * PT, c2); say('IT-System-Elektronikerin', mm(99), top + mm(73), 300, 17 * PT, c2);
-      say('Teil 2 der Abschlussprüfung', L, top + mm(96.7), 600, 13 * PT, c2);
-      const facts = [[`${part.tasks.length} Aufgaben`, 4], ...(kind === 'Teil2' ? [['mit Belegsatz', 9]] : []), [`${part.duration_min} Minuten Prüfungszeit`, 4], [`${part.max_points} Punkte`, 0]];
-      facts.forEach(([t, dx], i) => say(t, L + mm(dx), top + mm(103.4) + i * mm(6.6), 300, 13 * PT, c2));
-      say('Bearbeitungshinweise', mm(99), top + mm(96.7), 300, 14 * PT);
+      say(`Abschlussprüfung ${season}`, L, top + mm(40.6), 200, 26 * PT, c2);
+      say('1205', L, top + mm(51.5), 300, 18 * PT, c2);
+      say(num, mm(10), top + mm(85.6), 560, 106 * PT, color);
+      const tx = Math.max(mm(30), mm(10) + width(num, 560, 106 * PT) + mm(4));  // Titel rechts neben der großen Ziffer
+      wrap([{ t: part.title, b: false }], mm(56), 14 * PT).slice(0, 4).forEach((ln, i) => say(ln.map((r) => r.t).join(''), tx, top + mm(63.5) + i * mm(6.4), 300, 14 * PT, c2));
+      say('IT-System-Elektroniker', mm(99), top + mm(65.5), 300, 19.5 * PT, c2); say('IT-System-Elektronikerin', mm(99), top + mm(74.5), 300, 19.5 * PT, c2);
+      say('Teil 2 der Abschlussprüfung', L, top + mm(97.2), 600, 14.5 * PT, c2);
+      const facts = [[`${part.tasks.length} Aufgaben`, 6], ...(kind === 'Teil2' ? [['mit Belegsatz', 11.5]] : []), [`${part.duration_min} Minuten Prüfungszeit`, 3], [`${part.max_points} Punkte`, 0]];
+      facts.forEach(([t, dx], i) => say(t, L + mm(dx), top + mm(104) + i * mm(6.3), 300, 14.5 * PT, c2));
+      say('Bearbeitungshinweise', mm(99), top + mm(97.2), 300, 16 * PT);
       let hy = top + mm(99);
       (wiso ? HINTS.wiso : HINTS.open).forEach((h, i) => { say(`${i + 1}.`, mm(100), hy + F.small * 1.05, 400, F.small); hy = drawLines(wrap(rich(h), mm(97), F.small), mm(104.5), hy, F.small) + mm(1.6); });
       if (!wiso) {
@@ -360,8 +360,8 @@
         fill(rule, mm(136), mm(256.5), mm(67), 0.25 * K); say('Prüfungsort, Datum', mm(136), mm(259.2), 400, F.tiny);
         fill(rule, mm(136), mm(267.5), mm(67), 0.25 * K); say('Unterschrift', mm(136), mm(270.2), 400, F.tiny);
       }
-      fill(tok(kind === 'Teil1' ? '--color-ihk-t1-tint' : kind === 'Teil2' ? '--color-ihk-t2-tint' : '--color-ihk-rand'), 0, mm(275), W, H - mm(275));
-      drawLines(wrap([{ t: 'Übungsprüfung aus dem AP2-Simulator, im Aufbau der IHK-Abschlussprüfung nachgestellt. Kein Original der IHK, nur für die persönliche Prüfungsvorbereitung.', b: false }], W - 2 * L, F.small), L, mm(278), F.small);
+      fill(tok(kind === 'Teil1' ? '--color-ihk-t1-tint' : kind === 'Teil2' ? '--color-ihk-t2-tint' : '--color-ihk-rand'), 0, mm(276), W, H - mm(276));
+      drawLines(wrap([{ t: 'Übungsprüfung aus dem AP2-Simulator, im Aufbau der IHK-Abschlussprüfung nachgestellt. Kein Original der IHK, nur für die persönliche Prüfungsvorbereitung.', b: false }], W - 2 * L, F.small), L, mm(279.5), F.small, wiso ? ink : color);
     };
     for (const pt of parts) {
       part = pt; task = null; wiso = pt.kind === 'WiSo'; color = tok(pt.kind === 'Teil1' ? '--color-ihk-t1' : pt.kind === 'Teil2' ? '--color-ihk-t2' : '--color-print-ink');
