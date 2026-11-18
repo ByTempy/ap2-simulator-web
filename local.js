@@ -421,7 +421,7 @@
           return { id: 'wiso', kind: 'WiSo', title: KIND.WiSo.title, duration_min: 60, max_points: tasks.reduce((a, t) => a + t.points, 0), situation: 'Sie sind Mitarbeiter/-in der NetWerk IT-Service GmbH. Die NetWerk IT-Service GmbH ist ein IT-Dienstleistungsunternehmen für kleine und mittelständische Unternehmen.\nDie folgenden Aufgaben beziehen sich auf dieses Unternehmen.', page_images: [], solution_pages: [], attachments: [], tasks };
         }
         const bk = bank(p.kind);
-        const tasks = p.blocks.map((id, n) => { const b = bk.blocks.find((x) => x.id === id); const items = clone(b.items); items.forEach((it) => { const core = (it.label || '').replace(/\)$/, ''); it.id = `${n + 1}${core || it.id}`; it.difficulty = it.difficulty || 2; it.tolerance = it.tolerance || 0.01; }); return { number: n + 1, title: b.title, points: blockPts(b), intro: b.intro || '', items }; });
+        const tasks = p.blocks.map((id, n) => { const b = bk.blocks.find((x) => x.id === id); const items = clone(b.items); items.forEach((it) => { /* Gruppeneinleitung gehört zur Frage (Lernmodus, Bewertung); das PDF setzt sie als eigene Zeile */ if (it.lead && !String(it.text).startsWith(it.lead)) it.text = `${it.lead}\n\n${it.text}`; const core = (it.label || '').replace(/\)$/, ''); it.id = `${n + 1}${core || it.id}`; it.difficulty = it.difficulty || 2; it.tolerance = it.tolerance || 0.01; }); return { number: n + 1, title: b.title, points: blockPts(b), intro: b.intro || '', items }; });
         const sum = tasks.reduce((a, t) => a + t.items.reduce((x, i) => x + i.points, 0), 0); const diff = 100 - sum;
         if (Math.abs(diff) > 0.01 && Math.abs(diff) <= 4) {
           const tot = (t) => t.items.reduce((x, i) => x + i.points, 0);

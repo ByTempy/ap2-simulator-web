@@ -390,7 +390,15 @@
           if (wiso) bl.push(...T([{ t: it.text, b: false }]));
           else {
             const lx = lab.length > 1 ? 4.5 * K : 0, tx = Math.max(lx + 6.5 * K, lx + width(`${it.label} `, 400, F.body)), pw = width(pts, 400, F.body) + 3 * K;
-            const ls = wrap([{ t: it.text, b: false }], CW - tx, F.body), last = ls[ls.length - 1], fits = width(last.map((r) => r.t).join(''), 400, F.body) + pw <= CW - tx;
+            // Gruppeneinleitung wie im Heft: „b) Einleitung“ über ba), bb)
+            let qtext = it.text;
+            if (it.lead && qtext.startsWith(it.lead)) {
+              qtext = qtext.slice(it.lead.length).replace(/^\s+/, '');
+              const gl = `${lab[0]})`, gx = Math.max(6.5 * K, width(`${gl} `, 400, F.body));
+              wrap([{ t: it.lead, b: false }], CW - gx, F.body).forEach((ln, li) => bl.push({ h: F.body * 1.36, draw: () => { if (!li) say(gl, X0, y + F.body * 1.04, 300, F.body); drawLines([ln], X0 + gx, y, F.body); y += F.body * 1.36; } }));
+              bl.push(gap(1.5));
+            }
+            const ls = wrap([{ t: qtext, b: false }], CW - tx, F.body), last = ls[ls.length - 1], fits = width(last.map((r) => r.t).join(''), 400, F.body) + pw <= CW - tx;
             ls.forEach((ln, li) => bl.push({ h: F.body * 1.36, draw: () => { if (!li) say(it.label, X0 + lx, y + F.body * 1.04, 300, F.body); drawLines([ln], X0 + tx, y, F.body); if (li === ls.length - 1 && fits) say(pts, X0 + CW, y + F.body * 1.04, 300, F.body, ink, 'right'); y += F.body * 1.36; } }));
             if (!fits) bl.push({ h: F.body * 1.36, draw: () => { say(pts, X0 + CW, y + F.body * 1.04, 300, F.body, ink, 'right'); y += F.body * 1.36; } });
           }
