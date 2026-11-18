@@ -292,6 +292,7 @@ table.answer-table td .input { min-height: 36px; }
 .panel.bad { border-top-color: var(--color-error); }
 .panel.warn { border-top-color: var(--color-warn); margin-bottom: var(--space-md); }
 .panel.solution { border-top-color: var(--color-success); white-space: pre-wrap; }
+.panel.ai-grade { border-top-color: var(--color-accent); }
 .panel .grading { margin-top: var(--space-xs); font-size: var(--text-sm); color: var(--color-muted); }
 .kws { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-sm); margin-top: var(--space-xs); }
 .kw { font-size: var(--text-sm); }

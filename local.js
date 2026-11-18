@@ -626,6 +626,7 @@
       }
       if (action === 'self-grade') {
         const key = `${body.part}/${body.item}`; const a = s.answers[key] || (s.answers[key] = {}); a.self_points = body.points; a.updated_at = nowIso(); if (Array.isArray(body.criteria)) a.criteria = body.criteria; else delete a.criteria;
+        if (body.ai) a.ai = body.ai; // Bewertung von Claude: Punkte, Kommentar, Gelesenes
         if (s.finished) s.result = evaluate(s, exam());
         sessionPut(s); return { ok: true, result: s.result };
       }

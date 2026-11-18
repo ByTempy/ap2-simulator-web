@@ -1316,7 +1316,30 @@
   const AI_CPU_WASM = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/esm/wasm/wllama.wasm';
   // Online über Puter.js: kein Schlüssel in der Seite, du meldest dich mit einem kostenlosen Puter-Konto an; Anfragen gehen an Puter
   const AI_PUTER = 'https://js.puter.com/v2/';
+  // Claude mit eigenem API-Schlüssel: Anfragen gehen direkt vom Browser an Anthropic. Der Schlüssel liegt nur in diesem Browser,
+  // bewusst nicht in ap2.settings, damit er nicht in die Sicherungsdatei gerät
+  const CLAUDE_KEY = 'ap2.claudeKey';
+  const claudeKey = () => { try { return localStorage.getItem(CLAUDE_KEY) || ''; } catch (e) { return ''; } };
+  async function claude(body) {
+    const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': claudeKey(), 'anthropic-version': '2026-10-21', 'anthropic-beta': 'server-side-fallback-2026-07-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-opus-5-5', max_tokens: 16000, fallbacks: 'default', ...body }) }).catch(() => { throw new Error('Anthropic ist nicht erreichbar'); });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(r.status === 401 ? 'Der API-Schlüssel ist ungültig' : r.status === 429 ? 'Zu viele Anfragen, bitte kurz warten' : (j.error && j.error.message) || `Fehler ${r.status}`);
+    if (j.stop_reason === 'refusal') throw new Error('Claude hat die Anfrage abgelehnt');
+    if (j.stop_reason === 'max_tokens') throw new Error('Die Antwort von Claude war zu lang und wurde abgeschnitten');
+    return (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  }
+  // Eingabefeld für den Schlüssel; nach dem Speichern oder Löschen wird done() aufgerufen
+  const claudeKeyHtml = () => claudeKey()
+    ? '<p class="small">Claude-API-Schlüssel ist gespeichert. <button type="button" class="btn sm quiet" data-ckey-del>Schlüssel löschen</button></p>'
+    : `<form class="ai-form" data-ckey-form><label class="field"><span>Claude-API-Schlüssel</span><input class="input" type="password" autocomplete="off" spellcheck="false" data-ckey placeholder="sk-ant-…"></label><button type="submit" class="btn sm">Speichern</button></form>
+      <p class="small muted">Den Schlüssel bekommst du unter console.anthropic.com (API-Konto mit Guthaben, getrennt vom Claude-Abo, Abrechnung nach Verbrauch). Er bleibt nur in diesem Browser. Aufgabe, Lösung und deine Antwort gehen an Anthropic.</p>`;
+  const bindClaudeKey = (box, done) => {
+    const f = $('[data-ckey-form]', box); if (f) f.onsubmit = (ev) => { ev.preventDefault(); const v = $('[data-ckey]', f).value.trim(); if (!/^sk-ant-/.test(v)) { toast('Der Schlüssel beginnt mit sk-ant-', true); return; } try { localStorage.setItem(CLAUDE_KEY, v); } catch (e) { toast('Konnte den Schlüssel nicht speichern', true); return; } done(); };
+    const d = $('[data-ckey-del]', box); if (d) d.onclick = () => { try { localStorage.removeItem(CLAUDE_KEY); } catch (e) { /* privater Modus */ } done(); };
+  };
   const AI_MODELS = [
+    { id: 'claude', claude: true, label: 'Claude, eigener API-Schlüssel (am besten)' },
     { id: 'online', online: true, label: 'Online, schnell (Puter, kostenloses Konto nötig)' },
     { id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC', gpu: true, label: 'Grafikkarte: klein, schnell (etwa 1,6 GB)' },
     { id: 'Qwen2.5-3B-Instruct-q4f16_1-MLC', gpu: true, label: 'Grafikkarte: mittel, besser (etwa 2,5 GB)' },
@@ -1326,7 +1349,9 @@
   ];
   const ai = { engine: null, model: null, loading: null, gpu: undefined, chats: new Map() };
   // einheitlich: Antwort als Folge von Textstücken
-  const aiStream = (msgs) => ai.engine.puter
+  const aiStream = (msgs) => ai.engine.claude
+    ? (async function* () { yield { choices: [{ delta: { content: await claude({ system: msgs[0].content, messages: msgs.slice(1), output_config: { effort: 'low' } }) } }] }; })()
+    : ai.engine.puter
     ? (async function* () { for await (const p of await window.puter.ai.chat(msgs, false, { stream: true, max_tokens: 700 })) { if (p && p.type === 'error') throw new Error(p.message || 'Fehler beim Online-Dienst'); if (p && p.text) yield { choices: [{ delta: { content: p.text } }] }; } })()
     : ai.engine.wllama
     ? ai.engine.wllama.createChatCompletion({ messages: msgs, stream: true, temperature: 0.4, max_tokens: 500 })
@@ -1352,10 +1377,11 @@
         box.innerHTML = `<p class="small">Lernpartner, der die Aufgabe und die offizielle Lösung kennt.</p>
           <details class="ai-info"><summary>Wie funktioniert das?</summary><p class="small">„Online“ ist am schnellsten und braucht ein kostenloses Puter-Konto. Aufgabe, offizielle Lösung und deine Antwort gehen dabei an Puter und den KI-Anbieter. Die anderen Modelle laufen nur auf deinem Gerät und werden beim ersten Mal einmalig geladen.${ai.gpu ? '' : ' Hier gibt es keine nutzbare Grafikkarte (WebGPU), lokal geht deshalb nur der Prozessor: das antwortet langsam, oft ein paar Wörter pro Sekunde.'}</p></details>
           <label class="field"><span>Modell</span><select class="input" id="ai-model">${models.map((m) => `<option value="${m.id}"${pick === m.id ? ' selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
+          <div style="margin-top:var(--space-sm)">${claudeKeyHtml()}</div>
           <div class="actions" style="margin-top:var(--space-sm)"><button type="button" class="btn primary" id="ai-load"${ai.loading ? ' disabled' : ''}>KI laden</button>${ai.needLogin ? '<button type="button" class="btn" id="ai-login">Bei Puter anmelden</button>' : ''}</div>
           <p class="small muted" id="ai-progress" role="status">${ai.loading ? 'Wird geladen …' : ''}</p>
           <p class="small muted">Kleine Modelle können sich irren. Im Zweifel gilt die offizielle Lösung.</p>`;
-        $('#ai-load', box).onclick = load;
+        $('#ai-load', box).onclick = load; bindClaudeKey(box, render);
         // Anmeldung direkt im Klick, sonst blockiert der Browser das Anmeldefenster
         if ($('#ai-login', box)) $('#ai-login', box).onclick = async () => { try { await window.puter.auth.signIn(); ai.needLogin = false; ai.engine = { puter: true }; ai.model = 'online'; render(); } catch (e) { toast('Anmeldung bei Puter abgebrochen', true); } };
         return;
@@ -1365,7 +1391,7 @@
       box.innerHTML = `<div class="ai-log" id="ai-log" aria-live="polite">${log.length ? log.map((m) => `<div class="ai-msg ${m.role}"><span class="small muted">${m.role === 'user' ? 'Du' : 'KI'}</span><p>${nl(m.content)}</p></div>`).join('') : '<p class="small muted">Frag etwas zu dieser Teilaufgabe oder nutze einen Knopf.</p>'}</div>
         <div class="actions ai-quick">${AI_ACTIONS.map(([l], i) => `<button type="button" class="btn sm" data-ai="${i}">${l}</button>`).join('')}</div>
         <form id="ai-form" class="ai-form"><label class="visually-hidden" for="ai-in">Nachricht an die KI</label><textarea class="input" id="ai-in" rows="2" placeholder="Deine Frage oder Antwort"></textarea><button type="submit" class="btn primary sm">Senden</button></form>
-        <p class="small muted">${esc((AI_MODELS.find((m) => m.id === ai.model) || { label: ai.model }).label)}, läuft lokal. <button type="button" class="btn sm quiet" id="ai-reset">Gespräch neu</button></p>`;
+        <p class="small muted">${esc((AI_MODELS.find((m) => m.id === ai.model) || { label: ai.model }).label)}${ai.engine.claude ? ', über deinen Schlüssel bei Anthropic' : ', läuft lokal'}. <button type="button" class="btn sm quiet" id="ai-reset">Gespräch neu</button></p>`;
       const lg = $('#ai-log', box); lg.scrollTop = lg.scrollHeight;
       $$('[data-ai]', box).forEach((b) => b.onclick = () => ask(AI_ACTIONS[+b.dataset.ai][1]));
       $('#ai-form', box).onsubmit = (ev) => { ev.preventDefault(); const t = $('#ai-in', box).value.trim(); if (t) ask(t); };
@@ -1378,7 +1404,10 @@
       ai.loading = true; render();
       const say = (t) => { const p = $('#ai-progress', box); if (p) p.textContent = t; };
       try {
-        if (m.online) {
+        if (m.claude) {
+          if (!claudeKey()) throw new Error('Erst den Claude-API-Schlüssel eintragen');
+          ai.engine = { claude: true };
+        } else if (m.online) {
           if (!window.puter) await new Promise((ok, fail) => { const sc = document.createElement('script'); sc.src = AI_PUTER; sc.onload = ok; sc.onerror = () => fail(new Error('Puter ist nicht erreichbar')); document.head.append(sc); });
           if (window.puter.auth.isSignedIn()) ai.engine = { puter: true }; else ai.needLogin = true;
         } else if (m.gpu) {
@@ -2221,6 +2250,21 @@
   }
 
   // ---------- Auswertung ----------
+  const ansText = (a) => [a.value, (a.selected || []).join(', '), a.text, ...(a.cells || []).map((row) => row.filter((cell) => cell && cell.trim()).join(' | '))].filter(Boolean).join('\n');
+  const GRADE_SYS = `Du bist Korrektor der schriftlichen IHK-Abschlussprüfung für IT-System-Elektroniker. Bewerte jede Antwort so, wie ein erfahrener IHK-Prüfer es mit den Lösungshinweisen tut: fair, aber ohne Punkte zu verschenken.
+Regeln:
+- Punkte von 0 bis zur Höchstpunktzahl der Teilaufgabe, in halben Punkten. Teilpunkte sind erlaubt.
+- Die Lösungshinweise sind ein Erwartungshorizont, keine vollständige Liste. Andere fachlich richtige Antworten, Beispiele, Formulierungen und Rechenwege zählen genauso. Prüfe sie mit deinem Fachwissen.
+- Steht in den Lösungshinweisen oder im Bewertungshinweis eine Punkteverteilung (zum Beispiel „je 2 Punkte“), halte dich daran.
+- Bei „Nennen“ zählen nur so viele Nennungen wie verlangt, in der Reihenfolge, in der sie dastehen.
+- Bei Rechnungen gibt es Punkte für Formel, eingesetzte Werte und Ergebnis mit Einheit. Ein Folgefehler aus einer früheren Teilaufgabe wird nur einmal abgezogen. Fehlt nur die Einheit, höchstens 1 Punkt Abzug. Rundungsunterschiede sind kein Fehler.
+- Bei „Erläutern“, „Beschreiben“ und „Begründen“ reicht ein Stichwort ohne Erklärung nicht für die volle Punktzahl.
+- Rechtschreibung, Grammatik und Stichpunktstil kosten keine Punkte, solange die Aussage fachlich eindeutig ist.
+- Ein Bild zeigt einen Ausschnitt der Originalseite mit den handschriftlichen Eintragungen des Prüflings. Gedrucktes ist vorgegeben und keine Antwort, auch Gedrucktes einer Nachbaraufgabe am Rand. Bewerte nur, was er von Hand eingetragen oder angekreuzt hat.
+- Was du nicht lesen kannst, zählt nicht. Rate nicht. Eine leere Antwort bekommt 0 Punkte.
+Für jede Teilaufgabe: gelesen = was du vom Prüfling gelesen hast, höchstens 60 Wörter, Unleserliches als [unleserlich], bei einer nur getippten Antwort „getippt“. kommentar = zwei bis vier kurze Sätze in der Du-Form: was richtig war, was fehlte oder falsch war und die richtige Antwort in Kurzform. sicher = false, wenn du Handschrift nicht lesen konntest oder die Punktzahl auf der Kippe steht.`;
+  const GRADE_SCHEMA = { type: 'object', additionalProperties: false, required: ['teile'], properties: { teile: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['id', 'gelesen', 'punkte', 'kommentar', 'sicher'],
+    properties: { id: { type: 'string' }, gelesen: { type: 'string' }, punkte: { type: 'number' }, kommentar: { type: 'string' }, sicher: { type: 'boolean' } } } } } };
   async function resultView(sid) {
     setNav('exams');
     const view = await api(`/api/sessions/${sid}`);
@@ -2234,6 +2278,7 @@
     let filter = 'all';
     const render = async () => {
       const r = await api(`/api/sessions/${sid}/result`);
+      s.answers = (await api(`/api/sessions/${sid}`)).session.answers; // frisch, sonst fehlen neue Punkte und Claude-Kommentare
       const totalPct = r.total_max ? r.total_points / r.total_max * 100 : 0;
       const unrated = r.parts.reduce((a, p) => a + p.unrated_items, 0);
       const bucket = (ir, item) => !ir.answered ? 'empty' : ir.points === null || ir.points === undefined ? 'open' : ir.points >= item.points ? 'full' : 'lost';
@@ -2243,12 +2288,15 @@
       const inkMap = new Map();
       r.parts.forEach((p) => { const part = exam.parts.find((x) => x.id === p.part_id); part.tasks.forEach((t) => t.items.forEach((it) => { const st = inkOf(p.part_id, it), src = st && part.page_images && part.page_images[origPage(it) - 1]; if (src) inkMap.set(src, (inkMap.get(src) || []).concat(st)); })); });
       const inkPages = [...inkMap.keys()];
+      // Für Claude: alles, was nicht automatisch geprüft wird und eine Antwort hat, dazu jede Handschrift
+      const gradable = r.parts.flatMap((p) => { const part = exam.parts.find((x) => x.id === p.part_id); return p.items.filter((ir) => ir.ink || (!ir.auto && ir.answered)).map((ir) => { const t = part.tasks.find((x) => x.number === ir.task_number); return { part, t, item: t.items.find((x) => x.id === ir.item_id), ir, a: s.answers[answerKey(p.part_id, ir.item_id)] || {} }; }); });
       const inkOpen = r.parts.reduce((n, p) => n + p.items.filter((ir) => ir.ink && (ir.points === null || ir.points === undefined)).length, 0);
       r.parts.forEach((p) => { const part = exam.parts.find((x) => x.id === p.part_id); p.items.forEach((ir) => { const it = part.tasks.find((x) => x.number === ir.task_number).items.find((x) => x.id === ir.item_id); counts.all++; const b = bucket(ir, it); if (b in counts) counts[b]++; }); });
       app.innerHTML = `<div class="page-head"><div>
           <p class="work-head" style="margin:0 0 var(--space-xs)"><span class="mode" style="font:500 var(--text-sm)/1 var(--font-display);color:var(--color-accent)">${s.mode === 'exam' ? 'Auswertung der Prüfungssimulation' : 'Zwischenstand im Lernmodus'}</span></p>
           <h1>${esc(s.exam_title)}</h1></div>
-          <div class="actions">${inkPages.length ? '<button type="button" class="btn sm" id="r-inkpdf">Ausgefüllte Seiten als PDF</button>' : ''}${pdfLink(`/api/sessions/${sid}/pdf?solutions=1`, 'PDF mit Antworten und Lösungen')}<a class="btn sm" href="#/exam-detail/${s.exam_id}">Zur Prüfung</a></div></div>
+          <div class="actions">${gradable.length ? `<button type="button" class="btn sm primary" id="r-claude">${gradable.some((g) => g.a.ai) ? 'Neu mit Claude bewerten' : 'Mit Claude bewerten'}</button>` : ''}${inkPages.length ? '<button type="button" class="btn sm" id="r-inkpdf">Ausgefüllte Seiten als PDF</button>' : ''}${pdfLink(`/api/sessions/${sid}/pdf?solutions=1`, 'PDF mit Antworten und Lösungen')}<a class="btn sm" href="#/exam-detail/${s.exam_id}">Zur Prüfung</a></div></div>
+        <div class="panel" id="r-claude-box" hidden></div>
         ${inkOpen ? `<div class="panel warn" role="status"><h4>${inkOpen} ${inkOpen === 1 ? 'handschriftliche Antwort ist' : 'handschriftliche Antworten sind'} noch nicht bewertet</h4><p>Die Handschrift konnte nicht gelesen werden. Deine Antworten sind aber gespeichert: Unter „Noch bewerten“ siehst du sie auf der Originalseite neben den Lösungshinweisen und trägst die Punkte selbst ein.</p></div>` : ''}
         <div class="split">
           <div class="sheet">
@@ -2277,16 +2325,17 @@
             ${p.items.map((ir) => { const t = part.tasks.find((x) => x.number === ir.task_number); const item = t.items.find((x) => x.id === ir.item_id); const a = s.answers[answerKey(p.part_id, item.id)] || {}; const c = ir.check; const b = bucket(ir, item);
               return `<div class="result-item" id="ri-${p.part_id}-${item.id}" data-bucket="${b}" ${filter !== 'all' && filter !== b ? 'hidden' : ''}>
                 <div class="ri-head"><div><strong>${part.kind === 'WiSo' ? `Aufgabe ${t.number}` : `${t.number}${esc(item.label ? ' ' + item.label : '')}`}</strong> <span class="muted small">${esc(t.title || '')}</span></div>
-                  ${b === 'open' ? '<span class="score open">noch bewerten</span>' : `<span class="score ${ir.points >= item.points ? 'ok' : ir.points > 0 ? 'part' : 'bad'}">${fmtPts(ir.points)} / ${fmtPts(item.points)}${ir.auto ? ' automatisch' : ir.keyword ? ' nach Stichworten' : ''}</span>`}</div>
+                  ${b === 'open' ? '<span class="score open">noch bewerten</span>' : `<span class="score ${ir.points >= item.points ? 'ok' : ir.points > 0 ? 'part' : 'bad'}">${fmtPts(ir.points)} / ${fmtPts(item.points)}${ir.auto ? ' automatisch' : ir.keyword ? ' nach Stichworten' : a.ai && a.ai.points === a.self_points ? ' von Claude' : ''}</span>`}</div>
                 <p class="q">${nl(item.text)}</p>
                 ${item.options && item.options.length ? `<div class="small muted">${item.options.map((o) => `<div><span class="key">${esc(o.key)}</span> ${esc(o.text)}</div>`).join('')}</div>` : ''}
                 ${ir.ink ? `<div class="ink-view" data-ink="${p.part_id}|${item.id}" aria-label="Deine handschriftliche Antwort auf der Originalseite"></div>` : ''}
-                <div class="ans">${answerIsEmpty(a) ? `<em class="muted">${ir.ink ? 'Handschrift nicht gelesen, siehe oben' : 'Keine Antwort'}</em>` : esc([a.value, (a.selected || []).join(', '), a.text, ...(a.cells || []).map((row) => row.filter((cell) => cell && cell.trim()).join(' | '))].filter(Boolean).join('\n'))}</div>
+                <div class="ans">${answerIsEmpty(a) ? `<em class="muted">${ir.ink ? (a.ai ? 'Handschrift, siehe oben' : 'Handschrift nicht gelesen, siehe oben') : 'Keine Antwort'}</em>` : esc(ansText(a))}</div>
+                ${a.ai ? `<div class="panel ai-grade"><p class="small"><strong>Bewertung von Claude${a.ai.points === a.self_points ? '' : ', danach von dir geändert'}</strong>${a.ai.sure ? '' : ' <span class="tag warn">unsicher, bitte selbst prüfen</span>'}</p><p>${nl(a.ai.comment)}</p>${a.ai.read && a.ai.read !== 'getippt' ? `<p class="small muted">Gelesen: ${esc(a.ai.read)}</p>` : ''}</div>` : ''}
                 ${c && c.keywords && c.keywords.length ? `<div class="kws">${c.keywords.map((k) => `<span class="kw ${k.hit ? 'hit' : 'miss'}">${esc(k.keyword)}</span>`).join('')}</div>` : ''}
                 ${c && c.message && ir.auto ? `<p class="small">${esc(c.message)}</p>` : ''}
                 <details ${ir.auto ? '' : 'open'}><summary>Lösungshinweise${item.expected ? `: ${esc(item.expected)} ${esc(item.unit || '')}` : ''}</summary><div class="panel solution">${nl(item.solution || '–')}${item.grading ? `<p class="grading">Bewertung: ${esc(item.grading)}</p>` : ''}</div></details>
-                ${(ir.auto || s.mode === 'exam') && !ir.ink ? '' : critHtml(item, a, `${p.part_id}|${item.id}`, false)}
-                ${(ir.auto || s.mode === 'exam') && !ir.ink ? '' : `<div class="selfgrade"><label class="field"><span>Punkte</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" value="${a.self_points ?? (c && c.suggested_points !== undefined && !answerIsEmpty(a) ? c.suggested_points : '')}" data-sg="${p.part_id}|${item.id}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${fmtPts(item.points)}</span><button type="button" class="btn sm" data-sgfull="${p.part_id}|${item.id}">Volle Punkte</button><button type="button" class="btn sm" data-sgzero="${p.part_id}|${item.id}">0 Punkte</button></div>`}
+                ${(ir.auto || s.mode === 'exam') && !ir.ink && !a.ai ? '' : critHtml(item, a, `${p.part_id}|${item.id}`, false)}
+                ${(ir.auto || s.mode === 'exam') && !ir.ink && !a.ai ? '' : `<div class="selfgrade"><label class="field"><span>Punkte</span><input class="input num" type="number" min="0" max="${item.points}" step="0.5" value="${a.self_points ?? (c && c.suggested_points !== undefined && !answerIsEmpty(a) ? c.suggested_points : '')}" data-sg="${p.part_id}|${item.id}"></label><span class="small muted" style="padding-bottom:var(--space-xs)">von ${fmtPts(item.points)}</span><button type="button" class="btn sm" data-sgfull="${p.part_id}|${item.id}">Volle Punkte</button><button type="button" class="btn sm" data-sgzero="${p.part_id}|${item.id}">0 Punkte</button></div>`}
               </div>`; }).join('')}`; }).join('')}
           <p class="empty" id="ri-none" hidden>Keine Teilaufgabe in dieser Ansicht.</p>
         </section>`;
@@ -2303,18 +2352,51 @@
       $$('[data-sgfull]', app).forEach((b) => b.onclick = () => { const [part, itemId] = b.dataset.sgfull.split('|'); const inp = app.querySelector(`input[data-sg="${part}|${itemId}"]`); sg(part, itemId, +inp.max); });
       $$('[data-sgzero]', app).forEach((b) => b.onclick = () => { const [part, itemId] = b.dataset.sgzero.split('|'); sg(part, itemId, 0); });
       if ($('#r-inkpdf')) $('#r-inkpdf').onclick = () => downloadPages(inkPages, `${s.exam_title} ausgefüllt`, inkPages.map((src) => inkMap.get(src)));
-      // Ausschnitt der Originalseite mit der eigenen Handschrift, über die ganze Breite
-      for (const el of $$('[data-ink]', app)) {
-        const [pid, iid] = el.dataset.ink.split('|'); const part = exam.parts.find((x) => x.id === pid); const it = part.tasks.flatMap((t) => t.items).find((x) => x.id === iid);
-        const st = inkOf(pid, it), src = st && part.page_images && part.page_images[origPage(it) - 1];
-        if (!src) { el.remove(); continue; }
+      // Ausschnitt der Originalseite mit der eigenen Handschrift, über die ganze Breite (null ohne Handschrift)
+      const inkCanvas = async (part, it) => {
+        const st = inkOf(part.id, it), src = st && part.page_images && part.page_images[origPage(it) - 1];
+        if (!src) return null;
         const ys = st.flatMap((x) => x.pts.map((q) => q[1])).concat((it.fields || []).flatMap((f) => [f.y, f.y + f.h]));
         const y0 = Math.max(0, Math.min(...ys) - 0.02), y1 = Math.min(1, Math.max(...ys) + 0.02);
+        const img = await loadImg(await window.AP2Local.pageSrc(src)); const W = img.naturalWidth, H = img.naturalHeight;
+        const c = document.createElement('canvas'); c.width = W; c.height = Math.max(8, Math.round((y1 - y0) * H));
+        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+        g.drawImage(img, 0, y0 * H, W, c.height, 0, 0, W, c.height); g.drawImage(inkLayer(st, W, H), 0, y0 * H, W, c.height, 0, 0, W, c.height);
+        return c;
+      };
+      const rcBtn = $('#r-claude'), rcBox = $('#r-claude-box');
+      if (rcBtn) rcBtn.onclick = async () => {
+        if (!claudeKey()) { rcBox.hidden = false; rcBox.innerHTML = claudeKeyHtml(); bindClaudeKey(rcBox, () => { rcBox.hidden = true; rcBtn.click(); }); $('[data-ckey]', rcBox).focus(); return; }
+        // je Aufgabe eine Anfrage, damit keine einzelne zu lang wird
+        const groups = [...gradable.reduce((m, g) => { const k = `${g.part.id}|${g.t.number}`; (m.get(k) || m.set(k, []).get(k)).push(g); return m; }, new Map()).values()];
+        rcBtn.disabled = true; let done = 0, failed = 0; const say = () => { rcBtn.textContent = `Claude bewertet (${done} von ${groups.length} Aufgaben)`; }; say();
+        await pool(3, groups, async (gs) => {
+          try {
+            const { part, t } = gs[0]; const content = [{ type: 'text', text: `Prüfungsbereich: ${part.title}\n${part.situation ? `Ausgangssituation: ${String(part.situation).slice(0, 1500)}\n` : ''}Aufgabe ${t.number}${t.title ? `: ${t.title}` : ''}\n${t.intro ? `Vorspann: ${String(t.intro).slice(0, 1500)}` : ''}` }];
+            for (const [i, { item, a }] of gs.entries()) {
+              content.push({ type: 'text', text: [`### Teilaufgabe id "${i}": ${t.number} ${item.label || ''}, höchstens ${item.points} Punkte`, `Aufgabenstellung: ${item.text}`,
+                item.options && item.options.length ? `Auswahl: ${item.options.map((o) => `${o.key}) ${o.text}`).join('; ')}` : '', item.table ? `Tabelle der Aufgabe: ${JSON.stringify(item.table)}` : '',
+                `Lösungshinweise: ${item.solution || '(keine)'}`, item.expected ? `Erwartetes Ergebnis: ${item.expected} ${item.unit || ''}` : '', item.grading ? `Bewertungshinweis: ${item.grading}` : '',
+                `Getippte Antwort des Prüflings: ${ansText(a) || '(keine)'}`].filter(Boolean).join('\n') });
+              const c = await inkCanvas(part, item).catch(() => null);
+              if (c) content.push({ type: 'text', text: `Handschriftliche Eintragungen zu Teilaufgabe id "${i}":` }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.85).split(',')[1] } });
+            }
+            const out = JSON.parse(await claude({ system: GRADE_SYS, messages: [{ role: 'user', content }], output_config: { effort: 'high', format: { type: 'json_schema', schema: GRADE_SCHEMA } } }));
+            for (const x of out.teile) {
+              const g = gs[+x.id]; if (!g) continue;
+              const pts = Math.max(0, Math.min(g.item.points, Math.round(x.punkte * 2) / 2));
+              await post(`/api/sessions/${sid}/self-grade`, { part: g.part.id, item: g.item.id, points: pts, criteria: g.a.criteria, ai: { points: pts, comment: x.kommentar, read: x.gelesen, sure: x.sicher, at: new Date().toISOString() } });
+            }
+          } catch (e) { failed++; if (failed === 1) toast(`Claude: ${e.message}`, true); }
+          done++; say();
+        });
+        if (failed) toast(`${failed} von ${groups.length} Aufgaben konnten nicht bewertet werden`, true);
+        const y = window.scrollY; await render(); window.scrollTo(0, y);
+      };
+      for (const el of $$('[data-ink]', app)) {
+        const [pid, iid] = el.dataset.ink.split('|'); const part = exam.parts.find((x) => x.id === pid); const it = part.tasks.flatMap((t) => t.items).find((x) => x.id === iid);
         try {
-          const img = await loadImg(await window.AP2Local.pageSrc(src)); const W = img.naturalWidth, H = img.naturalHeight;
-          const c = document.createElement('canvas'); c.width = W; c.height = Math.max(8, Math.round((y1 - y0) * H));
-          const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-          g.drawImage(img, 0, y0 * H, W, c.height, 0, 0, W, c.height); g.drawImage(inkLayer(st, W, H), 0, y0 * H, W, c.height, 0, 0, W, c.height);
+          const c = await inkCanvas(part, it); if (!c) { el.remove(); continue; }
           c.setAttribute('role', 'img'); c.setAttribute('aria-label', 'Deine handschriftliche Antwort'); el.append(c);
         } catch (e) { el.textContent = 'Seite konnte nicht geladen werden.'; }
       }
