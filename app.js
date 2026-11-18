@@ -224,7 +224,7 @@
   // Selbst gesetzte PDFs (Merkzettel, Prüfung drucken): Seiten als Canvas, damit der Browser keine Kopf- und Fußzeilen dazudruckt
   async function pdfText(dpi) {
     const K = dpi / 25.4, PT = 0.3528 * K, FONT = 'Geologica, ui-sans-serif, system-ui, sans-serif';
-    await Promise.all(['400', '560', '600'].map((w) => document.fonts.load(`${w} 20px Geologica`).catch(() => null)));
+    await Promise.all(['300', '400', '560', '600', '700'].map((w) => document.fonts.load(`${w} 20px Geologica`).catch(() => null)));
     const m = document.createElement('canvas').getContext('2d');
     const font = (w, px, it) => `${it ? 'italic ' : ''}${w} ${px}px ${FONT}`;
     const width = (t, w, px) => { m.font = font(w, px); return m.measureText(t).width; };
@@ -252,79 +252,156 @@
     for (const c of pages) { const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', q)); imgs.push({ w: c.width, h: c.height, data: new Uint8Array(await blob.arrayBuffer()) }); }
     return pdfFromJpegs(imgs);
   }
-  // Prüfung als PDF wie ein Heft: Korrekturrand rechts mit Punkten, Antwortlinien, Tabellen, Kästen. Eine Teilaufgabe bleibt auf
-  // einer Seite, wenn sie auf eine Seite passt. parts = Teile der Prüfung, answerOf(pid, iid) eigene Antwort, withSol Lösungen dazu
+  // Prüfung als PDF im Aufbau der IHK-Hefte (Deckblatt mit Kopfleiste, Bearbeitungshinweisen und Bewertung, Korrekturrand,
+  // „Fortsetzung“-Hinweise, WiSo mit Situation und Ziffernkästchen). Ohne Logo, QR-Code und Urheberhinweis der IHK: als Übung gekennzeichnet.
+  // Eine Teilaufgabe bleibt auf einer Seite, wenn sie auf eine Seite passt.
+  const HINTS = {
+    open: ['Prüfen Sie vor Beginn, ob der Aufgabensatz **vollständig** ist. Die Zahl der Aufgaben steht links auf dem Deckblatt.',
+      'Füllen Sie zuerst die **Kopfzeile** aus: Familienname, Vorname und Prüflingsnummer.',
+      'Lesen Sie jede Aufgabe **ganz** durch, bevor Sie anfangen.',
+      'Halten Sie sich an den **verlangten Umfang**: Werden vier Angaben gefordert und Sie nennen sechs, zählen nur die ersten vier.',
+      'Schreiben Sie Ihre **Antworten** in die vorgesehenen Bereiche (Linien, Tabellen, Kästchen) dieses Hefts.',
+      'Wenn nicht ausdrücklich ganze Sätze verlangt sind, genügen **Stichworte**.',
+      'Schreiben Sie **deutlich**. Was nicht eindeutig zuzuordnen oder unleserlich ist, wird als falsch gewertet.',
+      'Erlaubt ist ein nicht programmierbarer, netzunabhängiger **Taschenrechner** ohne Verbindung nach außen.',
+      'Rechnen Sie mit einem **gerundeten Ergebnis** nur mit diesem gerundeten Wert weiter.',
+      'Für Nebenrechnungen nutzen Sie **Konzeptpapier**. Bewertet wird nur, was in diesem Heft steht.'],
+    wiso: ['Prüfen Sie vor Beginn, ob der Aufgabensatz **vollständig** ist.',
+      'Tragen Sie Ihre Lösungen in den **Lösungsbogen** am Ende ein. Nur der Lösungsbogen wird bewertet.',
+      'Die Aufgaben können Sie in **beliebiger Reihenfolge** lösen.',
+      'Die Zahl der **Lösungskästchen** zeigt, wie viele Ziffern verlangt sind.',
+      'Eine Ziffer, die Sie **ändern** wollen, streichen Sie durch und schreiben die neue darunter.',
+      'Erlaubt ist ein nicht programmierbarer, netzunabhängiger **Taschenrechner**.',
+      'Für Nebenrechnungen nutzen Sie **Konzeptpapier**.'],
+  };
   async function examPdf(exam, parts, answerOf, withSol) {
-    const { K, PT, font, wrap } = await pdfText(200);
-    const W = Math.round(210 * K), H = Math.round(297 * K), ML = 14 * K, MT = 12 * K, MB = 12 * K, RAND = 24 * K, GAP = 4 * K;
-    const X0 = ML, CW = W - ML - 10 * K - RAND - GAP, XR = X0 + CW + GAP, BOTTOM = H - MB;
+    const { K, PT, font, width, wrap } = await pdfText(200);
+    const W = Math.round(210 * K), H = Math.round(297 * K), ML = 10.5 * K, MT = 13 * K, MB = 10 * K;
+    const RAND_X = 180 * K, CW = 177 * K - ML, X0 = ML, BOTTOM = H - MB - 6 * K;
     const tok = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-    const ink = tok('--color-print-ink'), rule = tok('--color-print-rule'), paper = '#ffffff';
-    const F = { body: 9 * PT, small: 7.5 * PT, h3: 10.5 * PT, h2: 14 * PT, rand: 8 * PT }, LH = F.body * 1.32;
-    const pages = []; let g = null, y = 0;
-    const newPage = () => {
-      const c = document.createElement('canvas'); c.width = W; c.height = H; g = c.getContext('2d'); g.fillStyle = paper; g.fillRect(0, 0, W, H);
-      g.fillStyle = rule; g.fillRect(XR, MT, 0.3 * K, BOTTOM - MT); g.fillStyle = ink; g.font = font(400, F.small); g.fillText('Korrekturrand', XR + 2 * K, MT + F.small);
-      pages.push(c); y = MT;
+    const ink = tok('--color-print-ink'), rule = tok('--color-print-rule'), paper = '#ffffff', grey = tok('--color-ihk-rand');
+    const F = { body: 9.2 * PT, small: 7 * PT, tiny: 5.6 * PT, h3: 10.5 * PT }, LH = F.body * 1.36;
+    const season = `${exam.season || ''} ${exam.year || ''}${exam.season === 'Winter' && exam.year ? `/${String(+exam.year + 1).slice(2)}` : ''}`.trim();
+    const pages = []; let g = null, y = 0, pageNo = 0, part = null, task = null, wiso = false, color = ink;
+    const fill = (c, x, yy, w, h) => { g.fillStyle = c; g.fillRect(x, yy, w, h); };
+    const say = (t, x, yy, w, px, c = ink, align = 'left') => { g.font = font(w, px); g.fillStyle = c; g.textAlign = align; g.fillText(t, x, yy); g.textAlign = 'left'; };
+    const rich = (str) => String(str).split(/\*\*/).map((t, i) => ({ t, b: i % 2 === 1 })).filter((r) => r.t);
+    const drawLines = (lines, x, yy, px, c = ink, it = false) => { lines.forEach((ln, i) => { let cx = x; ln.forEach((r) => { g.font = font(r.b ? 560 : 400, px, it); g.fillStyle = c; g.fillText(r.t, cx, yy + (i + 1) * px * 1.36 - px * 0.32); cx += g.measureText(r.t).width; }); }); return yy + lines.length * px * 1.36; };
+    // Seitenkennung unten: ungerade Seiten rechts im Korrekturrand, gerade links (wie „ZPA SE II 3“ im Heft)
+    const footer = () => { const lab = `AP2-Übung ${wiso ? 'WiSo' : `Teil ${part.kind === 'Teil1' ? 1 : 2}`} ${pageNo}`; say(lab, pageNo % 2 ? W - 7 * K : ML, H - 7 * K, 400, F.tiny, ink, pageNo % 2 ? 'right' : 'left'); };
+    const newPage = (cont, coverPage) => {
+      if (g && cont && task && !wiso) say(`Fortsetzung ${task.number}. Aufgabe →`, RAND_X - 4 * K, BOTTOM + 5 * K, 600, F.body, ink, 'right');
+      const c = document.createElement('canvas'); c.width = W; c.height = H; g = c.getContext('2d'); fill(paper, 0, 0, W, H); pages.push(c); pageNo++; y = MT;
+      if (wiso && !coverPage) { fill(ink, ML, MT, 7 * K, 7 * K); say(String(pageNo), ML + 3.5 * K, MT + 5.3 * K, 600, F.h3, paper, 'center'); y = MT + 11 * K; }
+      else if (!coverPage) { fill(grey, RAND_X, 0, W - RAND_X, H); say('Korrekturrand', RAND_X + 3 * K, MT + 3 * K, 400, F.small, ink); }
+      if (!coverPage) footer();
+      if (cont && task && !wiso) { say(`Fortsetzung ${task.number}. Aufgabe`, X0, y + F.h3, 600, F.h3); y += F.h3 * 1.8; }
     };
-    const text = (lines, x, px, color = ink, it = false) => lines.forEach((ln) => { y += px * 1.32; let cx = x; ln.forEach((r) => { g.font = font(r.b ? 560 : 400, px, it); g.fillStyle = color; g.fillText(r.t, cx, y - px * 0.3); cx += g.measureText(r.t).width; }); });
-    // Bausteine: { h, draw() } in Gruppen; eine Gruppe bleibt zusammen, wenn sie auf eine Seite passt
-    const txt = (runs, px = F.body, opt = {}) => { const ls = wrap(runs, CW - (opt.ind || 0), px); return ls.map((ln) => ({ h: px * 1.32, draw: () => text([ln], X0 + (opt.ind || 0), px, opt.color, opt.it) })); };
+    // Bausteine { h, draw } in Gruppen
+    const T = (runs, px = F.body, ind = 0, opt = {}) => wrap(runs, CW - ind - (opt.right || 0), px).map((ln, i) => ({ h: px * 1.36, draw: () => { drawLines([ln], X0 + ind, y, px, opt.color || ink, opt.it); if (!i && opt.pts) say(opt.pts, X0 + CW, y + px * 1.36 - px * 0.32, 400, px, ink, 'right'); y += px * 1.36; } }));
     const gap = (mm) => ({ h: mm * K, draw: () => { y += mm * K; } });
-    const lines = (n) => Array.from({ length: n }, () => ({ h: 8 * K, draw: () => { y += 8 * K; g.fillStyle = rule; g.fillRect(X0, y - 0.25 * K, CW, 0.25 * K); } }));
-    const box = (mm) => ({ h: (mm + 2) * K, draw: () => { y += 1 * K; g.strokeStyle = rule; g.lineWidth = 0.3 * K; g.strokeRect(X0, y, CW, mm * K); y += (mm + 1) * K; } });
-    const table = (tab, cellsOf) => {
-      const n = tab.columns.length, cw = CW / n, pad = 1.2 * K;
+    const lines = (n, ind) => Array.from({ length: n }, () => ({ h: 7.5 * K, draw: () => { y += 7.5 * K; fill(rule, X0 + ind, y - 0.2 * K, CW - ind, 0.2 * K); } }));
+    const grid = (mm, ind) => ({ h: (mm + 2) * K, draw: () => { y += 1 * K; const x0 = X0 + ind, w = CW - ind, s = 5 * K; g.strokeStyle = rule; g.lineWidth = 0.18 * K; g.beginPath(); for (let x = x0; x <= x0 + w + 0.1; x += s) { g.moveTo(x, y); g.lineTo(x, y + mm * K); } for (let yy = y; yy <= y + mm * K + 0.1; yy += s) { g.moveTo(x0, yy); g.lineTo(x0 + Math.floor(w / s) * s, yy); } g.stroke(); y += (mm + 1) * K; } });
+    const box = (mm, ind) => ({ h: (mm + 2) * K, draw: () => { y += 1 * K; g.strokeStyle = ink; g.lineWidth = 0.25 * K; g.strokeRect(X0 + ind, y, CW - ind, mm * K); y += (mm + 1) * K; } });
+    const table = (tab, cellsOf, ind) => {
+      const n = tab.columns.length, cw = (CW - ind) / n, pad = 1.4 * K;
       const row = (cells, bold) => { const ws = cells.map((c) => wrap([{ t: c || '', b: bold }], cw - 2 * pad, F.body)); const h = Math.max(8 * K, Math.max(...ws.map((l) => l.length)) * LH + 2 * pad);
-        return { h, draw: () => { g.strokeStyle = ink; g.lineWidth = 0.25 * K; ws.forEach((ls, i) => { g.strokeRect(X0 + i * cw, y, cw, h); const y0 = y; y = y0 + pad; text(ls, X0 + i * cw + pad, F.body); y = y0; }); y += h; } }; };
+        return { h, draw: () => { g.strokeStyle = ink; g.lineWidth = 0.25 * K; ws.forEach((ls, i) => { g.strokeRect(X0 + ind + i * cw, y, cw, h); drawLines(ls, X0 + ind + i * cw + pad, y + pad * 0.6, F.body); }); y += h; } }; };
       return [row(tab.columns, true), ...tab.rows.map((r, ri) => row(r.map((c, ci) => ((c || '').trim() ? c : cellsOf(ri, ci) || '')), false))];
     };
-    let randText = null;
     const place = (blocks, keep) => {
       const total = blocks.reduce((n, b) => n + b.h, 0);
-      if (keep && y + total > BOTTOM && total <= BOTTOM - MT) newPage();
-      blocks.forEach((b, i) => {
-        if (y + b.h > BOTTOM) newPage();
-        if (i === 0 && randText) { g.fillStyle = ink; g.font = font(400, F.rand); randText.forEach((t, k) => g.fillText(t, XR + 2 * K, y + F.rand * (1.4 + k * 1.3) + 2.5 * K)); randText = null; }
-        b.draw();
-      });
+      if (keep && y + total > BOTTOM && total <= BOTTOM - MT - 12 * K) newPage(true);
+      blocks.forEach((b) => { if (y + b.h > BOTTOM) newPage(true); b.draw(); });
     };
-    newPage();
-    parts.forEach((part, pi) => {
-      if (pi) newPage();
-      // Deckblatt-Kasten, danach direkt weiter (spart Papier)
-      const cover = [...txt([{ t: `Abschlussprüfung ${exam.season || ''} ${exam.year || ''}${exam.origin === 'generated' ? ' (generierte Übungsprüfung)' : ''}`, b: false }], F.body),
-        ...txt([{ t: kindLabel(part.kind), b: true }], F.h2), ...txt([{ t: part.title, b: false }]), ...txt([{ t: `IT-System-Elektroniker/-in, ${part.duration_min} Minuten, ${part.max_points} Punkte, ${part.tasks.length} Aufgaben`, b: false }]), gap(3),
-        ...txt([{ t: 'Name, Vorname: ________________________________   Prüflingsnummer: ______________', b: false }]), gap(2)];
-      const y0 = y; place(cover, true); g.strokeStyle = ink; g.lineWidth = 0.3 * K; g.strokeRect(X0 - 2 * K, y0 - 1 * K, CW + 4 * K, y - y0 + 2 * K); y += 4 * K;
-      if (part.situation) place([...txt([{ t: 'Ausgangssituation', b: true }], F.h3), ...txt([{ t: part.situation, b: false }]), gap(4)], false);
-      part.tasks.forEach((t) => {
-        const head = [gap(2), ...txt([{ t: part.kind === 'WiSo' ? `Aufgabe ${t.number}` : `${t.number}. Aufgabe (${t.points} Punkte)${t.title ? `: ${t.title}` : ''}`, b: true }], F.h3), { h: 1.5 * K, draw: () => { y += 0.6 * K; g.fillStyle = ink; g.fillRect(X0, y, CW, 0.3 * K); y += 0.9 * K; } }];
-        const intro = t.intro && part.kind !== 'WiSo' ? [...txt([{ t: t.intro, b: false }]), gap(1.5)] : [];
+    // Deckblatt
+    const cover = () => {
+      const kind = part.kind, num = kind === 'Teil1' ? '1' : kind === 'Teil2' ? '2' : '3', L = 11.7 * K, c2 = wiso ? ink : color, mm = (v) => v * K;
+      pageNo = 0;  // jedes Heft zählt ab dem Deckblatt neu
+      newPage(false, true);
+      g.strokeStyle = rule; g.lineWidth = 0.25 * K;
+      if (!wiso) {
+        say('Diese Kopfleiste bitte unbedingt ausfüllen!', L, mm(7.6), 600, 8.2 * PT, color);
+        say('Familienname, Vorname (bitte durch eine Leerspalte trennen)', L, mm(10.6), 400, F.tiny);
+        for (let i = 0; i < 27; i++) g.strokeRect(L + i * mm(4.3), mm(12.4), mm(4.3), mm(5));
+        [['Bereich', 2], ['Berufsnummer', 4], ['IHK-Nummer', 3], ['Prüflingsnummer', 5]].reduce((x, [l, n]) => { say(l, x, mm(20.6), 400, F.tiny); for (let i = 0; i < n; i++) g.strokeRect(x + i * mm(4.3), mm(21.8), mm(4.3), mm(5)); return x + n * mm(4.3) + mm(6); }, L);
+        say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, mm(99), mm(26), 600, 9.5 * PT);
+      } else say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, L, mm(32), 300, 15 * PT);
+      // an der Stelle des IHK-Logos: Kennzeichnung als Übung
+      fill(color, mm(173), 0, W - mm(173), mm(27)); say('Übung', mm(191.5), mm(16.5), 600, 15 * PT, paper, 'center');
+      const top = wiso ? mm(8) : 0;
+      say(`Abschlussprüfung ${season}`, L, top + mm(40.6), 300, 26 * PT, c2);
+      say(exam.origin === 'generated' ? 'Generierte Übungsprüfung' : '', L, top + mm(50), 300, 13 * PT, c2);
+      say(num, mm(10), top + mm(85.6), 700, 106 * PT, color);
+      const tx = Math.max(mm(30), mm(10) + width(num, 700, 106 * PT) + mm(4));  // Titel rechts neben der großen Ziffer
+      wrap([{ t: part.title, b: false }], mm(97) - tx, 12.5 * PT).slice(0, 4).forEach((ln, i) => say(ln.map((r) => r.t).join(''), tx, top + mm(63) + i * mm(7.4), 300, 12.5 * PT, c2));
+      say('IT-System-Elektroniker', mm(99), top + mm(65), 300, 17 * PT, c2); say('IT-System-Elektronikerin', mm(99), top + mm(73), 300, 17 * PT, c2);
+      say('Teil 2 der Abschlussprüfung', L, top + mm(96.7), 600, 13 * PT, c2);
+      const facts = [[`${part.tasks.length} Aufgaben`, 4], ...(kind === 'Teil2' ? [['mit Belegsatz', 9]] : []), [`${part.duration_min} Minuten Prüfungszeit`, 4], [`${part.max_points} Punkte`, 0]];
+      facts.forEach(([t, dx], i) => say(t, L + mm(dx), top + mm(103.4) + i * mm(6.6), 300, 13 * PT, c2));
+      say('Bearbeitungshinweise', mm(99), top + mm(96.7), 300, 14 * PT);
+      let hy = top + mm(99);
+      (wiso ? HINTS.wiso : HINTS.open).forEach((h, i) => { say(`${i + 1}.`, mm(100), hy + F.small * 1.05, 400, F.small); hy = drawLines(wrap(rich(h), mm(97), F.small), mm(104.5), hy, F.small) + mm(1.6); });
+      if (!wiso) {
+        say('Wird vom Korrektor ausgefüllt!', mm(13), mm(214), 600, 8.4 * PT, color);
+        say('Bewertung', mm(13), mm(218.7), 600, 9.4 * PT, color);
+        say('Für die Bewertung gilt die Vorgabe der Punkte in den Lösungshinweisen.', mm(13), mm(223.3), 400, 8.6 * PT);
+        fill(color, L, mm(225.4), mm(190), 0.3 * K);
+        g.strokeStyle = color; g.lineWidth = 0.3 * K;
+        part.tasks.forEach((t, i) => { const x = mm(13) + i * mm(45); say(`${t.number}. Aufg.`, x, mm(233), 400, 8.6 * PT); g.strokeRect(x + mm(13), mm(228), mm(5.2), mm(6.6)); g.strokeRect(x + mm(18.2), mm(228), mm(5.2), mm(6.6)); say('Punkte', x + mm(25), mm(233), 400, 8.6 * PT); });
+        g.strokeRect(L, mm(252), mm(37), mm(19)); say('Prüfungszeit', L + mm(1.5), mm(255.5), 400, 7.4 * PT); g.strokeRect(L + mm(21), mm(252.8), mm(5.2), mm(6.6));
+        drawLines(wrap([{ t: 'Die zutreffende Ziffer (1, 2 oder 3) aus der Abfrage am Ende des Hefts eintragen.', b: false }], mm(34), F.tiny), L + mm(1.5), mm(260), F.tiny);
+        say('Gesamtpunktzahl', mm(66), mm(262.5), 600, 10 * PT, color); [0, 1, 2].forEach((k) => g.strokeRect(mm(99) + k * mm(5.2), mm(257.5), mm(5.2), mm(6.6)));
+        fill(rule, mm(136), mm(256.5), mm(67), 0.25 * K); say('Prüfungsort, Datum', mm(136), mm(259.2), 400, F.tiny);
+        fill(rule, mm(136), mm(267.5), mm(67), 0.25 * K); say('Unterschrift', mm(136), mm(270.2), 400, F.tiny);
+      }
+      fill(tok(kind === 'Teil1' ? '--color-ihk-t1-tint' : kind === 'Teil2' ? '--color-ihk-t2-tint' : '--color-ihk-rand'), 0, mm(275), W, H - mm(275));
+      drawLines(wrap([{ t: 'Übungsprüfung aus dem AP2-Simulator, im Aufbau der IHK-Abschlussprüfung nachgestellt. Kein Original der IHK, nur für die persönliche Prüfungsvorbereitung.', b: false }], W - 2 * L, F.small), L, mm(278), F.small);
+    };
+    for (const pt of parts) {
+      part = pt; task = null; wiso = pt.kind === 'WiSo'; color = tok(pt.kind === 'Teil1' ? '--color-ihk-t1' : pt.kind === 'Teil2' ? '--color-ihk-t2' : '--color-print-ink');
+      cover();
+      newPage(false);
+      if (pt.situation) {
+        if (wiso) { const ls = wrap([{ t: 'Situation:', b: true }, { t: '\n' + pt.situation, b: false }], CW - 6 * K, F.body), y0 = y; y = drawLines(ls, X0 + 3 * K, y + 1.5 * K, F.body) + 2 * K; g.strokeStyle = ink; g.lineWidth = 0.25 * K; g.strokeRect(X0, y0, CW, y - y0); y += 5 * K; }
+        else { place([...T([{ t: `Die Aufgaben 1 bis ${pt.tasks.length} beziehen sich auf die folgende Ausgangssituation:`, b: false }]), gap(2), ...T([{ t: pt.situation, b: false }])], false); newPage(false); }
+      }
+      pt.tasks.forEach((t, ti) => {
+        task = t;
+        const head = wiso ? [...T([{ t: `${t.number}. Aufgabe`, b: true }], F.h3)] : [gap(ti ? 4 : 0), ...T([{ t: `${t.number}. Aufgabe (${t.points} Punkte)`, b: true }], F.h3), gap(1.5)];
+        const intro = t.intro && !wiso ? [...T([{ t: t.intro, b: false }]), gap(2)] : [];
         t.items.forEach((it, ii) => {
-          const a = answerOf(part.id, it.id), bl = [];
-          bl.push(...txt([{ t: `${it.label ? it.label + ' ' : ''}`, b: true }, { t: it.text, b: false }]));
-          if (it.options && it.options.length) it.options.forEach((o) => bl.push(...txt([{ t: `${o.key}  `, b: true }, { t: o.text, b: false }], F.body, { ind: 5 * K })));
-          if (it.table) bl.push(gap(1), ...table(it.table, (ri, ci) => ((a && a.cells && a.cells[ri]) || [])[ci]));
+          const a = answerOf(pt.id, it.id), lab = (it.label || '').replace(/\)$/, ''), ind = wiso ? 0 : lab.length > 1 ? 9 * K : 4 * K, bl = [];
+          const pts = wiso ? '' : ptsLabel(it.points);
+          if (wiso) bl.push(...T([{ t: it.text, b: false }]));
+          else bl.push(...T([{ t: `${it.label} `, b: false }, { t: it.text, b: false }], F.body, ind - 4.5 * K, { right: width(pts, 400, F.body) + 3 * K, pts }));
+          // Antwortmöglichkeiten mit Ziffernkästchen wie im Heft; stehen sie schon im Aufgabentext, nicht doppelt
+          const inText = it.options && it.options.length && String(it.text).includes(String(it.options[0].text).slice(0, 25));
+          if (it.options && it.options.length && !inText) it.options.forEach((o) => { const oi = ind + (wiso ? 0 : 1 * K), ls = wrap([{ t: o.text, b: false }], CW - oi - 6 * K, F.body);
+            bl.push(...ls.map((ln, li) => ({ h: F.body * 1.36, draw: () => { if (!li) { g.strokeStyle = ink; g.lineWidth = 0.25 * K; g.strokeRect(X0 + oi, y + 0.6 * K, 3.6 * K, 3.6 * K); say(String(o.key), X0 + oi + 1.8 * K, y + 3.5 * K, 600, F.small, ink, 'center'); } drawLines([ln], X0 + oi + 5.5 * K, y, F.body); y += F.body * 1.36; } }))); });
+          if (it.table) bl.push(gap(1.5), ...table(it.table, (ri, ci) => ((a && a.cells && a.cells[ri]) || [])[ci], ind));
           const own = a && [a.value, (a.selected || []).join(', '), a.text].filter(Boolean).join('\n');
-          if (own) bl.push(gap(1), ...txt([{ t: own, b: false }], F.body, { ind: 3 * K, it: true }));
-          else if (part.kind !== 'WiSo' && it.answer_type !== 'table') {
-            if (it.answer_type === 'sketch') bl.push(box(55)); else bl.push(...lines(Math.min(9, Math.max(2, Math.ceil(it.points * (it.answer_type === 'number' ? 1.1 : 1.3))))));
-            if (it.answer_type === 'number') bl.push(gap(1), ...txt([{ t: `Ergebnis: ____________________ ${it.unit || ''}`, b: false }]));
+          if (own) bl.push(gap(1), ...T([{ t: own, b: false }], F.body, ind + 2 * K, { it: true }));
+          else if (!wiso && it.answer_type !== 'table') {
+            const n = Math.min(9, Math.max(2, Math.ceil(it.points * (it.answer_type === 'number' ? 1.1 : 1.3))));
+            if (it.answer_type === 'sketch') bl.push(box(55, ind)); else if (it.answer_type === 'number') bl.push(grid(n * 6, ind)); else bl.push(gap(1), ...lines(n, ind));
           }
-          if (withSol) bl.push(gap(1.5), ...txt([{ t: `Lösung${it.expected ? `: ${it.expected} ${it.unit || ''}` : ''}`, b: true }], F.body, { ind: 3 * K }), ...txt([{ t: it.solution || '', b: false }], F.body, { ind: 3 * K }), ...(it.grading ? txt([{ t: `Bewertung: ${it.grading}`, b: false }], F.small, { ind: 3 * K, it: true }) : []));
-          bl.push(gap(3));
-          randText = [ptsLabel(it.points), ...(a && a.self_points != null ? [`erreicht: ${fmtPts(a.self_points)}`] : [])];
-          // Aufgabenkopf bleibt bei der ersten Teilaufgabe
+          if (wiso) bl.push(gap(1.5), ...T([{ t: `Lösung zu Aufgabe ${t.number} in den Lösungsbogen eintragen.`, b: false }], F.small, 0, { it: true }));
+          if (withSol) bl.push(gap(1.5), ...T([{ t: `Lösung${it.expected ? `: ${it.expected} ${it.unit || ''}` : ''}`, b: true }], F.body, ind + 2 * K, { color }), ...T([{ t: it.solution || '', b: false }], F.body, ind + 2 * K), ...(it.grading ? T([{ t: `Bewertung: ${it.grading}`, b: false }], F.small, ind + 2 * K, { it: true }) : []));
+          bl.push(gap(wiso ? 5 : 3.5));
           place(ii ? bl : [...head, ...intro, ...bl], true);
         });
       });
-      if (part.kind === 'WiSo') {
-        const rows = part.tasks.map((t) => { const a = answerOf(part.id, t.items[0].id); return [String(t.number), (a ? (a.value || (a.selected || []).join(', ')) : '') + (withSol ? ` (Lösung: ${t.items[0].expected})` : '')]; });
-        place([gap(4), ...txt([{ t: 'Lösungsbogen', b: true }], F.h3), ...table({ columns: ['Aufgabe', 'Antwort'], rows }, () => '')], true);
+      task = null;
+      if (wiso) {
+        newPage(false);
+        place([...T([{ t: 'Lösungsbogen', b: true }], F.h3), gap(2), ...table({ columns: ['Aufgabe', 'Lösung'], rows: pt.tasks.map((t) => { const a = answerOf(pt.id, t.items[0].id); return [String(t.number), (a ? (a.value || (a.selected || []).join(', ')) : '') + (withSol ? ` (Lösung: ${t.items[0].expected})` : '')]; }) }, () => '', 0)], true);
+      } else {
+        place([gap(6), ...T([{ t: 'Prüfungszeit (nicht Bestandteil der Prüfung)', b: true }], F.body), ...T([{ t: 'Wie beurteilen Sie nach der Bearbeitung die zur Verfügung stehende Prüfungszeit?', b: false }]),
+          ...['Sie hätte kürzer sein können.', 'Sie war angemessen.', 'Sie hätte länger sein müssen.'].map((t, i) => ({ h: 6 * K, draw: () => { g.strokeStyle = ink; g.lineWidth = 0.25 * K; g.strokeRect(X0, y + 1.5 * K, 3.8 * K, 3.8 * K); say(String(i + 1), X0 + 1.9 * K, y + 4.7 * K, 400, F.small, ink, 'center'); say(t, X0 + 6 * K, y + 4.7 * K, 400, F.body); y += 6 * K; } }))], true);
       }
-    });
-    return { data: await canvasPdf(pages), pages: pages.length };
+    }
+    return { data: await canvasPdf(pages), pages: pages.length, canvases: pages };
   }
   const loadImg = (u) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Seite konnte nicht geladen werden')); im.src = u; });
   // Handschrift (Striche in Seitenanteilen) auf eine eigene Ebene, damit Radieren nur Tinte entfernt, nicht den Scan
@@ -2724,11 +2801,19 @@ Für jede Teilaufgabe: gelesen = was du vom Prüfling gelesen hast, höchstens 6
       ${part.kind === 'WiSo' ? `<div class="p-sheet"><h3>Lösungsbogen</h3><table class="p-table"><tbody>${part.tasks.map((t) => { const a = answerOf(part.id, t.items[0].id); return `<tr><td>${t.number}</td><td>${a ? esc(a.value || (a.selected || []).join(', ')) : ''}${withSol ? ` <i>(Lösung: ${esc(t.items[0].expected)})</i>` : ''}</td></tr>`; }).join('')}</tbody></table></div>` : ''}
     </section>`;
     app.innerHTML = `<div class="print-bar"><button type="button" class="btn primary" id="p-pdf">PDF zum Drucken</button><button type="button" class="btn quiet" id="p-print">Mit dem Browser drucken</button><a class="btn quiet" href="${sid ? `#/result/${sid}` : `#/exam-detail/${exam.id}`}">Zurück</a><span class="small muted">Das PDF hat keine Kopf- und Fußzeilen des Browsers; eine Teilaufgabe wird nicht über eine Seite getrennt, wenn sie auf eine passt.</span></div>
+      <div class="pdf-pages" id="p-pages" aria-label="Vorschau der Seiten"><p class="small muted">Seiten werden gesetzt …</p></div>
       <div class="print-doc">${chosen.map(partHtml).join('')}</div>`;
     $('#p-print').onclick = () => window.print();
+    // Vorschau: genau die Seiten des PDFs, damit jeder Seitenwechsel zu sehen ist
+    const pdfP = examPdf(exam, chosen, answerOf, withSol);
+    pdfP.then((pdf) => {
+      const host = $('#p-pages'); if (!host) return;
+      host.innerHTML = pdf.canvases.map((_, i) => `<figure class="pdf-page"><div class="pdf-sheet" data-pg="${i}"></div><figcaption class="small muted">Seite ${i + 1} von ${pdf.pages}</figcaption></figure>`).join('');
+      pdf.canvases.forEach((c, i) => { c.setAttribute('role', 'img'); c.setAttribute('aria-label', `Seite ${i + 1}`); host.querySelector(`[data-pg="${i}"]`).append(c); });
+    }).catch((e) => { const host = $('#p-pages'); if (host) host.innerHTML = `<p class="empty">Vorschau nicht möglich: ${esc(e.message)}</p>`; });
     $('#p-pdf').onclick = async (ev) => {
       const b = ev.target; if (b.disabled) return; b.disabled = true; b.textContent = 'PDF wird gesetzt …';
-      try { const pdf = await examPdf(exam, chosen, answerOf, withSol); saveBlob(new Blob([pdf.data], { type: 'application/pdf' }), `${fileSafe(exam.title)}${withSol ? ' mit Lösungen' : ''}.pdf`); toast(`PDF mit ${pdf.pages} Seiten heruntergeladen`); }
+      try { const pdf = await pdfP; saveBlob(new Blob([pdf.data], { type: 'application/pdf' }), `${fileSafe(exam.title)}${withSol ? ' mit Lösungen' : ''}.pdf`); toast(`PDF mit ${pdf.pages} Seiten heruntergeladen`); }
       catch (e) { toast(`PDF konnte nicht erstellt werden: ${e.message}`, true); }
       b.disabled = false; b.textContent = 'PDF zum Drucken';
     };

@@ -16,6 +16,7 @@
   --tracking-display: -0.035em; --display-weight: 300; --body-weight: 300;
   --rule-hair: 1px; --rule-bar: 2px; --shadow-card: none;
   --color-scan: oklch(98% 0.004 245); --color-print-ink: oklch(18% 0.016 240); --color-pen: oklch(40% 0.16 262); --color-print-rule: oklch(72% 0.010 240);
+  --color-ihk-t1: oklch(46% 0.13 262); --color-ihk-t1-tint: oklch(93% 0.025 262); --color-ihk-t2: oklch(58% 0.19 25); --color-ihk-t2-tint: oklch(94% 0.03 25); --color-ihk-rand: oklch(93% 0.004 260);
   --color-print-area-t1: oklch(42% 0.14 254); --color-print-area-t2: oklch(52% 0.16 45); --color-print-area-wiso: oklch(45% 0.12 155);
   --color-mark-ok: oklch(46% 0.13 150); --color-mark-part: oklch(52% 0.13 65); --color-mark-bad: oklch(48% 0.18 27);
   --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;

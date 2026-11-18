@@ -378,6 +378,12 @@ body.locked .nav, body.locked #menu-btn { visibility: hidden; }
 .p-answer { white-space: pre-wrap; border-left: var(--rule-bar) solid currentColor; padding-left: var(--space-xs); margin-top: var(--space-xs); font-style: italic; }
 .p-sol { margin-top: var(--space-xs); padding: var(--space-xs); border: var(--rule-hair) dashed currentColor; white-space: pre-wrap; font-size: var(--text-sm); }
 @page { size: A4; margin: 14mm 12mm; }
+/* Vorschau der PDF-Seiten: Blatt für Blatt mit Abstand, so sieht man jeden Seitenwechsel; die Textfassung nur für den Browserdruck */
+.pdf-pages { display: grid; gap: var(--space-lg); justify-items: center; }
+.pdf-page { margin: 0; width: min(100%, 210mm); }
+.pdf-sheet canvas { display: block; width: 100%; height: auto; box-shadow: 0 0 0 var(--rule-hair) var(--color-rule-2); }
+.pdf-pages ~ .print-doc { display: none; }
+@media print { .pdf-pages { display: none !important; } .pdf-pages ~ .print-doc { display: block; } }
 @media print {
   body, main.app { background: none; }
   .print-bar { display: none !important; }
