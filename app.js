@@ -1701,15 +1701,15 @@
 
   // Ganze Heftseite (Training, Simulation): alle Teilaufgaben der Seite zugleich. Ein Strich gehört zum Feld, in dem er beginnt,
   // sonst zur Teilaufgabe, deren Felder ihm senkrecht am nächsten liegen. changed() liefert [[itemId, Antwort]] der geänderten Teilaufgaben.
-  function pageAnswer(host, part, pg, items, getA, onChange) {
-    const pen = penMode();
+  function pageAnswer(host, part, pg, items, getA, onChange, opts = {}) {
+    const pen = opts.noFields || penMode();  // noFields: nur Stift auf der Seite, getippt wird woanders
     const groups = items.filter((it) => origPage(it) === pg || (it.fields || []).some((f) => f.page === pg)).map((it) => {
       const a = getA(it.id), vals = fieldValues(it, a), optText = (k) => ((it.options || []).find((o) => o.key === k) || {}).text;
       return { it, dirty: false, marks: JSON.parse(JSON.stringify(a.marks || { boxes: [], strokes: [] })), all: (it.fields || []).map((f, i) => ({ area: f, value: vals[i], text: f.key ? optText(f.key) : f.label })) };
     });
     if (!groups.length) { host.innerHTML = ''; docViewer(host, [part.page_images[pg - 1]], { inline: true, zoom: 'width' }); return { changed: () => [] }; }
     const fields = [];
-    groups.forEach((g) => g.all.filter((f) => f.area.page === pg).forEach((f) => { f.onChange = () => { g.dirty = true; onChange(); }; fields.push(f); }));
+    if (!opts.noFields) groups.forEach((g) => g.all.filter((f) => f.area.page === pg).forEach((f) => { f.onChange = () => { g.dirty = true; onChange(); }; fields.push(f); }));
     const inside = (f, x, y) => x >= f.area.x && x <= f.area.x + f.area.w && y >= f.area.y && y <= f.area.y + f.area.h;
     // Senkrechter Bereich je Teilaufgabe: ihre Felder; ohne Felder der Raum zwischen den Nachbarn, gleich verteilt
     const ivs = groups.map((g) => { const fs = g.all.filter((f) => f.area.page === pg); return fs.length ? [Math.min(...fs.map((f) => f.area.y)), Math.max(...fs.map((f) => f.area.y + f.area.h))] : null; });

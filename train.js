@@ -162,7 +162,7 @@
       ${task.intro ? `<details class="disc"${firstOfTask ? ' open' : ''}><summary>Ausgangslage zu Aufgabe ${task.number}</summary><div class="disc-body prose"><p>${nl(task.intro)}</p></div></details>` : ''}
       <div class="tr-crop" id="i-crop" aria-label="Ausschnitt aus dem Prüfungsheft"></div>
       <details class="disc"><summary>Aufgabentext zum Lesen</summary><div class="disc-body prose"><p>${nl(it.text)}</p></div></details>
-      <label class="field" style="margin-top:var(--space-sm)"><span>Getippte Antwort (wenn du nicht schreiben willst)</span><textarea class="input" id="i-typed" rows="3">${esc(getA().typed || '')}</textarea></label>
+      <label class="field" style="margin-top:var(--space-sm)"><span>Getippte Antwort</span><textarea class="input" id="i-typed" rows="3">${esc(getA().typed || '')}</textarea></label>
       <div class="actions" style="margin-top:var(--space-md)"><button type="button" class="btn primary" id="i-sol" aria-expanded="false" aria-controls="i-solbox">Lösung zeigen</button>${(part.solution_pages || []).length ? '<button type="button" class="btn" id="i-ihk">IHK-Lösung im Original</button>' : ''}<button type="button" class="btn" id="i-check">Mit Claude prüfen</button></div>
       <div id="i-claude"></div>
       <div class="panel solution" id="i-solbox" hidden>${nl(it.solution || 'Zu dieser Teilaufgabe gibt es keinen Lösungstext.')}${it.expected ? `<p><strong>Ergebnis: ${esc(it.expected)} ${esc(it.unit || '')}</strong></p>` : ''}${it.grading ? `<p class="grading">Bewertung: ${esc(it.grading)}</p>` : ''}</div>
@@ -190,7 +190,7 @@
         y0 += span * before / sum - 0.01; y1 = y0 + span * it.points / sum + 0.015;
       }
       const cropped = y0 > 0.01 || y1 < 0.99;
-      pa = A().pageAnswer(host, part, pg, [it], () => getA(), persist);
+      pa = A().pageAnswer(host, part, pg, [it], () => getA(), persist, { noFields: true });
       // nur die Seite beschneiden, die Werkzeugleiste darüber bleibt sichtbar
       const mp = $('.mark-page', host);
       if (mp && cropped) {
