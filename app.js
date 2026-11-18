@@ -281,6 +281,7 @@
     const tok = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
     const ink = tok('--color-print-ink'), rule = tok('--color-print-rule'), paper = '#ffffff', grey = tok('--color-ihk-rand');
     const F = { body: 9.2 * PT, small: 7 * PT, tiny: 5.6 * PT, h3: 10.5 * PT }, LH = F.body * 1.36;
+    const ed = (store.get('ap2.settings', {}) || {}).examDate, termin = exam.origin === 'generated' ? (ed ? new Date(ed + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Übungsprüfung') : null;
     const season = `${exam.season || ''} ${exam.year || ''}${exam.season === 'Winter' && exam.year ? `/${String(+exam.year + 1).slice(2)}` : ''}`.trim();
     const pages = []; let g = null, y = 0, pageNo = 0, part = null, task = null, wiso = false, color = ink;
     const fill = (c, x, yy, w, h) => { g.fillStyle = c; g.fillRect(x, yy, w, h); };
@@ -337,8 +338,8 @@
           for (let i = 0; i < n; i++) { g.strokeStyle = color; g.strokeRect(x + i * mm(4.6), mm(21.8), mm(4.6), mm(5.6)); if (pre[l]) say(pre[l][i], x + i * mm(4.6) + mm(2.3), mm(26.1), 400, 10 * PT, ink, 'center'); }
           if (gi < 3) fill(color, x + n * mm(4.6) + mm(0.4), mm(23.6), mm(3.4), mm(1.9));
           return x + n * mm(4.6) + mm(4.2); }, L);
-        say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, mm(99), mm(26.4), 600, 12 * PT, color);
-      } else say(`Termin: ${exam.origin === 'generated' ? 'Übungsprüfung' : season}`, L, mm(32), 300, 15 * PT);
+        say(`Termin: ${termin || season}`, mm(99), mm(26.4), 600, 12 * PT, color);
+      } else say(`Termin: ${termin || season}`, L, mm(32), 300, 15 * PT);
       // an der Stelle des IHK-Logos: Kennzeichnung als Übung
       g.fillStyle = color; g.beginPath(); g.roundRect(mm(172), -mm(20), W - mm(172) + mm(20), mm(44), [0, 0, 0, mm(13)]); g.fill(); say('Übung', mm(192), mm(15.5), 600, 21 * PT, paper, 'center');
       const top = wiso ? mm(8) : 0;
@@ -349,7 +350,7 @@
       wrap([{ t: part.title, b: false }], mm(56), 14 * PT).slice(0, 4).forEach((ln, i) => say(ln.map((r) => r.t).join(''), tx, top + mm(63.5) + i * mm(6.4), 300, 14 * PT, c2));
       say('IT-System-Elektroniker', mm(99), top + mm(65.5), 300, 19.5 * PT, c2); say('IT-System-Elektronikerin', mm(99), top + mm(74.5), 300, 19.5 * PT, c2);
       say('Teil 2 der Abschlussprüfung', L, top + mm(97.2), 600, 14.5 * PT, c2);
-      const facts = [[`${part.tasks.length} Aufgaben`, 6], ...(kind === 'Teil2' ? [['mit Belegsatz', 11.5]] : []), [`${part.duration_min} Minuten Prüfungszeit`, 3], [`${part.max_points} Punkte`, 0]];
+      const facts = [[`${part.tasks.length} Aufgaben`, 6], ...((part.attachments || []).some((a) => a.pages && a.pages.length) ? [['mit Belegsatz', 11.5]] : []), [`${part.duration_min} Minuten Prüfungszeit`, 3], [`${part.max_points} Punkte`, 0]];
       facts.forEach(([t, dx], i) => say(t, L + mm(dx), top + mm(104) + i * mm(6.3), 300, 14.5 * PT, c2));
       say('Bearbeitungshinweise', mm(99), top + mm(97.2), 300, 16 * PT);
       let hy = top + mm(99);
@@ -401,19 +402,37 @@
           const own = a && [a.value, (a.selected || []).join(', '), a.text].filter(Boolean).join('\n');
           if (own) bl.push(gap(1), ...T([{ t: own, b: false }], F.body, ind + 2 * K, { it: true }));
           else if (!wiso && it.answer_type !== 'table') {
-            const n = Math.min(9, Math.max(2, Math.ceil(it.points * (it.answer_type === 'number' ? 1.1 : 1.3))));
-            if (it.answer_type === 'sketch') bl.push(gap(1), grid(70, 0)); else if (it.answer_type === 'number') bl.push(gap(1), grid(n * 6, 0)); else bl.push(gap(1), ...lines(n, 0));
+            const p = it.points;
+            if (it.answer_type === 'sketch') bl.push(gap(1), grid(5 * Math.min(30, Math.max(12, 3 * p)), 0));
+            else if (it.answer_type === 'number') bl.push(gap(1), grid(5 * Math.min(16, Math.max(3, Math.round(2.2 * p))), 0));
+            else bl.push(gap(1), ...lines(Math.min(9, Math.max(2, p + 1)), 0));
           }
-          if (wiso) bl.push(gap(1.5), ...T([{ t: `Lösung zu Aufgabe ${t.number} in den Lösungsbogen eintragen.`, b: false }], F.small, 0, { it: true }));
           if (withSol) bl.push(gap(1.5), ...T([{ t: `Lösung${it.expected ? `: ${it.expected} ${it.unit || ''}` : ''}`, b: true }], F.body, ind + 2 * K, { color }), ...T([{ t: it.solution || '', b: false }], F.body, ind + 2 * K), ...(it.grading ? T([{ t: `Bewertung: ${it.grading}`, b: false }], F.small, ind + 2 * K, { it: true }) : []));
           bl.push(gap(wiso ? 5 : 3.5));
           place(ii ? bl : [...head, ...intro, ...bl], true);
         });
       });
       task = null;
+      if (!wiso) {
+        const bel = (pt.attachments || []).find((x) => x.pages && x.pages.length);
+        if (bel) for (const src of bel.pages) {
+          const img = await loadImg(await window.AP2Local.pageSrc(src)).catch(() => null); if (!img) continue;
+          const c = document.createElement('canvas'); c.width = W; c.height = H; const bg = c.getContext('2d'); bg.fillStyle = paper; bg.fillRect(0, 0, W, H);
+          const sc = Math.min(W / img.naturalWidth, H / img.naturalHeight); bg.drawImage(img, (W - img.naturalWidth * sc) / 2, (H - img.naturalHeight * sc) / 2, img.naturalWidth * sc, img.naturalHeight * sc);
+          pages.push(c);
+        }
+      }
       if (wiso) {
         newPage(false);
-        place([...T([{ t: 'Lösungsbogen', b: true }], F.h3), gap(2), ...table({ columns: ['Aufgabe', 'Lösung'], rows: pt.tasks.map((t) => { const a = answerOf(pt.id, t.items[0].id); return [String(t.number), (a ? (a.value || (a.selected || []).join(', ')) : '') + (withSol ? ` (Lösung: ${t.items[0].expected})` : '')]; }) }, () => '', 0)], true);
+        // Lösungsbogen wie im WiSo-Heft: je Aufgabe so viele Lösungskästchen, wie Ziffern verlangt sind; Beträge und Daten in ein breites Feld
+        const rowsB = pt.tasks.map((t) => { const it = t.items[0], a = answerOf(pt.id, it.id), sol = String(it.expected || '');
+          const parts = it.answer_type === 'number' ? [sol] : sol.split(',').map((x) => x.trim()).filter(Boolean);
+          const mine = a ? (it.answer_type === 'number' ? [a.value || ''] : (a.selected && a.selected.length ? a.selected : String(a.value || '').split(',').map((x) => x.trim()))) : [];
+          return { h: 7.6 * K, draw: () => { say(`${t.number}.`, X0 + 9 * K, y + 5.3 * K, 600, F.body, ink, 'right'); g.strokeStyle = ink; g.lineWidth = 0.25 * K;
+            if (it.answer_type === 'number') { g.strokeRect(X0 + 12 * K, y + 0.8 * K, 34 * K, 6 * K); if (mine[0]) say(mine[0], X0 + 14 * K, y + 5.3 * K, 400, F.body); if (withSol) say(`Lösung: ${sol}`, X0 + 52 * K, y + 5.3 * K, 400, F.small, color); }
+            else { parts.forEach((v, k) => { const bx = X0 + 12 * K + k * 7.4 * K; g.strokeRect(bx, y + 0.8 * K, 6 * K, 6 * K); if (mine[k]) say(mine[k], bx + 3 * K, y + 5.3 * K, 400, F.body, ink, 'center'); }); if (withSol) say(`Lösung: ${sol}`, X0 + 12 * K + parts.length * 7.4 * K + 6 * K, y + 5.3 * K, 400, F.small, color); }
+            y += 7.6 * K; } }; });
+        place([...T([{ t: 'Lösungsbogen', b: true }], F.h3), ...T([{ t: 'Tragen Sie die Lösungsziffern in die Kästchen ein. Bewertet wird nur dieser Lösungsbogen.', b: false }], F.small), gap(3), ...rowsB], true);
       } else {
         place([gap(6), ...T([{ t: 'Prüfungszeit (nicht Bestandteil der Prüfung)', b: true }], F.body), ...T([{ t: 'Wie beurteilen Sie nach der Bearbeitung die zur Verfügung stehende Prüfungszeit?', b: false }]),
           ...['Sie hätte kürzer sein können.', 'Sie war angemessen.', 'Sie hätte länger sein müssen.'].map((t, i) => ({ h: 6 * K, draw: () => { g.strokeStyle = ink; g.lineWidth = 0.25 * K; g.strokeRect(X0, y + 1.5 * K, 3.8 * K, 3.8 * K); say(String(i + 1), X0 + 1.9 * K, y + 4.7 * K, 400, F.small, ink, 'center'); say(t, X0 + 6 * K, y + 4.7 * K, 400, F.body); y += 6 * K; } }))], true);

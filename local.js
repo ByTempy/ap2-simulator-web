@@ -403,6 +403,12 @@
     if (bullets && bullets.length) { txt += '\nRahmenbedingungen:\n'; bullets.forEach((b) => { txt += `– ${b}\n`; }); }
     return txt;
   }
+  // Belegsatz für generierte Prüfungen: der aus der neuesten Originalprüfung dieses Teils (Tabellen und Formeln ändern sich kaum)
+  function latestBeleg(kind) {
+    const ex = B.data.exams.filter((e) => e.origin === 'real' && /^itse-/.test(e.id)).sort((a, b) => (b.year - a.year) || String(b.season).localeCompare(String(a.season)));
+    for (const e of ex) { const p = e.parts.find((x) => x.kind === kind); const a = p && (p.attachments || []).find((x) => x.pages && x.pages.length); if (a) return [{ ...a, title: `${a.title} (aus ${e.title.replace(/ – .*$/, '')})` }]; }
+    return [];
+  }
   function buildFromRecipe(r) {
     try {
       if (r.kind === 'topic') return buildTopic(r);
@@ -411,7 +417,8 @@
         if (p.kind === 'WiSo') {
           const bk = bank('WiSo');
           const tasks = p.wiso.map((c, n) => { const src = bk.items.find((i) => i.id === c.id); const it = clone(src); it.id = `w${String(n + 1).padStart(2, '0')}`; it.label = ''; it.points = c.points; return { number: n + 1, title: (it.topics || [])[0] || '', points: c.points, intro: '', items: [it] }; });
-          return { id: 'wiso', kind: 'WiSo', title: KIND.WiSo.title, duration_min: 60, max_points: tasks.reduce((a, t) => a + t.points, 0), situation: '', page_images: [], solution_pages: [], attachments: [], tasks };
+          // Situation wie im WiSo-Heft; die Aufgaben im Pool spielen bei der NetWerk IT-Service GmbH
+          return { id: 'wiso', kind: 'WiSo', title: KIND.WiSo.title, duration_min: 60, max_points: tasks.reduce((a, t) => a + t.points, 0), situation: 'Sie sind Mitarbeiter/-in der NetWerk IT-Service GmbH. Die NetWerk IT-Service GmbH ist ein IT-Dienstleistungsunternehmen für kleine und mittelständische Unternehmen.\nDie folgenden Aufgaben beziehen sich auf dieses Unternehmen.', page_images: [], solution_pages: [], attachments: [], tasks };
         }
         const bk = bank(p.kind);
         const tasks = p.blocks.map((id, n) => { const b = bk.blocks.find((x) => x.id === id); const items = clone(b.items); items.forEach((it) => { const core = (it.label || '').replace(/\)$/, ''); it.id = `${n + 1}${core || it.id}`; it.difficulty = it.difficulty || 2; it.tolerance = it.tolerance || 0.01; }); return { number: n + 1, title: b.title, points: blockPts(b), intro: b.intro || '', items }; });
@@ -422,7 +429,7 @@
           const last = [...tasks[idx].items].reverse().find((i) => i.points + diff >= 1); if (last) last.points += diff;
         }
         tasks.forEach((t) => { t.points = Math.round(t.items.reduce((x, i) => x + i.points, 0)); });
-        return { id: KIND[p.kind].id, kind: p.kind, title: KIND[p.kind].title, duration_min: KIND[p.kind].dur, max_points: tasks.reduce((a, t) => a + t.points, 0), situation: situationText(scen, p.kind, tasks), page_images: [], solution_pages: [], attachments: [], tasks };
+        return { id: KIND[p.kind].id, kind: p.kind, title: KIND[p.kind].title, duration_min: KIND[p.kind].dur, max_points: tasks.reduce((a, t) => a + t.points, 0), situation: situationText(scen, p.kind, tasks), page_images: [], solution_pages: [], attachments: p.kind === 'Teil2' ? latestBeleg('Teil2') : [], tasks };
       });
       const d = new Date(r.created);
       return { id: r.id, title: r.title, profession: 'ITSE', season: d.getMonth() < 6 ? 'Sommer' : 'Winter', year: d.getFullYear(), regulation: 'AO2020', origin: 'generated', official_solutions: false, sources: [], notes: 'Diese Prüfung wurde nach dem Schema der IHK-Abschlussprüfung Teil 2 aus dem Fragenpool zusammengestellt.', parts };
