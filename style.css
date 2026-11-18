@@ -447,6 +447,7 @@ html select.input, html .field select { appearance: none; padding-right: calc(va
 .outline li { padding: var(--space-2xs) 0; color: var(--color-muted); }
 .outline li.now { color: var(--color-ink); font-weight: 500; }
 .fg-q { font: 400 var(--text-xl)/1.35 var(--font-display); margin: var(--space-xs) 0 var(--space-md); max-width: 60ch; }
+.fg-nr { font: 600 var(--text-lg)/1.2 var(--font-display); color: var(--color-accent); font-variant-numeric: tabular-nums; margin-bottom: var(--space-2xs); }
 .fg-tools { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
 .fg-row { padding: var(--space-xs) 0; border-top: var(--rule-hair) solid var(--color-rule); }
 .fg-row p { margin: 0; }
